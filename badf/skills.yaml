@@ -1,0 +1,76 @@
+# The governed capability registry.
+#
+# A skill is a capability an agent may exercise in this repository. A skill not
+# listed here is not available; listing one does not grant the authority its
+# use would need.
+
+version: "0.1.0"
+updated_at: "2026-09-08T00:00:00Z"
+
+skills:
+  - id: read-records
+    what: "Read AGENTS.md, badf/, sessions/, schemas/ and docs/"
+    authority_required: none
+    status: AVAILABLE
+
+  - id: run-validators
+    what: "Run the boundary check, the migration lint, the record validator and the tests"
+    authority_required: none
+    status: AVAILABLE
+    note: "Every validator is read-only over the repository."
+
+  - id: register-a-module
+    what: "Add a row to modules/modules.yaml and regenerate the rules"
+    authority_required: "architecture-authority, through a Work Package"
+    status: BLOCKED
+    why: "The architecture authority seat is unfilled."
+
+  - id: create-a-module-package
+    what: "Create a package directory under modules/ for a registered module"
+    authority_required: "an expiring implementation grant for the epic that fills it"
+    status: BLOCKED
+    why: "BT-G0 is unrecorded, so no P0 epic is authorised."
+
+  - id: write-a-migration
+    what: "Add SQL under db/migrations/<module>/"
+    authority_required: "an expiring implementation grant, plus ADR-004 ACCEPTED"
+    status: BLOCKED
+    why: "ADR-004 is DRAFT_REQUIRED and BT-G0 is unrecorded."
+
+  - id: implement-a-contract
+    what: "Replace a throwing contract function with behaviour"
+    authority_required: "an expiring implementation grant for that epic"
+    status: BLOCKED
+    why: "No P0 epic is authorised. Every contract in modules/ throws by design."
+
+  - id: write-a-checkpoint
+    what: "Write a session checkpoint under sessions/checkpoints/"
+    authority_required: none
+    status: AVAILABLE
+    note: "AGENTS.md section 6 makes this mandatory at every listed boundary."
+
+  - id: append-a-decision
+    what: "Append one record to badf/decision-log.jsonl"
+    authority_required: none
+    status: AVAILABLE
+    note: "Append-only. Ids unique and ascending; the validator enforces both."
+
+  - id: record-a-gate
+    what: "Set a gate status in badf/gates.yaml"
+    authority_required: "the human role the gate names"
+    status: FORBIDDEN_TO_AGENTS
+    why: "A gate is a human decision. A green build is evidence, never the decision."
+
+  - id: grant-authority
+    what: "Add or widen an entry in badf/authority.yaml"
+    authority_required: "business-authority or repository-administrator"
+    status: FORBIDDEN_TO_AGENTS
+    why: >-
+      An agent that could grant its own authority has none. AGENTS.md section 4:
+      approval is an explicit authority record and is never inferred.
+
+  - id: deploy
+    what: "Deploy this repository anywhere"
+    authority_required: "repository-administrator and business-authority"
+    status: FORBIDDEN_TO_AGENTS
+    why: "Nothing is implemented, and validation success is not deployment authority."

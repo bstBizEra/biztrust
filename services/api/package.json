@@ -1,0 +1,15 @@
+{
+  "name": "@biztrust/service-api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": { "build": "tsc --build" },
+  "dependencies": {
+    "@biztrust/tenancy": "workspace:*",
+    "@biztrust/identity-access": "workspace:*",
+    "@biztrust/audit": "workspace:*",
+    "@biztrust/contracts": "workspace:*",
+    "@biztrust/observability": "workspace:*"
+  }
+}

@@ -1,0 +1,173 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biztrust.local/schemas/current-state.schema.json",
+  "title": "BizTrust platform current state",
+  "description": "Exactly one authoritative active state. AGENTS.md section 4 names this file the source of truth for current operational state.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "project_id",
+    "repository",
+    "updated_at",
+    "active_work_package",
+    "source",
+    "gates",
+    "authority",
+    "latest_checkpoint",
+    "primary_next_action_id",
+    "resume_decision"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "project_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "repository": {
+      "type": "string",
+      "minLength": 1
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "active_work_package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "state",
+        "objective",
+        "owner_role",
+        "scope"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^BIZTRUST-WP-[0-9]{3}$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "state": {
+          "enum": [
+            "DRAFT",
+            "READY",
+            "AUTHORIZED",
+            "IN_PROGRESS",
+            "VALIDATING",
+            "ENGINEERING_READY",
+            "ACCEPTED",
+            "CLOSED",
+            "BLOCKED",
+            "WAIT_FOR_AUTHORITY",
+            "RECOVERY_REQUIRED",
+            "REJECTED",
+            "CANCELLED"
+          ]
+        },
+        "objective": {
+          "type": "string",
+          "minLength": 1
+        },
+        "issue_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "owner_role": {
+          "type": "string",
+          "minLength": 1
+        },
+        "scope": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "branch",
+        "baseline_commit",
+        "baseline_kind",
+        "expected_remote"
+      ],
+      "properties": {
+        "branch": {
+          "type": "string",
+          "minLength": 1
+        },
+        "baseline_commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "baseline_kind": {
+          "enum": [
+            "main",
+            "branch",
+            "tag"
+          ]
+        },
+        "expected_remote": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "gates": {
+      "type": "object"
+    },
+    "authority": {
+      "type": "object"
+    },
+    "latest_checkpoint": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "latest_handoff": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "primary_next_action_id": {
+      "type": "string",
+      "pattern": "^NS-[0-9]{3}$"
+    },
+    "resume_decision": {
+      "enum": [
+        "CONTINUE",
+        "BLOCKED",
+        "WAIT_FOR_AUTHORITY",
+        "RECOVERY_REQUIRED",
+        "COMPLETE"
+      ]
+    },
+    "stop_reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "known_divergence": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "extends": ["./tsconfig.base.json", "./tsconfig.paths.json"],
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": [
+    "modules/*/src/**/*.ts",
+    "packages/*/src/**/*.ts",
+    "services/*/src/**/*.ts",
+    "apps/*/src/**/*.ts",
+    "tests/**/*.ts"
+  ],
+  "exclude": ["**/node_modules", "**/dist", "tests/boundaries/fixtures/**"]
+}

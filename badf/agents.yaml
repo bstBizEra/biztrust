@@ -1,0 +1,94 @@
+# The role and routing registry.
+#
+# A role is a seat, not a person and not an agent. An agent may occupy a seat
+# for a Work Package; it may never occupy the verifier seat for its own work,
+# and it may never occupy an authority seat at all.
+
+version: "0.1.0"
+updated_at: "2026-09-08T00:00:00Z"
+
+roles:
+  - id: platform-engineer
+    owns: ["modules/tenancy", "modules/platform-configuration", "the layout"]
+    may_be_an_agent: true
+
+  - id: security-engineer
+    owns: ["modules/identity-access", "modules/audit", "tests/security"]
+    may_be_an_agent: true
+
+  - id: domain-engineer
+    owns: ["the brokerage modules, none of which has a package yet"]
+    may_be_an_agent: true
+
+  - id: finance-engineer
+    owns: ["the financial modules, none of which has a package yet"]
+    may_be_an_agent: true
+
+  - id: integration-engineer
+    owns: ["the integration modules, none of which has a package yet"]
+    may_be_an_agent: true
+
+  - id: data-reviewer
+    owns: ["db/migrations", "the migration lint", "the contract lint job"]
+    may_be_an_agent: true
+    note: "Verifier for the migration controls. Never the implementer of the same change."
+
+  - id: peer-reviewer
+    owns: ["independent review of a package before ACCEPTED"]
+    may_be_an_agent: true
+    note: "Must be a different session or agent from the implementer, with fresh context."
+
+  - id: repository-administrator
+    owns: ["branch protection", "required checks", "CI secrets"]
+    may_be_an_agent: false
+    note: >-
+      A human role. Negative control 6 of the P0.2 design cannot be observed
+      until this seat is filled and the protection recorded. Unfilled.
+
+  - id: architecture-authority
+    owns: ["ARCH-001 acceptance", "ADR acceptance", "BT-G0"]
+    may_be_an_agent: false
+    note: "Unfilled. No agent may act in this seat, and none may infer its decision."
+
+  - id: business-authority
+    owns: ["the operating model", "expiring implementation grants", "BT-G2"]
+    may_be_an_agent: false
+    note: "Unfilled."
+
+  - id: legal-compliance-reviewer
+    owns: ["jurisdiction, licence, delegated authority, client money, data obligations"]
+    may_be_an_agent: false
+    note: >-
+      Unfilled. FOUNDATION_SEQUENCE.md slice S01 stops when an agent is asked to
+      infer contract authority, or when a third-party summary is the only
+      evidence for a legal conclusion.
+
+routing:
+  # Which role a change routes to, by path. A path with no row routes to
+  # peer-reviewer and stops.
+  - path: "modules/**"
+    owner: "the owner_role of the module in modules/modules.yaml"
+    verifier: peer-reviewer
+  - path: "modules/modules.yaml"
+    owner: architecture-authority
+    verifier: peer-reviewer
+    note: "A new row or group is a design decision, not an engineering one."
+  - path: "db/migrations/**"
+    owner: platform-engineer
+    verifier: data-reviewer
+  - path: "scripts/**"
+    owner: platform-engineer
+    verifier: peer-reviewer
+  - path: "badf/authority.yaml"
+    owner: business-authority
+    verifier: repository-administrator
+    note: "An agent may READ this file and may never widen it."
+  - path: "badf/gates.yaml"
+    owner: architecture-authority
+    verifier: repository-administrator
+  - path: ".github/workflows/**"
+    owner: repository-administrator
+    verifier: peer-reviewer
+  - path: "AGENTS.md"
+    owner: repository-administrator
+    verifier: architecture-authority

@@ -1,0 +1,9 @@
+# The one workspace. P0.2 design, "The workspace":
+# a workspace must have a pnpm-workspace.yaml file in its root, and local
+# packages depend on each other through the workspace protocol.
+# https://pnpm.io/workspaces
+packages:
+  - "apps/*"
+  - "services/*"
+  - "modules/*"
+  - "packages/*"

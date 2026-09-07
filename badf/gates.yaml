@@ -1,0 +1,82 @@
+# The deterministic gate registry.
+#
+# A gate is recorded by a human, never by an agent and never by a green build.
+# Every gate below is UNRECORDED. The "instrument" column names the check that
+# produces the evidence a human would read; a passing instrument is evidence
+# for a gate decision, not the decision.
+
+version: "0.1.0"
+updated_at: "2026-09-08T00:00:00Z"
+
+delivery_gates:
+  - id: BT-G0
+    name: "Architecture contract freeze"
+    status: UNRECORDED
+    recorded_by_role: "architecture authority"
+    blocks: "every P0 epic, P0.2 to P0.13"
+    evidence_required: >-
+      FOUNDATION_SEQUENCE.md slices S01 to S11 accepted in order, all critical
+      findings closed or owned by an explicit expiring risk acceptance, and
+      ADR-001 to ADR-020 resolved.
+
+  - id: BT-G1
+    name: "P0 security proof"
+    status: UNRECORDED
+    recorded_by_role: "security reviewer, not the implementer"
+    blocks: "P1"
+    evidence_required: >-
+      The negative-control matrix of P0.SECURITY-PROOF.md, each control seen
+      failing before its protection exists and passing after, with the evidence
+      fields of AGENTS.md section 9 recorded per control.
+
+  - id: BT-G2
+    name: "Operating model"
+    status: UNRECORDED
+    recorded_by_role: "business authority"
+    blocks: "P2"
+
+  - id: BT-G3
+    name: "Financial control"
+    status: UNRECORDED
+    recorded_by_role: "finance reviewer"
+    blocks: "P3"
+
+  - id: BT-G4
+    name: "Production readiness"
+    status: UNRECORDED
+    recorded_by_role: "repository administrator and business authority"
+    blocks: "any deployment"
+
+# Instruments: the deterministic checks whose output a gate decision reads.
+# An instrument that has never been observed failing is indistinguishable from
+# one that passed, which is why each names the fixtures that prove it fires.
+instruments:
+  - id: boundary-check
+    command: "pnpm boundaries:check"
+    proves: "P0.2 dependency rules 1 to 7"
+    fails_closed_evidence: "tests/boundaries/boundary-rules.test.mjs, 8 controls"
+    gate_input_for: [BT-G1]
+
+  - id: migration-lint
+    command: "pnpm lint:migrations"
+    proves: "one schema per module; audit append-only; no P0 domain table"
+    fails_closed_evidence: "tests/boundaries/migration-lint.test.mjs, 7 controls"
+    gate_input_for: [BT-G1]
+
+  - id: validate-records
+    command: "pnpm validate:records"
+    proves: "badf/ and sessions/ conform to schemas/ and to the cross-record rules"
+    fails_closed_evidence: "tests/unit/test_validator_fails_closed.py"
+    gate_input_for: [BT-G0, BT-G1]
+
+  - id: typecheck
+    command: "pnpm typecheck"
+    proves: "the workspace compiles"
+    fails_closed_evidence: "declared non-coverage: no fixture proves the compiler fails"
+    gate_input_for: []
+
+not_covered:
+  - "Negative control 6 of P0.2, a push straight to main and a merge with a failing check. It cannot be observed until the repository administrator records branch protection. See badf/authority.yaml, main_branch_protection."
+  - "The contract lint over openapi/ and events/. Those directories are reserved and empty; the rules are P0.8 and P0.9."
+  - "The observability tests. The baseline is P0.11."
+  - "Every runtime control. Nothing runs."
