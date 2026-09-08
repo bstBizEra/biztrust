@@ -22,19 +22,136 @@
  * because disabling one leaves the file still reported. The migration controls
  * now assert on the message, not just the rule name.
  *
- * Restores every file it touches, on success, on failure and on throw.
+ * Every mutation used to be written into the tracked `scripts/boundary-rules.mjs`
+ * and `scripts/migration-lint.mjs`, restored in a `finally`. That is not safe:
+ * an interrupted run (Ctrl-C, a crash, a killed CI job) leaves a LOOSENED RULE
+ * sitting in a tracked source file, and `pnpm boundaries:check` then reports
+ * PASS or FAIL against whichever mutation happened to be live when it was
+ * interrupted - not against the code anyone reviewed. This script now mutates
+ * and tests a disposable `git worktree` checkout of HEAD instead (see
+ * `createWorktree`/`destroyWorktree` below); the real tracked files are never
+ * opened for writing. `node_modules` is linked into the worktree with a
+ * Windows junction (no elevated privileges required) rather than copied, since
+ * it is large, never mutated, and read-only for every mutation run.
+ *
+ * A dirty-tree guard backs this up at both ends: the run aborts before doing
+ * anything if `git status --porcelain` is already non-empty (there is nothing
+ * safe to check out and compare against), and it fails even a fully-caught run
+ * if the real tree is dirty at exit. A PASS must mean the tracked source was
+ * never touched, not merely that it was touched and successfully restored.
+ *
+ * Restores every worktree file it touches, on success, on failure and on
+ * throw, and always removes the worktree itself before exiting.
  *
  * Exit codes: 0 every mutation caught; 1 at least one survived; 2 the baseline
- * suite was not green to begin with, so the run proves nothing.
+ * suite was not green, the working tree was not clean at start, or the working
+ * tree was not clean at exit - any of which means this run proves nothing.
  */
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdtempSync, rmSync, rmdirSync, unlinkSync, symlinkSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
-import { ROOT } from "./registry.mjs";
+import { tmpdir } from "node:os";
+import { ROOT as REAL_ROOT } from "./registry.mjs";
 
-const RULES = join(ROOT, "scripts", "boundary-rules.mjs");
-const LINT = join(ROOT, "scripts", "migration-lint.mjs");
+/** `git status --porcelain` against the REAL repository, not any worktree. */
+function realTreeStatus() {
+  return execFileSync("git", ["status", "--porcelain"], {
+    cwd: REAL_ROOT,
+    encoding: "utf8",
+  });
+}
+
+const dirtyAtStart = realTreeStatus();
+if (dirtyAtStart.trim() !== "") {
+  process.stderr.write(
+    "MUTATION_CHECK FAIL the working tree is not clean, so there is nothing " +
+      "safe to check out and mutate a copy of. Commit or stash first:\n" +
+      dirtyAtStart,
+  );
+  process.exit(2);
+}
+
+/** Removes a directory symlink/junction WITHOUT following it into its
+ * target. `rmdirSync` is the Windows-correct call for a directory reparse
+ * point; the fallbacks cover the rare platform where that is not how the
+ * link was created. */
+function removeDirLink(path) {
+  try {
+    rmdirSync(path);
+    return;
+  } catch {
+    // fall through
+  }
+  try {
+    unlinkSync(path);
+    return;
+  } catch {
+    // fall through
+  }
+  try {
+    rmSync(path, { force: true });
+  } catch {
+    // best-effort; destroyWorktree still removes the whole worktree next
+  }
+}
+
+/** Checks out a disposable copy of HEAD in a temp directory and links (not
+ * copies) `node_modules` into it, so the boundary suite can run there with no
+ * write ever reaching the real repository. Returns the worktree's root. */
+function createWorktree() {
+  try {
+    execFileSync("git", ["worktree", "prune"], { cwd: REAL_ROOT, stdio: "ignore" });
+  } catch {
+    // a stale admin entry is not fatal; `worktree add` below will still work
+  }
+  const dir = mkdtempSync(join(tmpdir(), "biztrust-mutation-"));
+  execFileSync("git", ["worktree", "add", "--detach", dir, "HEAD"], {
+    cwd: REAL_ROOT,
+    stdio: ["ignore", "ignore", "pipe"],
+  });
+  symlinkSync(
+    join(REAL_ROOT, "node_modules"),
+    join(dir, "node_modules"),
+    process.platform === "win32" ? "junction" : "dir",
+  );
+  return dir;
+}
+
+/** Removes the node_modules link and the worktree, and prunes git's
+ * bookkeeping for it. Never touches the real repository's own files. */
+function destroyWorktree(dir) {
+  removeDirLink(join(dir, "node_modules"));
+  try {
+    execFileSync("git", ["worktree", "remove", "--force", dir], {
+      cwd: REAL_ROOT,
+      stdio: "ignore",
+    });
+  } catch {
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {
+      // leaves a stray temp directory at worst; not a correctness issue
+    }
+    try {
+      execFileSync("git", ["worktree", "prune"], { cwd: REAL_ROOT, stdio: "ignore" });
+    } catch {
+      // best-effort
+    }
+  }
+}
+
+let WT_ROOT;
+try {
+  WT_ROOT = createWorktree();
+} catch (error) {
+  process.stderr.write(
+    `MUTATION_CHECK FAIL could not create an isolated worktree: ${error?.stack ?? error}\n`,
+  );
+  process.exit(2);
+}
+const RULES = join(WT_ROOT, "scripts", "boundary-rules.mjs");
+const LINT = join(WT_ROOT, "scripts", "migration-lint.mjs");
 
 /** Joins anchor lines, so no source string carries an embedded newline. */
 const lines = (...parts) => parts.join("\n");
@@ -588,9 +705,14 @@ const MUTATIONS = [
 function runSuite() {
   try {
     execFileSync(process.execPath, ["--test", "tests/boundaries/*.test.mjs"], {
-      cwd: ROOT,
+      cwd: WT_ROOT,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
+      // Tells tests/boundaries/mutation-check-guard.test.mjs it is running
+      // inside a mutation-check sweep already, so it does not spawn a nested
+      // mutation-check.mjs of its own - see that file for why that would be
+      // unbounded recursion rather than merely redundant.
+      env: { ...process.env, MUTATION_CHECK_RUNNING: "1" },
     });
     return "GREEN";
   } catch {
@@ -658,9 +780,29 @@ function main() {
   return 0;
 }
 
+let exitCode;
 try {
-  process.exitCode = main();
+  exitCode = main();
 } catch (error) {
   process.stderr.write(`MUTATION_CHECK FAIL check defect: ${error?.stack ?? error}\n`);
-  process.exitCode = 2;
+  exitCode = 2;
+} finally {
+  destroyWorktree(WT_ROOT);
 }
+
+// The dirty-tree guard's other half. Every mutation above was applied to and
+// restored on the WORKTREE, never on the real repository, so this is a
+// backstop rather than the primary defence - but the acceptance criterion for
+// this task is exactly this check, so it runs unconditionally and wins over
+// an otherwise-green result. A run that leaves the real tree dirty must not
+// report PASS.
+const dirtyAtExit = realTreeStatus();
+if (dirtyAtExit.trim() !== "") {
+  process.stderr.write(
+    "MUTATION_CHECK FAIL the working tree is not clean at exit; a PASS must " +
+      "not be reported against a mutated tracked file:\n" + dirtyAtExit,
+  );
+  if (exitCode === 0) exitCode = 2;
+}
+
+process.exitCode = exitCode;
