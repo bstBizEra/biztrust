@@ -306,6 +306,70 @@ const CONTROLS = [
     rule: "M1",
     match: "cannot resolve what schema the statement touches",
   },
+
+  // Review of the above found two defects. CRITICAL: LOCK, ANALYZE and
+  // VACUUM each accept a comma-separated table list, but the target regex
+  // was anchored to one literal keyword occurrence, so only the FIRST name
+  // in the list was ever checked - a cross-schema table listed after a
+  // same-schema one linted clean. IMPORTANT: six of the eight new target
+  // extractors (REFRESH MATERIALIZED VIEW, LOCK, ANALYZE, VACUUM, REINDEX,
+  // CLUSTER, SELECT ... INTO) had no fixture at all, so each was
+  // independently deletable with the suite staying green - message-shape
+  // coverage (a shared "touches schema" string) is not the same as coverage
+  // of the extractor that produced it, which is what let three earlier
+  // review rounds pass with unenforced rules. One fixture per statement type
+  // below; the LOCK/ANALYZE/VACUUM fixtures put the violation in the SECOND
+  // list item on purpose, so a regression back to "only the first name is
+  // checked" fails them.
+  {
+    control: "R3-15",
+    threat: "REFRESH MATERIALIZED VIEW refreshes an object in another module's schema",
+    file: "r3_refresh_materialized_view_audit.sql",
+    rule: "M1",
+    match: 'touches schema "audit"',
+  },
+  {
+    control: "R3-16",
+    threat: "a table later in a LOCK list is in another module's schema",
+    file: "r3_lock_list_second_item.sql",
+    rule: "M1",
+    match: 'touches schema "audit"',
+  },
+  {
+    control: "R3-17",
+    threat: "a table later in an ANALYZE list is in another module's schema",
+    file: "r3_analyze_list_second_item.sql",
+    rule: "M1",
+    match: 'touches schema "audit"',
+  },
+  {
+    control: "R3-18",
+    threat: "a table later in a VACUUM list is in another module's schema",
+    file: "r3_vacuum_list_second_item.sql",
+    rule: "M1",
+    match: 'touches schema "audit"',
+  },
+  {
+    control: "R3-19",
+    threat: "REINDEX touches an object in another module's schema",
+    file: "r3_reindex_audit.sql",
+    rule: "M1",
+    match: 'touches schema "audit"',
+  },
+  {
+    control: "R3-20",
+    threat: "CLUSTER touches an object in another module's schema",
+    file: "r3_cluster_audit.sql",
+    rule: "M1",
+    match: 'touches schema "audit"',
+  },
+  {
+    control: "R3-21",
+    threat: "SELECT ... INTO creates a table in another module's schema",
+    file: "r3_select_into_audit.sql",
+    rule: "M1",
+    match: 'touches schema "audit"',
+  },
 ];
 
 // Control R3-6 is the inverse of the others: the fixture must be READ, not

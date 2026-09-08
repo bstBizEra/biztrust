@@ -259,6 +259,61 @@ const ON_CLAUSE_TYPES = String.raw`(?:INDEX|TRIGGER|POLICY|RULE)`;
 const HARMLESS_LEADING_VERBS = new Set(["SET"]);
 
 /**
+ * Splits text on commas that are NOT nested inside parentheses.
+ *
+ * LOCK, ANALYZE and VACUUM each accept a comma-separated table list
+ * (`LOCK a, b, c;`), and ANALYZE and VACUUM additionally allow a per-table
+ * column list in parentheses (`ANALYZE t1 (col1, col2), t2;`), whose own
+ * commas must NOT be treated as separators between tables. A naive
+ * `text.split(",")` would read three targets out of that ANALYZE statement
+ * instead of two, and would misreport `col2` as the second one.
+ */
+function splitTopLevelCommas(text) {
+  const parts = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (ch === "(") depth += 1;
+    else if (ch === ")") depth -= 1;
+    else if (ch === "," && depth === 0) {
+      parts.push(text.slice(start, i));
+      start = i + 1;
+    }
+  }
+  parts.push(text.slice(start));
+  return parts;
+}
+
+/**
+ * Pushes one target for every item of a comma-separated table list such as
+ * LOCK, ANALYZE and VACUUM all accept.
+ *
+ * A single-target regex anchored to one literal keyword occurrence is the
+ * wrong shape for these three statements: `matchAll` resumes scanning after
+ * the first match without re-anchoring on what follows, so
+ * `LOCK a, b;` read only `a` and never even looked at `b`. A cross-schema
+ * `b` in a table list after a same-schema `a` linted clean - a false
+ * negative of exactly the kind this lint exists to close. Splitting the
+ * whole tail on top-level commas first, then resolving one target per piece,
+ * is what actually reads a list.
+ *
+ * Each item may carry a leading `ONLY`, a trailing `*`, or a trailing
+ * per-table column list in parentheses; none of that is part of the
+ * identifier, so only the leading `(schema.)?name` at the front of each
+ * piece is read.
+ */
+function pushCommaSeparatedTargets(rest, verb, push) {
+  const itemRe = new RegExp(String.raw`^\s*(?:ONLY\s+)?(${ID})(?:\.(${ID}))?`, "i");
+  for (const item of splitTopLevelCommas(rest)) {
+    const m = itemRe.exec(item);
+    if (m === null) continue;
+    if (m[2] === undefined) push(null, m[1], m[0], verb);
+    else push(m[1], m[2], m[0], verb);
+  }
+}
+
+/**
  * Every object a statement touches, and whether the lint understood it at all.
  *
  * Returns `{ targets, understood }`. `understood` is false when NOTHING here
@@ -374,35 +429,39 @@ function objectTargets(statement) {
     },
   );
 
-  // LOCK [TABLE] [ONLY] <target>
-  scan(
-    new RegExp(String.raw`\bLOCK\s+(?:TABLE\s+)?(?:ONLY\s+)?(${ID})(?:\.(${ID}))?`, "gi"),
-    (m) => {
-      if (m[2] === undefined) push(null, m[1], m[0], "LOCK");
-      else push(m[1], m[2], m[0], "LOCK");
-    },
-  );
+  // LOCK [TABLE] <target list> [IN lockmode MODE] [NOWAIT]. `name [, ...]`:
+  // every table in the list is a target, not just the first, so the tail
+  // after the modifiers is split on top-level commas rather than matched by
+  // one anchored regex. `IN <lockmode> MODE` and `NOWAIT` are trailing
+  // clauses, not table names, and are stripped before the split so neither
+  // is mistaken for one.
+  {
+    const m = /\bLOCK\s+(?:TABLE\s+)?([\s\S]*)/i.exec(statement);
+    if (m !== null) {
+      const rest = m[1].replace(/\bIN\s+[\s\S]*?\bMODE\b/i, "").replace(/\bNOWAIT\b/i, "");
+      pushCommaSeparatedTargets(rest, "LOCK", push);
+    }
+  }
 
-  // ANALYZE [(options)] [VERBOSE] <target> ; VACUUM [(options)|FULL|FREEZE|
-  // VERBOSE|ANALYZE ...] <target>. Both take an optional column list after the
-  // table name, which this lint does not need to resolve the target.
-  scan(
-    new RegExp(String.raw`\bANALYZE\s+(?:\([^)]*\)\s+)?(?:VERBOSE\s+)?(${ID})(?:\.(${ID}))?`, "gi"),
-    (m) => {
-      if (m[2] === undefined) push(null, m[1], m[0], "ANALYZE");
-      else push(m[1], m[2], m[0], "ANALYZE");
-    },
-  );
-  scan(
-    new RegExp(
-      String.raw`\bVACUUM\s+(?:\([^)]*\)\s+)?(?:(?:FULL|FREEZE|VERBOSE|ANALYZE)\s+)*(${ID})(?:\.(${ID}))?`,
-      "gi",
-    ),
-    (m) => {
-      if (m[2] === undefined) push(null, m[1], m[0], "VACUUM");
-      else push(m[1], m[2], m[0], "VACUUM");
-    },
-  );
+  // ANALYZE [(options)] [VERBOSE] <target list> ; VACUUM [(options)|FULL|
+  // FREEZE|VERBOSE|ANALYZE ...] <target list>. Both accept `table_and_columns
+  // [, ...]` - a comma-separated list, each entry optionally followed by its
+  // own parenthesised column list - so both go through the same top-level
+  // comma split LOCK does, not a single anchored match.
+  {
+    const m = /\bANALYZE\s+(?:\([^)]*\)\s+)?(?:VERBOSE\s+)?([\s\S]*)/i.exec(statement);
+    if (m !== null && m[1].trim() !== "") {
+      pushCommaSeparatedTargets(m[1], "ANALYZE", push);
+    }
+  }
+  {
+    const m = /\bVACUUM\s+(?:\([^)]*\)\s+)?(?:(?:FULL|FREEZE|VERBOSE|ANALYZE)\s+)*([\s\S]*)/i.exec(
+      statement,
+    );
+    if (m !== null && m[1].trim() !== "") {
+      pushCommaSeparatedTargets(m[1], "VACUUM", push);
+    }
+  }
 
   // REINDEX [(options)] {INDEX|TABLE|SCHEMA|DATABASE|SYSTEM} [CONCURRENTLY] <target>
   scan(

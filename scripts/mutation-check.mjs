@@ -151,6 +151,54 @@ const MUTATIONS = [
   },
   {
     file: LINT,
+    name: "M1: stop modelling REFRESH MATERIALIZED VIEW as a target of the schema it refreshes",
+    from: "  scan(\n    new RegExp(\n      String.raw`\\bREFRESH\\s+MATERIALIZED\\s+VIEW\\s+(?:CONCURRENTLY\\s+)?(${ID})(?:\\.(${ID}))?`,\n      \"gi\",\n    ),\n    (m) => {\n      if (m[2] === undefined) push(null, m[1], m[0], \"REFRESH MATERIALIZED VIEW\");\n      else push(m[1], m[2], m[0], \"REFRESH MATERIALIZED VIEW\");\n    },\n  );",
+    to: '  void 0;',
+  },
+  {
+    file: LINT,
+    // Review finding, CRITICAL: LOCK, ANALYZE and VACUUM each accept a
+    // comma-separated table list, and the fixed code walks it with
+    // pushCommaSeparatedTargets. This mutation reintroduces the exact
+    // regression a text review caught: reading only the FIRST item of the
+    // list and silently ignoring the rest, which is how a cross-schema table
+    // listed after a same-schema one used to lint clean.
+    name: "M1: LOCK reads only the first name in a comma-separated table list again",
+    from: '      pushCommaSeparatedTargets(rest, "LOCK", push);',
+    to: '      pushCommaSeparatedTargets(rest.split(",")[0], "LOCK", push);',
+  },
+  {
+    file: LINT,
+    name: "M1: ANALYZE reads only the first name in a comma-separated table list again",
+    from: '      pushCommaSeparatedTargets(m[1], "ANALYZE", push);',
+    to: '      pushCommaSeparatedTargets(m[1].split(",")[0], "ANALYZE", push);',
+  },
+  {
+    file: LINT,
+    name: "M1: VACUUM reads only the first name in a comma-separated table list again",
+    from: '      pushCommaSeparatedTargets(m[1], "VACUUM", push);',
+    to: '      pushCommaSeparatedTargets(m[1].split(",")[0], "VACUUM", push);',
+  },
+  {
+    file: LINT,
+    name: "M1: stop modelling REINDEX as a target of the schema it touches",
+    from: "  scan(\n    new RegExp(\n      String.raw`\\bREINDEX\\s+(?:\\([^)]*\\)\\s+)?(?:INDEX|TABLE|SCHEMA|DATABASE|SYSTEM)\\s+(?:CONCURRENTLY\\s+)?(${ID})(?:\\.(${ID}))?`,\n      \"gi\",\n    ),\n    (m) => {\n      if (m[2] === undefined) push(null, m[1], m[0], \"REINDEX\");\n      else push(m[1], m[2], m[0], \"REINDEX\");\n    },\n  );",
+    to: '  void 0;',
+  },
+  {
+    file: LINT,
+    name: "M1: stop modelling CLUSTER as a target of the schema it touches",
+    from: '  scan(new RegExp(String.raw`\\bCLUSTER\\s+(?:VERBOSE\\s+)?(${ID})(?:\\.(${ID}))?`, "gi"), (m) => {\n    if (m[2] === undefined) push(null, m[1], m[0], "CLUSTER");\n    else push(m[1], m[2], m[0], "CLUSTER");\n  });',
+    to: '  void 0;',
+  },
+  {
+    file: LINT,
+    name: "M1: stop modelling SELECT ... INTO as a target of the schema it creates a table in",
+    from: "  scan(\n    new RegExp(\n      String.raw`\\bSELECT\\b.*?\\bINTO\\s+(?:TEMPORARY\\s+|TEMP\\s+|UNLOGGED\\s+)?(?:TABLE\\s+)?(${ID})(?:\\.(${ID}))?`,\n      \"gi\",\n    ),\n    (m) => {\n      if (m[2] === undefined) push(null, m[1], m[0], \"SELECT INTO\");\n      else push(m[1], m[2], m[0], \"SELECT INTO\");\n    },\n  );",
+    to: '  void 0;',
+  },
+  {
+    file: LINT,
     name: "M1: stop modelling CREATE SCHEMA and DROP SCHEMA",
     from: '    (m) => push(m[2], null, m[0], ' + BT + DOLLAR + '{m[1].toUpperCase()} SCHEMA' + BT + '),',
     to: '    () => {},',
