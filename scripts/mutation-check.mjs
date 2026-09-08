@@ -39,20 +39,66 @@
  * safe to check out and compare against), and it fails even a fully-caught run
  * if the real tree is dirty at exit. A PASS must mean the tracked source was
  * never touched, not merely that it was touched and successfully restored.
+ * (tests/boundaries/mutation-check-guard.test.mjs witnesses both halves by
+ * spawning this script for real.)
  *
  * Restores every worktree file it touches, on success, on failure and on
  * throw, and always removes the worktree itself before exiting.
  *
+ * The worktree's own lifecycle has two more safeguards, added after peer
+ * review found this script's OWN cleanup was not safe against the exact kind
+ * of interruption its dirty-tree guard exists to tolerate:
+ *
+ *   - Creation is atomic. `git worktree add` can succeed and a later step
+ *     (writing the owner file, linking node_modules) can still fail;
+ *     `createWorktree` tears down whatever it already built before
+ *     propagating, rather than leaking a half-built checkout.
+ *   - A killed run (Ctrl-C, `kill -9`, a torn-down CI job) skips every
+ *     `finally` in this process, so `destroyWorktree` never runs and the
+ *     worktree is orphaned - on disk and in `git worktree list` - forever,
+ *     since `git worktree prune` alone does not remove a worktree whose
+ *     directory still exists. `reclaimOrphanWorktrees` runs at the start of
+ *     every invocation and removes any worktree under this script's own
+ *     `WORKTREE_PREFIX` whose recorded owner pid is no longer running,
+ *     self-healing the next run rather than leaking one more checkout per
+ *     interruption. (tests/boundaries/mutation-check-worktree-lifecycle.test.mjs
+ *     witnesses both of these by spawning this script for real, using
+ *     TEST-ONLY env-var seams to land deterministically in the exact
+ *     failure windows a reviewer found by hand.)
+ *
  * Exit codes: 0 every mutation caught; 1 at least one survived; 2 the baseline
- * suite was not green, the working tree was not clean at start, or the working
- * tree was not clean at exit - any of which means this run proves nothing.
+ * suite was not green, the working tree was not clean at start, the working
+ * tree was not clean at exit, or the worktree itself could not be created -
+ * any of which means this run proves nothing.
  */
 
-import { readFileSync, writeFileSync, mkdtempSync, rmSync, rmdirSync, unlinkSync, symlinkSync } from "node:fs";
+import {
+  readFileSync,
+  writeFileSync,
+  mkdtempSync,
+  rmSync,
+  rmdirSync,
+  unlinkSync,
+  symlinkSync,
+} from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ROOT as REAL_ROOT } from "./registry.mjs";
+
+// Every worktree this script ever creates lives under this exact prefix (see
+// `createWorktree`). That is what makes an orphan from a killed run
+// recognisable to a later run: `reclaimOrphanWorktrees` below looks at
+// `git worktree list` for entries under this prefix rather than needing its
+// own separate bookkeeping file.
+const WORKTREE_PREFIX = join(tmpdir(), "biztrust-mutation-");
+
+/** The file a worktree's owner writes inside it, naming the pid that created
+ * it. `reclaimOrphanWorktrees` uses this to tell "an earlier run died and
+ * left this behind" apart from "a sibling run is using this right now" -
+ * without it, two invocations running at once (two developers, two CI
+ * shards on the same box) could destroy each other's live worktree. */
+const OWNER_FILE = ".mutation-check-owner-pid";
 
 /** `git status --porcelain` against the REAL repository, not any worktree. */
 function realTreeStatus() {
@@ -96,26 +142,149 @@ function removeDirLink(path) {
   }
 }
 
+/** `git worktree list --porcelain` parsed down to the list of worktree
+ * paths, main worktree included. Empty on any git failure - a listing
+ * failure must never look like "no worktrees to reclaim." */
+function listWorktreePaths() {
+  let out;
+  try {
+    out = execFileSync("git", ["worktree", "list", "--porcelain"], {
+      cwd: REAL_ROOT,
+      encoding: "utf8",
+    });
+  } catch {
+    return [];
+  }
+  return out
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith("worktree "))
+    .map((line) => line.slice("worktree ".length));
+}
+
+/** Whether process `pid` is still running. Conservative on an inconclusive
+ * result (EPERM: it exists but this process cannot signal it - still
+ * alive): reclaiming is only safe to skip too often, never to over-trigger. */
+function isProcessAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === "EPERM";
+  }
+}
+
+/**
+ * Finds worktrees left behind by an earlier invocation of this script that
+ * did not get to clean up after itself - typically a killed process (Ctrl-C,
+ * `kill -9`, an aborted CI job): `finally` blocks do not run, so
+ * `destroyWorktree` is never reached, and `git worktree prune` alone does
+ * NOT remove a worktree whose directory still exists on disk, only the
+ * admin bookkeeping for ones whose directory is already gone. Left
+ * unreclaimed, every interrupted run during this script's 60-80 second
+ * window leaks another full checkout on disk and in `git worktree list`,
+ * forever, with nothing telling the operator.
+ *
+ * Only ever touches a worktree (a) under this script's own, fixed
+ * `WORKTREE_PREFIX` - never the main worktree or anything unrelated - and
+ * (b) whose recorded owner pid (see `OWNER_FILE`) is no longer running, so a
+ * genuinely live sibling invocation (two developers, two CI shards) is left
+ * alone rather than destroyed out from under itself. A worktree under the
+ * prefix with no readable owner file is treated as reclaimable: that shape
+ * only happens if a run died between `git worktree add` succeeding and the
+ * owner file being written, a narrower window than the one this exists to
+ * close.
+ */
+function reclaimOrphanWorktrees() {
+  const prefix = WORKTREE_PREFIX.replace(/\\/g, "/");
+  for (const path of listWorktreePaths()) {
+    if (path === REAL_ROOT) continue;
+    if (!path.replace(/\\/g, "/").startsWith(prefix)) continue;
+
+    let ownerPid = null;
+    try {
+      ownerPid = Number(readFileSync(join(path, OWNER_FILE), "utf8").trim());
+    } catch {
+      // no owner file: reclaimable (see docstring above)
+    }
+    if (Number.isInteger(ownerPid) && ownerPid > 0 && isProcessAlive(ownerPid)) {
+      continue;
+    }
+
+    process.stderr.write(
+      `MUTATION_CHECK reclaiming an orphaned worktree from an earlier, interrupted run: ${path}\n`,
+    );
+    destroyWorktree(path);
+  }
+}
+
 /** Checks out a disposable copy of HEAD in a temp directory and links (not
  * copies) `node_modules` into it, so the boundary suite can run there with no
- * write ever reaching the real repository. Returns the worktree's root. */
+ * write ever reaching the real repository. Returns the worktree's root.
+ *
+ * Not atomic by default - `git worktree add` can succeed and a later step
+ * (writing the owner file, linking node_modules) can still fail - so every
+ * step after `add` is wrapped: on any failure, whatever was created is torn
+ * down with `destroyWorktree` before the error propagates. Without this, a
+ * failure in exactly that window leaks a full checkout with no cleanup
+ * attempt at all, the same shape `reclaimOrphanWorktrees` exists to clean up
+ * LATER, but avoidable immediately, in the same run that caused it. */
 function createWorktree() {
+  reclaimOrphanWorktrees();
   try {
     execFileSync("git", ["worktree", "prune"], { cwd: REAL_ROOT, stdio: "ignore" });
   } catch {
     // a stale admin entry is not fatal; `worktree add` below will still work
   }
-  const dir = mkdtempSync(join(tmpdir(), "biztrust-mutation-"));
-  execFileSync("git", ["worktree", "add", "--detach", dir, "HEAD"], {
-    cwd: REAL_ROOT,
-    stdio: ["ignore", "ignore", "pipe"],
-  });
-  symlinkSync(
-    join(REAL_ROOT, "node_modules"),
-    join(dir, "node_modules"),
-    process.platform === "win32" ? "junction" : "dir",
-  );
-  return dir;
+  const dir = mkdtempSync(WORKTREE_PREFIX);
+  let added = false;
+  try {
+    execFileSync("git", ["worktree", "add", "--detach", dir, "HEAD"], {
+      cwd: REAL_ROOT,
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+    added = true;
+
+    // TEST-ONLY seam, read by tests/boundaries/mutation-check-worktree-lifecycle.test.mjs.
+    // Reproduces the exact reviewer-forced failure for finding 1: `git
+    // worktree add` has already succeeded when this throws, so the `catch`
+    // below is the only thing standing between that and a leaked checkout.
+    if (process.env.MUTATION_CHECK_TEST_FAIL_AFTER_ADD) {
+      throw new Error("MUTATION_CHECK_TEST_FAIL_AFTER_ADD: simulated failure after `git worktree add`");
+    }
+
+    writeFileSync(join(dir, OWNER_FILE), String(process.pid), "utf8");
+    symlinkSync(
+      join(REAL_ROOT, "node_modules"),
+      join(dir, "node_modules"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+
+    // TEST-ONLY seam, same file. Simulates a killed run: a real `kill -9`
+    // (or Ctrl-C, or a CI job getting torn down) skips every `finally` in
+    // this process, which `throw` does not - so this exits the process
+    // outright, immediately after a fully-formed worktree (owner file and
+    // node_modules link both written) exists on disk and in `git worktree
+    // list`, exactly as a real kill mid-sweep would leave one behind. The
+    // point under test is not this line; it's whether the NEXT invocation's
+    // `reclaimOrphanWorktrees` finds and removes what this one leaves.
+    if (process.env.MUTATION_CHECK_TEST_KILL_AFTER_ADD) {
+      process.stderr.write(`MUTATION_CHECK_TEST_KILL_AFTER_ADD: exiting without cleanup, worktree left at ${dir}\n`);
+      process.exit(137);
+    }
+
+    return dir;
+  } catch (error) {
+    if (added) {
+      destroyWorktree(dir);
+    } else {
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch {
+        // best-effort; nothing was ever registered with git for this one
+      }
+    }
+    throw error;
+  }
 }
 
 /** Removes the node_modules link and the worktree, and prunes git's
@@ -702,6 +871,21 @@ const MUTATIONS = [
     to: "if (knownSchemas.has(target.schema)) {",
   },
 ];
+
+// TEST-ONLY seam, read by tests/boundaries/mutation-check-guard.test.mjs.
+// Every mutation above still runs, unmodified, whenever this is unset - a
+// normal `pnpm check:mutations` never sets it. It exists because witnessing
+// the EXIT-time half of the dirty-tree guard (below) needs a real,
+// end-to-end run of this script, and paying the full 60-80 second, 63
+// mutation sweep for that would make every `pnpm verify` noticeably slower
+// for a check that does not touch the sweep loop at all. Truncating the
+// array (not skipping it) means the truncated run still exercises the exact
+// same baseline-suite-then-loop-then-exit-check code path, just over fewer
+// iterations.
+if (process.env.MUTATION_CHECK_TEST_LIMIT !== undefined) {
+  MUTATIONS.length = Math.max(0, Number(process.env.MUTATION_CHECK_TEST_LIMIT));
+}
+
 function runSuite() {
   try {
     execFileSync(process.execPath, ["--test", "tests/boundaries/*.test.mjs"], {
@@ -790,6 +974,24 @@ try {
   destroyWorktree(WT_ROOT);
 }
 
+// TEST-ONLY seam, read by tests/boundaries/mutation-check-guard.test.mjs: by
+// design, nothing above this line ever dirties the REAL repository (that is
+// the entire point of running against a worktree instead) - so proving the
+// exit-time guard below actually fires needs some real dirt on the real tree
+// at exactly this point, and there is no way to do that from an external
+// test process without racing this script's own timing. Set only under an
+// explicit env var no normal invocation ever sets, this writes one
+// throwaway untracked file, lets the guard below see it, and removes it
+// again once the exit code is decided - deterministic, not a sleep-and-hope.
+const testDirtyAtExit = process.env.MUTATION_CHECK_TEST_DIRTY_AT_EXIT;
+if (testDirtyAtExit) {
+  writeFileSync(
+    join(REAL_ROOT, testDirtyAtExit),
+    "witness file for the mutation-check exit-time dirty-tree guard test\n",
+    "utf8",
+  );
+}
+
 // The dirty-tree guard's other half. Every mutation above was applied to and
 // restored on the WORKTREE, never on the real repository, so this is a
 // backstop rather than the primary defence - but the acceptance criterion for
@@ -803,6 +1005,14 @@ if (dirtyAtExit.trim() !== "") {
       "not be reported against a mutated tracked file:\n" + dirtyAtExit,
   );
   if (exitCode === 0) exitCode = 2;
+}
+
+if (testDirtyAtExit) {
+  try {
+    rmSync(join(REAL_ROOT, testDirtyAtExit), { force: true });
+  } catch {
+    // best-effort; the test that set this env var also cleans up defensively
+  }
 }
 
 process.exitCode = exitCode;
