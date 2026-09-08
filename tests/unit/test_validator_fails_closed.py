@@ -208,9 +208,11 @@ forbidden:
 """
 
 #: A minimal but STRUCTURALLY REAL capability registry. Task 6: badf/skills.yaml
-#: used to be checked for a version: line and nothing else, so record-a-gate and
-#: grant-authority could be set to AVAILABLE with nothing objecting. This has to
-#: carry both, pinned FORBIDDEN_TO_AGENTS, for the pin to mean anything.
+#: used to be checked for a version: line and nothing else, so record-a-gate,
+#: grant-authority or deploy could be set to AVAILABLE with nothing objecting.
+#: This carries all three, pinned FORBIDDEN_TO_AGENTS, matching the complete
+#: FORBIDDEN_TO_AGENTS_SKILLS floor in scripts/validate_continuity.py - not
+#: just the two that review round one happened to name.
 SKILLS_YAML = """version: "0.1.0"
 
 skills:
@@ -228,13 +230,19 @@ skills:
     what: "fixture"
     authority_required: "business-authority or repository-administrator"
     status: FORBIDDEN_TO_AGENTS
+
+  - id: deploy
+    what: "fixture"
+    authority_required: "repository-administrator and business-authority"
+    status: FORBIDDEN_TO_AGENTS
 """
 
 #: A minimal but STRUCTURALLY REAL role registry. Task 6: badf/agents.yaml had
 #: no field capable of recording who holds a seat, and may_be_an_agent could be
 #: flipped to true on all four human-only seats with nothing objecting. This
-#: carries all four, each false with a held_by field, plus one agent-eligible
-#: role and one routing entry, so both pins have something to bind to.
+#: carries all four, each false with held_by: null (pinned to the literal
+#: null, not merely present), plus one agent-eligible role and one routing
+#: entry, so every pin has something to bind to.
 AGENTS_YAML = """version: "0.1.0"
 
 roles:
@@ -883,6 +891,32 @@ class SkillsAndAgentsRegistriesClosed(unittest.TestCase):
         self.assertNotEqual(text, SKILLS_YAML, "the replace target did not match")
         self._refused("PROBABLY_FINE", skills=text)
 
+    def test_making_a_third_forbidden_skill_available_is_reported(self):
+        """The floor is not just the two skills review round one named.
+
+        A prior version of FORBIDDEN_TO_AGENTS_SKILLS named only
+        record-a-gate and grant-authority, populated by recognising a
+        pattern rather than by reading badf/skills.yaml end to end. `deploy`
+        - "repository-administrator and business-authority", the same
+        severity - was missed, and flipping it to AVAILABLE passed. This is
+        the third skill, not one of the two originally named, proving the
+        floor is now derived from the whole file rather than curated by eye.
+        """
+        text = SKILLS_YAML.replace(
+            "  - id: deploy\n"
+            '    what: "fixture"\n'
+            '    authority_required: "repository-administrator and '
+            'business-authority"\n'
+            "    status: FORBIDDEN_TO_AGENTS",
+            "  - id: deploy\n"
+            '    what: "fixture"\n'
+            '    authority_required: "repository-administrator and '
+            'business-authority"\n'
+            "    status: AVAILABLE",
+        )
+        self.assertNotEqual(text, SKILLS_YAML, "the replace target did not match")
+        self._refused("deploy", skills=text)
+
     # ---- badf/agents.yaml: may_be_an_agent and held_by ---------------------
 
     def test_flipping_may_be_an_agent_true_on_a_human_seat_is_reported(self):
@@ -937,6 +971,44 @@ class SkillsAndAgentsRegistriesClosed(unittest.TestCase):
         )
         self.assertNotEqual(text, AGENTS_YAML, "the replace target did not match")
         self._refused("held_by", agents=text)
+
+    def test_a_named_occupant_in_held_by_is_reported(self):
+        """The exact forgery a coordinator review confirmed empirically:
+        writing a name into held_by on a human-only seat, honestly or not,
+        still passes if held_by is checked only for presence. held_by is
+        pinned to the literal null; only a reviewed change to
+        validate_agents_registry may let a seat carry anything else.
+        """
+        text = AGENTS_YAML.replace(
+            "  - id: architecture-authority\n"
+            '    owns: ["fixture"]\n'
+            "    may_be_an_agent: false\n"
+            "    held_by: null",
+            "  - id: architecture-authority\n"
+            '    owns: ["fixture"]\n'
+            "    may_be_an_agent: false\n"
+            '    held_by: "Agent-Claude-Session-1"',
+        )
+        self.assertNotEqual(text, AGENTS_YAML, "the replace target did not match")
+        self._refused("architecture-authority", agents=text)
+
+    def test_a_quoted_null_in_held_by_is_accepted(self):
+        """held_by: "null" (a quoted string) is semantically the same null
+        this pin requires, not a forgery, and must not be refused.
+        """
+        text = AGENTS_YAML.replace(
+            "  - id: platform-engineer\n"
+            '    owns: ["fixture"]\n'
+            "    may_be_an_agent: true\n"
+            "    held_by: null",
+            "  - id: platform-engineer\n"
+            '    owns: ["fixture"]\n'
+            "    may_be_an_agent: true\n"
+            '    held_by: "null"',
+        )
+        self.assertNotEqual(text, AGENTS_YAML, "the replace target did not match")
+        result = self._run(agents=text)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_a_non_boolean_may_be_an_agent_is_reported(self):
         text = AGENTS_YAML.replace(

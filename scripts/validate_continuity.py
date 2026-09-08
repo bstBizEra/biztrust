@@ -616,10 +616,26 @@ def validate_authority_registry(state, errors: list[str]) -> None:
 #: The closed set of statuses a skill entry in badf/skills.yaml may declare.
 SKILL_STATUSES = {"AVAILABLE", "BLOCKED", "FORBIDDEN_TO_AGENTS"}
 
-#: These two skills grant or record authority. AGENTS.md section 4 makes a
-#: gate result and an authority grant human decisions, never inferred and
-#: never an agent's to set, whatever the registry's prose column says.
-FORBIDDEN_TO_AGENTS_SKILLS = ("record-a-gate", "grant-authority")
+#: The FORBIDDEN_TO_AGENTS floor: every skill badf/skills.yaml records
+#: FORBIDDEN_TO_AGENTS as of the commit that added this check, enumerated
+#: exhaustively by reading the whole file rather than by naming the two
+#: skills that happened to look authority-shaped. Task 6 review flipped
+#: `deploy` - "repository-administrator and business-authority", the same
+#: severity as the two named below - to AVAILABLE and got exit 0, because
+#: the original two-item version of this set was populated by pattern, not
+#: by reading badf/skills.yaml end to end.
+#:
+#: Growing this set costs nothing: a skill badf/skills.yaml newly records
+#: FORBIDDEN_TO_AGENTS needs no change here, because nothing here forbids a
+#: skill from being MORE restricted than this floor. Shrinking it -
+#: removing an id, or letting one recorded here drop below
+#: FORBIDDEN_TO_AGENTS - is a reviewed change to this tuple, in the same
+#: pull request that changes badf/skills.yaml, under a Work Package that
+#: says why. That is the same cost DEC-007 gave widening a grant in
+#: badf/authority.yaml: a schema (here, this tuple) that must be edited
+#: under review, so the record can never be widened by a one-word data
+#: edit alone.
+FORBIDDEN_TO_AGENTS_SKILLS = ("record-a-gate", "grant-authority", "deploy")
 
 #: The fields a skill entry may carry. Unknown to this set is refused, not
 #: skipped, in the same doctrine parse_authority documents at length: a
@@ -746,14 +762,15 @@ def parse_skills(text: str) -> tuple[dict[str, dict[str, str]], list[str]]:
 
 
 def validate_skills_registry(errors: list[str]) -> None:
-    """The capability registry: statuses from a closed set, with the two
-    authority-shaped skills pinned FORBIDDEN_TO_AGENTS.
+    """The capability registry: statuses from a closed set, with the
+    FORBIDDEN_TO_AGENTS_SKILLS floor pinned FORBIDDEN_TO_AGENTS.
 
     badf/skills.yaml was validated for existence, non-emptiness and a
     version: line only (validate_registries above). Nothing stopped an agent
-    setting record-a-gate or grant-authority to AVAILABLE: the registry lists
-    what a skill claims to need, but the claim is prose an agent could edit to
-    say anything at all, and nothing read the status column.
+    setting record-a-gate, grant-authority or deploy to AVAILABLE: the
+    registry lists what a skill claims to need, but the claim is prose an
+    agent could edit to say anything at all, and nothing read the status
+    column.
     """
     try:
         text = (BADF / "skills.yaml").read_text(encoding="utf-8")
@@ -782,18 +799,21 @@ def validate_skills_registry(errors: list[str]) -> None:
         if skill_id not in entries:
             errors.append(
                 f"badf/skills.yaml: {skill_id!r} is missing, so its "
-                f"FORBIDDEN_TO_AGENTS pin cannot be checked. Deleting a skill is "
-                f"how a forbidden capability stops being forbidden without "
-                f"anyone recording that"
+                f"FORBIDDEN_TO_AGENTS floor entry cannot be checked. Deleting "
+                f"a skill is how a forbidden capability stops being "
+                f"forbidden without anyone recording that"
             )
             continue
         status = entries[skill_id].get("status", "").strip().strip('"')
         if status != "FORBIDDEN_TO_AGENTS":
             errors.append(
-                f"badf/skills.yaml: {skill_id} has status {status!r}. "
-                f"AGENTS.md section 4 makes this a human decision, so it is "
-                f"pinned FORBIDDEN_TO_AGENTS and cannot become AVAILABLE from "
-                f"a data edit"
+                f"badf/skills.yaml: {skill_id} has status {status!r}. It is "
+                f"on the FORBIDDEN_TO_AGENTS floor pinned in "
+                f"scripts/validate_continuity.py (FORBIDDEN_TO_AGENTS_SKILLS), "
+                f"and AGENTS.md section 4 makes this a human decision; it "
+                f"can leave that floor only through a reviewed change to "
+                f"this validator, under a Work Package that says why - "
+                f"never through a one-word edit to badf/skills.yaml alone"
             )
 
 
@@ -977,15 +997,24 @@ def parse_agents(
 
 def validate_agents_registry(errors: list[str]) -> None:
     """The role registry: may_be_an_agent pinned for the four human seats, and
-    every role recording a held_by field so NS-001's acceptance ("a named
-    human holds the seat") has somewhere in this registry to be recorded.
+    held_by pinned to the literal null on every role.
 
     badf/agents.yaml was validated for existence, non-emptiness and a
     version: line only. Nothing stopped an agent flipping may_be_an_agent to
     true on all four authority seats, and no field could record who holds one
     even honestly, so NS-001's acceptance criterion could not be recorded in
-    the record it names. held_by defaults to null on every seat here: filling
-    one is a human act this validator does not perform and does not pin.
+    the record it names.
+
+    Task 6 review found that a presence-only check on held_by let an agent
+    write held_by: "Agent-Claude-Session-1" onto architecture-authority - or
+    any name onto any seat - and pnpm validate:records still passed. That is
+    precisely the forgery this repository exists to prevent: a named human
+    holding a seat is a human's record, never an agent's to write, even
+    honestly. held_by is therefore pinned to the literal null. A human
+    filling a seat changes this function in the same pull request, under a
+    Work Package that says why - the cost DEC-007 gave widening a grant in
+    badf/authority.yaml, applied here to who may occupy a seat rather than
+    what is granted.
     """
     try:
         text = (BADF / "agents.yaml").read_text(encoding="utf-8")
@@ -1018,6 +1047,20 @@ def validate_agents_registry(errors: list[str]) -> None:
                 f"so NS-001's acceptance (\"a named human holds the seat\") "
                 f"has nowhere in this registry to be recorded"
             )
+        else:
+            held_by = entry["held_by"].strip().strip('"')
+            if held_by != "null":
+                errors.append(
+                    f"badf/agents.yaml: role {role_id} has held_by "
+                    f"{held_by!r}, not the literal null. Every seat in this "
+                    f"registry stays null; a human filling one is a Work "
+                    f"Package that changes validate_agents_registry in "
+                    f"scripts/validate_continuity.py in the same pull "
+                    f"request, under a Work Package that says why - the "
+                    f"same doctrine scripts/agents-registry.mjs states for "
+                    f"this file. It is never a one-line edit to "
+                    f"badf/agents.yaml alone"
+                )
 
     for role_id in AGENT_FORBIDDEN_ROLES:
         if role_id not in roles:

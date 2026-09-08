@@ -30,10 +30,14 @@
  * not one yet, on two independent axes, and generating it does not close
  * either:
  *
- *   1. Branch protection on `main` must require review from code owners.
- *      That is the repository administrator's record
- *      (badf/authority.yaml, main_branch_protection), not this script's,
- *      and it has not been made.
+ *   1. Branch protection on `main` is APPLIED - see
+ *      evidence/security-proof/negative-control-6.md: one required
+ *      approving review, enforce_admins: true, negative control 6
+ *      observed. What is NOT enabled is GitHub's separate "require review
+ *      from code owners" setting on that protection, which is what makes a
+ *      CODEOWNERS file bite at all. Turning that setting on is the
+ *      repository administrator's record, not this script's, and it has
+ *      not been made.
  *   2. Every @<org>/<role-id> team named below must exist in the GitHub
  *      organisation and have at least one human member. Creating and
  *      populating one is the same human act badf/agents.yaml's held_by
@@ -113,12 +117,15 @@ function renderCodeowners(registry) {
       `# @${ORG}/<role-id> team exists in the GitHub organisation either -`,
       "# creating and populating one is the same human act held_by waits on.",
       "#",
-      "# This file is NOT a working review mechanism by itself. It bites only",
-      "# once both of the following are also true, and neither is this file's",
-      "# to record:",
-      "#   1. main's branch protection requires review from code owners",
-      "#      (badf/authority.yaml, main_branch_protection - the repository",
-      "#      administrator's record, not recorded yet);",
+      "# This file is NOT a working review mechanism by itself. Branch",
+      "# protection on main IS applied (evidence/security-proof/",
+      "# negative-control-6.md: one required approving review,",
+      "# enforce_admins: true, negative control 6 observed), but this file",
+      "# bites only once both of the following are also true, and neither is",
+      "# this file's to record:",
+      "#   1. GitHub's separate \"require review from code owners\" setting",
+      "#      is turned on for that protection - the repository",
+      "#      administrator's record, not recorded yet;",
       `#   2. each @${ORG}/<role-id> team named below exists and has a human`,
       "#      member (badf/agents.yaml held_by - unfilled for every seat).",
       "#",
