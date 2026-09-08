@@ -245,6 +245,46 @@ const MUTATIONS = [
     from: '  { label: "claim", pattern: /^claim/i },',
     to: '  { label: "claim", pattern: /^claim$/i },',
   },
+
+  // ---- round three open finding 8: M4/M5 gated on one verb -----------------
+  {
+    file: LINT,
+    // Both M4 and M5 filter their targets through TABLE_CREATING_VERBS, so
+    // dropping CREATE FOREIGN TABLE from the set turns both rules blind to a
+    // foreign table at once; the R3-22 fixture (M4 on a foreign table) is
+    // what catches it, because no M5 fixture uses a foreign table.
+    name: "M4/M5: drop CREATE FOREIGN TABLE from the table-creating verb set",
+    from: 'export const TABLE_CREATING_VERBS = new Set(["CREATE TABLE", "CREATE FOREIGN TABLE", "CREATE VIEW"]);',
+    to: 'export const TABLE_CREATING_VERBS = new Set(["CREATE TABLE", "CREATE VIEW"]);',
+  },
+  {
+    file: LINT,
+    // Same set, the other new entry. This one is caught twice over: R3-24
+    // (M4 on a view named for a domain word) and R3-25 (M5 on a view with no
+    // tenant_id, the open-question decision this task made) both depend on
+    // CREATE VIEW being in this set.
+    name: "M4/M5: drop CREATE VIEW from the table-creating verb set",
+    from: 'export const TABLE_CREATING_VERBS = new Set(["CREATE TABLE", "CREATE FOREIGN TABLE", "CREATE VIEW"]);',
+    to: 'export const TABLE_CREATING_VERBS = new Set(["CREATE TABLE", "CREATE FOREIGN TABLE"]);',
+  },
+  {
+    file: LINT,
+    // The rename destination stops becoming a target at all: a table built
+    // under an innocent name and renamed to a domain word afterward (the
+    // R3-23 fixture) walks past M4 again, exactly as it did before this task.
+    name: "M4: stop modelling ALTER TABLE ... RENAME TO as a target of the name it renames an object to",
+    from: "  scan(\n    new RegExp(\n      String.raw`\\bALTER\\s+TABLE\\s+(?:ONLY\\s+)?(?:IF\\s+EXISTS\\s+)?(${ID})(?:\\.(${ID}))?\\s+RENAME\\s+TO\\s+(${ID})`,\n      \"gi\",\n    ),\n    (m) => {\n      if (m[2] === undefined) push(null, m[3], m[0], \"RENAME TO\");\n      else push(m[1], m[3], m[0], \"RENAME TO\");\n    },\n  );",
+    to: '  void 0;',
+  },
+  {
+    file: LINT,
+    // Narrower than the mutation above: the scan still runs and the target
+    // still exists, but M4's own filter stops accepting the RENAME TO verb,
+    // so the target it produces is never checked against a domain stem.
+    name: "M4: stop accepting RENAME TO as a verb this rule checks",
+    from: '      if (!TABLE_CREATING_VERBS.has(target.verb) && target.verb !== "RENAME TO") continue;',
+    to: "      if (!TABLE_CREATING_VERBS.has(target.verb)) continue;",
+  },
   {
     file: LINT,
     name: "M5: stop requiring tenant_id",

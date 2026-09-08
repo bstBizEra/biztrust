@@ -370,6 +370,43 @@ const CONTROLS = [
     rule: "M1",
     match: 'touches schema "audit"',
   },
+
+  // Round three open finding 8: M4 and M5 gated on `target.verb !==
+  // "CREATE TABLE"`, one literal string equality, so a P0 domain table with
+  // no tenant_id created by any other table-creating verb walked past both
+  // rules. Each verb below is independently deletable from
+  // TABLE_CREATING_VERBS (or from the RENAME TO scan), so each gets its own
+  // fixture and its own message assertion, not just a rule-name assertion.
+  {
+    control: "R3-22",
+    threat: "CREATE FOREIGN TABLE creates a P0 domain table",
+    file: "r3_foreign_table_domain_word.sql",
+    rule: "M4",
+    match: 'foreign table "claim" is named for the domain word "claim"',
+  },
+  {
+    control: "R3-23",
+    threat: "ALTER TABLE ... RENAME TO renames a table to a domain word",
+    file: "r3_rename_to_domain_word.sql",
+    rule: "M4",
+    match: 'table "claim" is named for the domain word "claim"',
+  },
+  {
+    control: "R3-24",
+    threat: "CREATE VIEW creates a P0 domain-named relation",
+    file: "r3_create_view_domain_word.sql",
+    rule: "M4",
+    match: 'view "policy" is named for the domain word "policy"',
+  },
+  // M5 decision for this task: a view is NOT exempt from tenant_id. See the
+  // reasoning recorded on TABLE_CREATING_VERBS in scripts/migration-lint.mjs.
+  {
+    control: "R3-25",
+    threat: "a view with no tenant_id",
+    file: "r3_view_without_tenant_id.sql",
+    rule: "M5",
+    match: 'view "summary" has no tenant_id column',
+  },
 ];
 
 // Control R3-6 is the inverse of the others: the fixture must be READ, not

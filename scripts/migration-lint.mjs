@@ -69,6 +69,51 @@ export const P0_FORBIDDEN_TABLE_STEMS = [
 /** Statements the audit schema refuses outright. */
 export const AUDIT_FORBIDDEN = ["UPDATE", "DELETE", "TRUNCATE", "DROP"];
 
+/**
+ * The verbs M4 and M5 used to gate on ONE literal string, `target.verb !==
+ * "CREATE TABLE"`. Round three open finding 8: `CREATE FOREIGN TABLE
+ * tenancy.policies (...)` creates a P0 domain table with no tenant_id and
+ * passed both rules, because a foreign table is a different verb from a
+ * plain table but exactly as capable of holding tenant rows and being named
+ * for a domain word.
+ *
+ * `objectTargets` already folds `CREATE MATERIALIZED VIEW` down to the verb
+ * `CREATE VIEW` (the `MATERIALIZED` keyword is consumed as a modifier before
+ * the captured object type, the same way `TEMP` and `UNLOGGED` are), so one
+ * entry here covers both the plain and the materialized form; there is no
+ * separate `CREATE MATERIALIZED VIEW` string this scanner ever produces.
+ *
+ * M5 DECISION, the open question this task was handed: does `tenant_id`
+ * apply to a view? YES. A view has no columns of its OWN to add tenant_id
+ * to, but it is still a queryable relation that can expose every row of a
+ * tenant-owned table to a caller who never checked tenant_id, which is the
+ * exact harm M5 exists to prevent - a view is the easiest way to launder a
+ * bypass around it. The alternative was an exemption: treat a view as
+ * out-of-scope for M5 by construction. That is the shape section 10 of this
+ * task's constraints calls out by name - extending a list of known-safe
+ * exceptions instead of inverting the default - and it is exactly how M4 and
+ * M5 were defeated the first time: a rule that only fires for one recognised
+ * shape is walked past by the next shape nobody enumerated. Requiring
+ * `tenant_id` to appear in a view's own defining statement (its column list
+ * or its SELECT) is satisfiable by any view that actually re-exposes the
+ * column, so a conforming view costs one word, and an unwitnessed one is
+ * refused rather than passed in silence.
+ */
+export const TABLE_CREATING_VERBS = new Set(["CREATE TABLE", "CREATE FOREIGN TABLE", "CREATE VIEW"]);
+
+/**
+ * The word M4 and M5 use in their own messages for what was created relative
+ * to the size of TABLE_CREATING_VERBS. `RENAME TO` (below) is not itself a
+ * CREATE verb - it is modelled as its own target with the destination as the
+ * object - and reports as a table, mirroring the `ALTER TABLE ... RENAME TO`
+ * shape the brief for this task names explicitly.
+ */
+function kindLabel(verb) {
+  if (verb === "CREATE FOREIGN TABLE") return "foreign table";
+  if (verb === "CREATE VIEW") return "view";
+  return "table";
+}
+
 /** An identifier, bare or double-quoted. Both forms are legal PostgreSQL. */
 const ID = String.raw`(?:"[^"]+"|[A-Za-z_]\w*)`;
 
@@ -365,6 +410,31 @@ function objectTargets(statement) {
     (m) => push(m[1], null, m[0], "SET SCHEMA"),
   );
 
+  // ALTER TABLE [ONLY] [schema.]name RENAME TO <destination>. Symmetric with
+  // SET SCHEMA above: the DESTINATION is what matters. Round three open
+  // finding 8's second half: `ALTER TABLE tenancy.neutral RENAME TO policies`
+  // creates the same P0 domain table `SET SCHEMA` creates a cross-schema
+  // write, in two statements instead of one, because the rename destination
+  // was never extracted as a target at all - so a table built under an
+  // innocent name and renamed afterward walked past M4 with no violation
+  // anywhere in the file. PostgreSQL's RENAME TO grammar carries no schema of
+  // its own (a rename cannot cross schemas), so the destination inherits the
+  // schema of the name being renamed, qualified or not; an unqualified
+  // origin is already its own M1 finding on the base ALTER TABLE target
+  // above; pushing the destination too, with the same (possibly absent)
+  // schema, is what puts it in front of M1 and M4's per-target loops rather
+  // than leaving it invisible to both.
+  scan(
+    new RegExp(
+      String.raw`\bALTER\s+TABLE\s+(?:ONLY\s+)?(?:IF\s+EXISTS\s+)?(${ID})(?:\.(${ID}))?\s+RENAME\s+TO\s+(${ID})`,
+      "gi",
+    ),
+    (m) => {
+      if (m[2] === undefined) push(null, m[3], m[0], "RENAME TO");
+      else push(m[1], m[3], m[0], "RENAME TO");
+    },
+  );
+
   // CREATE|ALTER|DROP <TYPE> [schema.]name
   scan(
     new RegExp(
@@ -651,16 +721,21 @@ function lintFile(path, moduleName, schema, errors) {
       if (target.object === null) continue;
       // Keyed on the RESOLVED verb, not on re-testing the statement text. A
       // re-test for /CREATE\s+TABLE/ missed `CREATE TEMP TABLE policy`, because
-      // the modifier sits between the two words.
-      if (target.verb !== "CREATE TABLE") continue;
+      // the modifier sits between the two words. Gated on the SET of
+      // table-creating verbs, not one literal string: a foreign table or a
+      // view is exactly as able to be named for a domain word as a plain
+      // table is. `RENAME TO` is not a CREATE verb but is checked here too -
+      // its destination is the new name of an existing table, and that name
+      // is exactly what this rule exists to catch.
+      if (!TABLE_CREATING_VERBS.has(target.verb) && target.verb !== "RENAME TO") continue;
       for (const part of target.object.split("_")) {
         for (const { label, pattern } of P0_FORBIDDEN_TABLE_STEMS) {
           if (pattern.test(part)) {
             report(
               "M4",
-              `table "${target.object}" is named for the domain word "${label}"; ` +
-                `P0 builds no domain table, and a table by this name means the phase ` +
-                `has been left`,
+              `${kindLabel(target.verb)} "${target.object}" is named for the domain word ` +
+                `"${label}"; P0 builds no domain table, and a table by this name means the ` +
+                `phase has been left`,
             );
           }
         }
@@ -668,18 +743,25 @@ function lintFile(path, moduleName, schema, errors) {
     }
 
     // M5: a created table carries tenant_id, unless the statement that follows
-    // the marker declares itself platform-owned.
-    const created = targets.find((t) => t.verb === "CREATE TABLE");
+    // the marker declares itself platform-owned. Gated on the same SET of
+    // table-creating verbs as M4, not the one literal string this rule used
+    // to check - see the M5 decision recorded on TABLE_CREATING_VERBS above
+    // for why a view is included rather than exempted. `RENAME TO` is
+    // deliberately NOT in this set: a rename statement carries no column
+    // list and no SELECT, so checking it for the literal text "tenant_id"
+    // would report every rename as a violation regardless of what the
+    // renamed table already carries.
+    const created = targets.find((t) => TABLE_CREATING_VERBS.has(t.verb));
     if (created && !/\btenant_id\b/i.test(statement)) {
       if (exemptStatements.has(statement)) {
         // Declared platform-owned. Nothing to report.
       } else {
         report(
           "M5",
-          `table "${created.object}" has no tenant_id column; every tenant-owned ` +
-            `table carries the baseline of DOMAIN_MODEL.md section 6, tenant_id ` +
-            `first. A platform-owned table that is genuinely not tenant-owned puts ` +
-            `a "-- not-tenant-owned:" comment immediately before its own CREATE ` +
+          `${kindLabel(created.verb)} "${created.object}" has no tenant_id column; every ` +
+            `tenant-owned table carries the baseline of DOMAIN_MODEL.md section 6, ` +
+            `tenant_id first. A platform-owned table that is genuinely not tenant-owned ` +
+            `puts a "-- not-tenant-owned:" comment immediately before its own CREATE ` +
             `TABLE, which exempts that statement and no other.`,
         );
       }
