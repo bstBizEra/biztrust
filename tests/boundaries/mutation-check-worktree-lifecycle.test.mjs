@@ -64,6 +64,7 @@ import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import { withRealRootLock } from "./real-root-lock.mjs";
+import { skipIfRealTreeIsDirty } from "./real-tree.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..", "..");
@@ -123,8 +124,14 @@ function runScript(env) {
 test(
   "finding 1: a failure after `git worktree add` succeeds leaves no worktree behind",
   { skip },
-  () => {
+  (t) => {
     withRealRootLock(() => {
+      // Round four finding I10: the spawned script refuses to start on a
+      // dirty real tree, so this test cannot reach the creation window it
+      // exists to witness. That is an unmet precondition, not a failure of
+      // the worktree lifecycle - and reporting it as the latter is how a
+      // suite teaches its readers to ignore it.
+      if (skipIfRealTreeIsDirty(t)) return;
       const tag = freshTag();
 
       const result = runScript({
@@ -158,8 +165,10 @@ test(
 test(
   "finding 2: a later run reclaims a worktree orphaned by an earlier killed run",
   { skip },
-  () => {
+  (t) => {
     withRealRootLock(() => {
+      // Same unmet precondition as finding 1 above (round four I10).
+      if (skipIfRealTreeIsDirty(t)) return;
       const tag = freshTag();
 
       // Simulate the kill: the worktree is fully formed (checked out, owner

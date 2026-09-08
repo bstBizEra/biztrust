@@ -583,6 +583,115 @@ const CONTROLS = [
     rule: "M1",
     match: 'casts to type "audit.decision_status", a type in another module\'s schema',
   },
+
+  // ---- round four -------------------------------------------------------
+  //
+  // C1, the critical one: `SET SCHEMA 'audit';` is PostgreSQL's documented
+  // alias for `SET search_path TO audit`, and a whole file opening with it
+  // reported MIGRATION_LINT PASS with exit 0. scrub() blanks the string
+  // literal before any matcher runs, so the SET SCHEMA extractor found no
+  // identifier, the search_path refusal found no literal `search_path`, and
+  // SET sat on a list of leading verbs presumed harmless. Two controls,
+  // because the fix has two independently deletable halves: the explicit
+  // refusal of the session-level statement, and the deletion of the
+  // harmless-verb exemption that let anything unresolved through.
+  {
+    control: "R6-1",
+    threat: "SET SCHEMA with a string literal changes schema resolution for the whole file",
+    file: "r6_set_schema_string_literal.sql",
+    rule: "M1",
+    match: "sets the session schema",
+  },
+  {
+    control: "R6-2",
+    threat: "a statement opening with SET is no longer presumed harmless",
+    file: "r6_set_session_parameter.sql",
+    rule: "M1",
+    match: "cannot resolve what schema the statement touches",
+  },
+
+  // I2: `understood` was `targets.length > 0`, and the EXPR CALL and CAST
+  // TYPE scans push a target from any `schema.name(` or `::schema.name`
+  // ANYWHERE in a statement - so an unmodelled statement that merely
+  // CONTAINED an own-schema call shape stopped being refused, undoing round
+  // three's deny-by-default from the inside. The existing witness
+  // (r3_comment_unmodelled.sql) uses COMMENT ON SCHEMA and cannot see this,
+  // because a bare schema name carries no call shape.
+  {
+    control: "R6-3",
+    threat: "an unmodelled statement carrying an incidental own-schema call shape",
+    file: "r6_comment_on_function_unmodelled.sql",
+    rule: "M1",
+    match: "cannot resolve what schema the statement touches",
+  },
+
+  // I3: a column typed with another module's TYPE. `::audit.mytype` was
+  // caught; `code audit.status_code` in declaration position was not, and
+  // `audit.status_code(10)` was caught only by accident, as an EXPR CALL.
+  {
+    control: "R6-4",
+    threat: "a column declared with a type in another module's schema",
+    file: "r6_column_type_crosses_a_schema.sql",
+    rule: "M1",
+    match: 'references type "audit.status_code" in declaration position',
+  },
+
+  // I4: INHERITS and PARTITION OF were closed in CREATE position only.
+  // `INHERIT` is not `INHERITS`, and `ATTACH PARTITION` is not
+  // `PARTITION OF`; both make the identical structural coupling afterwards.
+  {
+    control: "R6-5",
+    threat: "ALTER TABLE ... INHERIT couples to another module's schema",
+    file: "r6_alter_inherit_audit.sql",
+    rule: "M1",
+    match: 'touches schema "audit" but this directory owns "tenancy" (inherit audit.evidence)',
+  },
+  {
+    control: "R6-6",
+    threat: "ALTER TABLE ... ATTACH PARTITION couples to another module's schema",
+    file: "r6_attach_partition_audit.sql",
+    rule: "M1",
+    match:
+      'touches schema "audit" but this directory owns "tenancy" (attach partition audit.shard)',
+  },
+
+  // I5: M3's two sub-checks were anchored to the literal keywords
+  // `ALTER TABLE`, so the same change to a foreign table or a materialized
+  // view passed while the plain-table spelling was refused. Both sub-checks
+  // now build from RENAMEABLE_TYPES, the alternation this file already
+  // shares between the RENAME TO scan and TABLE_CREATING_VERBS.
+  {
+    control: "R6-7",
+    threat: "a column drop on an audit FOREIGN TABLE",
+    file: "r6_m3_column_drop_on_a_foreign_table.sql",
+    rule: "M3",
+    match: "a column drop is refused",
+  },
+  {
+    control: "R6-8",
+    threat: "a column type change on an audit FOREIGN TABLE",
+    file: "r6_m3_type_change_on_a_foreign_table.sql",
+    rule: "M3",
+    match: "a column type change is refused",
+  },
+  {
+    control: "R6-9",
+    threat: "a column type change on an audit MATERIALIZED VIEW",
+    file: "r6_m3_type_change_on_a_materialized_view.sql",
+    rule: "M3",
+    match: "a column type change is refused",
+  },
+
+  // A function body written as a single-quoted string literal is exactly as
+  // unreadable to this lint as a dollar-quoted one, and only the $$ form was
+  // refused.
+  {
+    control: "R6-10",
+    threat: "a function body written as a single-quoted string literal",
+    file: "r6_single_quoted_function_body.sql",
+    rule: "M1",
+    match: "single-quoted string literal is refused",
+  },
 ];
 
 // Control R3-6 is the inverse of the others: the fixture must be READ, not

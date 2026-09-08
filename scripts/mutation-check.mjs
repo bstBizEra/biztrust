@@ -217,7 +217,16 @@ function isProcessAlive(pid) {
 function reclaimOrphanWorktrees() {
   const prefix = WORKTREE_PREFIX.replace(/\\/g, "/");
   for (const path of listWorktreePaths()) {
-    if (path === REAL_ROOT) continue;
+    // The main worktree is excluded by the prefix test below and by that
+    // alone. A `path === REAL_ROOT` comparison stood here as a second,
+    // reassuring guard and PROVABLY never matched on Windows: git reports
+    // forward slashes, `REAL_ROOT` carries the platform separator, so the
+    // two strings are never equal even when they name the same directory.
+    // A guard that cannot fire is worse than no guard, because the next
+    // reader trusts it and stops checking whether the real one is right.
+    // Removed rather than repaired: the prefix test excludes the main
+    // worktree independently, on both platforms, and normalises the
+    // separators it compares.
     if (!path.replace(/\\/g, "/").startsWith(prefix)) continue;
 
     let ownerPid = null;
@@ -440,7 +449,8 @@ const MUTATIONS = [
   {
     file: LINT,
     name: "M1: stop denying by default on an unmodelled statement",
-    from: '  return { targets, understood: harmless || targets.length > 0 };',
+    from:
+      '  return { targets, understood: targets.some((t) => t.resolvesStatement) };',
     to: '  return { targets, understood: true };',
   },
   {
@@ -452,25 +462,26 @@ const MUTATIONS = [
     // the suite red by itself, independent of whether any target scan below
     // still runs.
     name: "M1: revert the deny-list to the old CREATE/ALTER/DROP opening-verb allow-list",
-    from: '  const firstWord = /^\\s*([A-Za-z]+)/.exec(statement)?.[1]?.toUpperCase();\n  const harmless = firstWord !== undefined && HARMLESS_LEADING_VERBS.has(firstWord);\n  return { targets, understood: harmless || targets.length > 0 };',
+    from:
+      '  return { targets, understood: targets.some((t) => t.resolvesStatement) };',
     to: '  const isDDL = /^\\s*(?:CREATE|ALTER|DROP)\\b/i.test(statement);\n  return { targets, understood: !isDDL || targets.length > 0 };',
   },
   {
     file: LINT,
     name: "M1: stop modelling COPY as a target of the schema it writes into",
-    from: '  scan(new RegExp(String.raw`\\bCOPY\\s+(${ID})(?:\\.(${ID}))?`, "gi"), (m) => {\n    if (m[2] === undefined) push(null, m[1], m[0], "COPY");\n    else push(m[1], m[2], m[0], "COPY");\n  });',
+    from: '  scan(new RegExp(String.raw`\\bCOPY\\s+(${ID})(?:\\.(${ID}))?`, "gi"), (m) => {\n    if (m[2] === undefined) pushResolved(null, m[1], m[0], "COPY");\n    else pushResolved(m[1], m[2], m[0], "COPY");\n  });',
     to: '  void 0;',
   },
   {
     file: LINT,
     name: "M1: stop modelling MERGE INTO as a target of the schema it writes into",
-    from: '  scan(new RegExp(String.raw`\\bMERGE\\s+INTO\\s+(${ID})(?:\\.(${ID}))?`, "gi"), (m) => {\n    if (m[2] === undefined) push(null, m[1], m[0], "MERGE INTO");\n    else push(m[1], m[2], m[0], "MERGE INTO");\n  });',
+    from: '  scan(new RegExp(String.raw`\\bMERGE\\s+INTO\\s+(${ID})(?:\\.(${ID}))?`, "gi"), (m) => {\n    if (m[2] === undefined) pushResolved(null, m[1], m[0], "MERGE INTO");\n    else pushResolved(m[1], m[2], m[0], "MERGE INTO");\n  });',
     to: '  void 0;',
   },
   {
     file: LINT,
     name: "M1: stop modelling REFRESH MATERIALIZED VIEW as a target of the schema it refreshes",
-    from: "  scan(\n    new RegExp(\n      String.raw`\\bREFRESH\\s+MATERIALIZED\\s+VIEW\\s+(?:CONCURRENTLY\\s+)?(${ID})(?:\\.(${ID}))?`,\n      \"gi\",\n    ),\n    (m) => {\n      if (m[2] === undefined) push(null, m[1], m[0], \"REFRESH MATERIALIZED VIEW\");\n      else push(m[1], m[2], m[0], \"REFRESH MATERIALIZED VIEW\");\n    },\n  );",
+    from: "  scan(\n    new RegExp(\n      String.raw`\\bREFRESH\\s+MATERIALIZED\\s+VIEW\\s+(?:CONCURRENTLY\\s+)?(${ID})(?:\\.(${ID}))?`,\n      \"gi\",\n    ),\n    (m) => {\n      if (m[2] === undefined) pushResolved(null, m[1], m[0], \"REFRESH MATERIALIZED VIEW\");\n      else pushResolved(m[1], m[2], m[0], \"REFRESH MATERIALIZED VIEW\");\n    },\n  );",
     to: '  void 0;',
   },
   {
@@ -482,49 +493,49 @@ const MUTATIONS = [
     // list and silently ignoring the rest, which is how a cross-schema table
     // listed after a same-schema one used to lint clean.
     name: "M1: LOCK reads only the first name in a comma-separated table list again",
-    from: '      pushCommaSeparatedTargets(rest, "LOCK", push);',
-    to: '      pushCommaSeparatedTargets(rest.split(",")[0], "LOCK", push);',
+    from: '      pushCommaSeparatedTargets(rest, "LOCK", pushResolved);',
+    to: '      pushCommaSeparatedTargets(rest.split(",")[0], "LOCK", pushResolved);',
   },
   {
     file: LINT,
     name: "M1: ANALYZE reads only the first name in a comma-separated table list again",
-    from: '      pushCommaSeparatedTargets(m[1], "ANALYZE", push);',
-    to: '      pushCommaSeparatedTargets(m[1].split(",")[0], "ANALYZE", push);',
+    from: '      pushCommaSeparatedTargets(m[1], "ANALYZE", pushResolved);',
+    to: '      pushCommaSeparatedTargets(m[1].split(",")[0], "ANALYZE", pushResolved);',
   },
   {
     file: LINT,
     name: "M1: VACUUM reads only the first name in a comma-separated table list again",
-    from: '      pushCommaSeparatedTargets(m[1], "VACUUM", push);',
-    to: '      pushCommaSeparatedTargets(m[1].split(",")[0], "VACUUM", push);',
+    from: '      pushCommaSeparatedTargets(m[1], "VACUUM", pushResolved);',
+    to: '      pushCommaSeparatedTargets(m[1].split(",")[0], "VACUUM", pushResolved);',
   },
   {
     file: LINT,
     name: "M1: stop modelling REINDEX as a target of the schema it touches",
-    from: "  scan(\n    new RegExp(\n      String.raw`\\bREINDEX\\s+(?:\\([^)]*\\)\\s+)?(?:INDEX|TABLE|SCHEMA|DATABASE|SYSTEM)\\s+(?:CONCURRENTLY\\s+)?(${ID})(?:\\.(${ID}))?`,\n      \"gi\",\n    ),\n    (m) => {\n      if (m[2] === undefined) push(null, m[1], m[0], \"REINDEX\");\n      else push(m[1], m[2], m[0], \"REINDEX\");\n    },\n  );",
+    from: "  scan(\n    new RegExp(\n      String.raw`\\bREINDEX\\s+(?:\\([^)]*\\)\\s+)?(?:INDEX|TABLE|SCHEMA|DATABASE|SYSTEM)\\s+(?:CONCURRENTLY\\s+)?(${ID})(?:\\.(${ID}))?`,\n      \"gi\",\n    ),\n    (m) => {\n      if (m[2] === undefined) pushResolved(null, m[1], m[0], \"REINDEX\");\n      else pushResolved(m[1], m[2], m[0], \"REINDEX\");\n    },\n  );",
     to: '  void 0;',
   },
   {
     file: LINT,
     name: "M1: stop modelling CLUSTER as a target of the schema it touches",
-    from: '  scan(new RegExp(String.raw`\\bCLUSTER\\s+(?:VERBOSE\\s+)?(${ID})(?:\\.(${ID}))?`, "gi"), (m) => {\n    if (m[2] === undefined) push(null, m[1], m[0], "CLUSTER");\n    else push(m[1], m[2], m[0], "CLUSTER");\n  });',
+    from: '  scan(new RegExp(String.raw`\\bCLUSTER\\s+(?:VERBOSE\\s+)?(${ID})(?:\\.(${ID}))?`, "gi"), (m) => {\n    if (m[2] === undefined) pushResolved(null, m[1], m[0], "CLUSTER");\n    else pushResolved(m[1], m[2], m[0], "CLUSTER");\n  });',
     to: '  void 0;',
   },
   {
     file: LINT,
     name: "M1: stop modelling SELECT ... INTO as a target of the schema it creates a table in",
-    from: '      if (m[2] === undefined) push(null, m[1], m[0], "SELECT INTO", "table");\n      else push(m[1], m[2], m[0], "SELECT INTO", "table");',
+    from: '      if (m[2] === undefined) pushResolved(null, m[1], m[0], "SELECT INTO", "table");\n      else pushResolved(m[1], m[2], m[0], "SELECT INTO", "table");',
     to: '      void 0;',
   },
   {
     file: LINT,
     name: "M1: stop modelling CREATE SCHEMA and DROP SCHEMA",
-    from: '    (m) => push(m[2], null, m[0], ' + BT + DOLLAR + '{m[1].toUpperCase()} SCHEMA' + BT + '),',
+    from: '    (m) => pushResolved(m[2], null, m[0], ' + BT + DOLLAR + '{m[1].toUpperCase()} SCHEMA' + BT + '),',
     to: '    () => {},',
   },
   {
     file: LINT,
     name: "M1: stop modelling ALTER ... SET SCHEMA",
-    from: '    (m) => push(m[1], null, m[0], "SET SCHEMA"),',
+    from: '    (m) => pushResolved(m[1], null, m[0], "SET SCHEMA"),',
     to: '    () => {},',
   },
   {
@@ -604,7 +615,7 @@ const MUTATIONS = [
     // past M4 again, exactly as it did before this task. Catches R3-23,
     // R3-26, R3-27 and R3-28 together.
     name: "M4: stop modelling ALTER ... RENAME TO as a target of the name it renames an object to",
-    from: "  scan(\n    new RegExp(\n      String.raw`\\bALTER\\s+${RENAMEABLE_TYPES}\\s+(?:ONLY\\s+)?(?:IF\\s+EXISTS\\s+)?(${ID})(?:\\.(${ID}))?\\s+RENAME\\s+TO\\s+(${ID})`,\n      \"gi\",\n    ),\n    (m) => {\n      const kind = relationKind(m[1]);\n      if (m[3] === undefined) push(null, m[4], m[0], \"RENAME TO\", kind);\n      else push(m[2], m[4], m[0], \"RENAME TO\", kind);\n    },\n  );",
+    from: "  scan(\n    new RegExp(\n      String.raw`\\bALTER\\s+${RENAMEABLE_TYPES}\\s+(?:ONLY\\s+)?(?:IF\\s+EXISTS\\s+)?(${ID})(?:\\.(${ID}))?\\s+RENAME\\s+TO\\s+(${ID})`,\n      \"gi\",\n    ),\n    (m) => {\n      const kind = relationKind(m[1]);\n      if (m[3] === undefined) pushResolved(null, m[4], m[0], \"RENAME TO\", kind);\n      else pushResolved(m[2], m[4], m[0], \"RENAME TO\", kind);\n    },\n  );",
     to: "  void 0;",
   },
   {
@@ -744,8 +755,8 @@ const MUTATIONS = [
   },
   {
     file: LINT,
-    name: "M1: stop treating INHERITS as a cross-schema structural coupling",
-    from: '  "INHERITS",\n',
+    name: "M1: stop treating INHERIT/INHERITS as a cross-schema structural coupling",
+    from: '  "INHERITS?",\n',
     to: "",
   },
   {
@@ -870,8 +881,8 @@ const MUTATIONS = [
     // "one mutation, two independent witnesses" shape the EXPR CALL scan's
     // own removal mutation above uses for R3-39/R3-40.
     name: "CAST TYPE: stop scanning for a schema-qualified type reference in cast position",
-    from: 'String.raw`::\\s*(${ID})\\.(${ID})`, "gi"), (m) => push(m[1], m[2], m[0], "CAST TYPE"));',
-    to: 'String.raw`(?!)`, "gi"), (m) => push(m[1], m[2], m[0], "CAST TYPE"));',
+    from: 'String.raw`::\\s*(${ID})\\.(${ID})`, "gi"), (m) => pushMention(m[1], m[2], m[0], "CAST TYPE"));',
+    to: 'String.raw`(?!)`, "gi"), (m) => pushMention(m[1], m[2], m[0], "CAST TYPE"));',
   },
   {
     file: LINT,
@@ -901,6 +912,104 @@ const MUTATIONS = [
     name: "M1: stop excluding a CAST TYPE target that names this directory's own schema",
     from: "if (knownSchemas.has(target.schema) && target.schema !== schema) {",
     to: "if (knownSchemas.has(target.schema)) {",
+  },
+
+  // ---- round four -------------------------------------------------------
+  {
+    file: LINT,
+    // C1: `SET` was the one entry on the harmless-leading-verb list, on the
+    // stated reasoning that a bare `SET <parameter> = <value>` cannot reach
+    // another module's schema. `SET SCHEMA 'audit'` proved that false. The
+    // list is gone; this puts the exemption back by hand, in the smallest
+    // form that reproduces it. Caught by R6-2 (a plain session SET is
+    // refused because nothing resolves a target from it) - NOT by R6-1,
+    // which the explicit session-schema refusal below still reports.
+    name: "M1: exempt a statement opening with SET from the deny-by-default refusal again",
+    from:
+      '  return { targets, understood: targets.some((t) => t.resolvesStatement) };',
+    to:
+      '  return { targets, understood: targets.some((t) => t.resolvesStatement) || /^\\s*SET\\b/i.test(statement) };',
+  },
+  {
+    file: LINT,
+    // The other half of C1: the explicit refusal of the SESSION-level
+    // schema statement, whatever spelling its argument takes. Caught by
+    // R6-1's message assertion - the file stays reported either way, by
+    // the deny-by-default path, but only this check produces the message
+    // that names what the statement actually does.
+    name: "M1: stop refusing a session SET that changes schema resolution",
+    from:
+      "    if (/^\\s*SET\\s+(?:LOCAL\\s+|SESSION\\s+)?SCHEMA\\b/i.test(statement)) {",
+    to: '    if (false) {',
+  },
+  {
+    file: LINT,
+    // I2: an incidental mention (a schema-qualified call shape, a cast, a
+    // FROM clause) satisfying `understood` is exactly how round three's
+    // deny-by-default was undone from the inside by round three's own
+    // later extractors. Caught by R6-3, whose statement resolves no
+    // target at all but does carry an own-schema call shape.
+    name: "M1: let an incidental mention satisfy the deny-by-default refusal again",
+    from:
+      '  return { targets, understood: targets.some((t) => t.resolvesStatement) };',
+    to: '  return { targets, understood: targets.length > 0 };',
+  },
+  {
+    file: LINT,
+    // I3: the whole declaration-position type scan. Caught by R6-4.
+    name: "M1: stop scanning for a schema-qualified type in declaration position",
+    from:
+      'String.raw`(?:${TYPE_POSITIONS.join("|")})(${ID})\\.(${ID})`,',
+    to: 'String.raw`(?!)`,',
+  },
+  {
+    file: LINT,
+    // I3, the narrower half: only the column-definition position, which is
+    // the one the finding reproduced. The other four entries stay, so this
+    // is not the same mutation as removing the scan. Caught by R6-4.
+    name: "M1: stop reading a relation's own column list as a type position",
+    from: '  String.raw`[(,]\\s*${ID}\\s+`,\n',
+    to: "",
+  },
+  {
+    file: LINT,
+    // I4, first half: `INHERIT` (singular) is a different keyword from
+    // `INHERITS`, and the ALTER form was never matched. Narrowing the
+    // alternation back to the plural reproduces exactly that. Caught by
+    // R6-5, not by R3-35 (whose CREATE form still says INHERITS).
+    name: "M1: narrow the INHERITS alternation back to the plural CREATE spelling",
+    from: '  "INHERITS?",\n',
+    to: '  "INHERITS",\n',
+  },
+  {
+    file: LINT,
+    // I4, second half: `ATTACH PARTITION` is its own entry beside
+    // `PARTITION OF`, and is independently deletable. Caught by R6-6.
+    name: "M1: stop treating ATTACH PARTITION as a cross-schema structural coupling",
+    from: '  "ATTACH\\\\s+PARTITION",\n',
+    to: "",
+  },
+  {
+    file: LINT,
+    // I5: M3's two sub-checks were anchored to the literal keywords
+    // `ALTER TABLE`. Re-anchoring reproduces it for both at once, so each
+    // sub-check also gets its own narrower mutation below. Caught by R6-7,
+    // R6-8 and R6-9; the plain ALTER TABLE controls stay green, which is
+    // the point.
+    name: "M3: anchor both audit sub-checks back to the literal keywords ALTER TABLE",
+    from:
+      "      const alterRelation = String.raw`\\bALTER\\s+${RENAMEABLE_TYPES}\\b`;",
+    to: "      const alterRelation = String.raw`\\bALTER\\s+TABLE\\b`;",
+  },
+  {
+    file: LINT,
+    // The single-quoted function body: as unreadable to this lint as a
+    // dollar-quoted one, and refused only in the $$ spelling before.
+    // Caught by R6-10.
+    name: "M1: stop refusing a function body written as a single-quoted string literal",
+    from:
+      "      /\\b(?:CREATE|ALTER)\\s+(?:OR\\s+REPLACE\\s+)?(?:FUNCTION|PROCEDURE)\\b[\\s\\S]*\\bAS\\s+''/i.test(",
+    to: '      /(?!)/.test(',
   },
 ];
 

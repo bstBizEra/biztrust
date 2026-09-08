@@ -73,6 +73,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 import { withRealRootLock } from "./real-root-lock.mjs";
+import { skipIfRealTreeIsDirty } from "./real-tree.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..", "..");
@@ -99,8 +100,14 @@ const skip =
     ? "avoids recursing into a nested mutation-check sweep while already inside one"
     : false;
 
-test("mutation-check aborts before doing anything if the working tree is dirty", { skip }, () => {
+test("mutation-check aborts before doing anything if the working tree is dirty", { skip }, (t) => {
   withRealRootLock(() => {
+    // Round four finding I10: this test PROVES the guard by dirtying the
+    // real tree itself, so it can still run on an already-dirty one - but
+    // it would then assert against dirt it did not create, and its sibling
+    // below could not run at all. Skipping both together keeps the pair
+    // honest about what was and was not observed.
+    if (skipIfRealTreeIsDirty(t)) return;
     writeFileSync(WITNESS, "witness file for the mutation-check dirty-tree guard test\n", "utf8");
     try {
       let result;
@@ -135,8 +142,14 @@ test("mutation-check aborts before doing anything if the working tree is dirty",
 test(
   "mutation-check fails the run if the working tree is dirty at exit, even though the sweep itself was clean",
   { skip },
-  () => {
+  (t) => {
     withRealRootLock(() => {
+      // Round four finding I10: on a dirty real tree the spawned script
+      // aborts at its START check ("the working tree is not clean") and
+      // never reaches the EXIT check this test exists to witness, so the
+      // test failed under a name claiming the exit guard was broken. An
+      // unmet precondition is a skip.
+      if (skipIfRealTreeIsDirty(t)) return;
       const exitWitnessName = `.mutation-check-exit-guard-witness.${process.pid}-${randomBytes(4).toString("hex")}.tmp`;
       let result;
       try {
