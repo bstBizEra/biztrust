@@ -539,6 +539,51 @@ const MUTATIONS = [
     from: "      out.push(sql[i].toLowerCase());",
     to: "      out.push(sql[i]);",
   },
+
+  // ---- task 3 round two re-review, follow-up to finding 1: a schema-
+  // qualified TYPE REFERENCE in cast position -----------------------------
+  {
+    file: LINT,
+    // The coordinator's own ruling: `(?<!::\s*)` correctly stopped a typmod
+    // cast from being misidentified as a CALL, but left the cast itself
+    // undetectable as a reference to another module's TYPE, with or without
+    // a typmod. Disabling the whole scan is witnessed by BOTH R5-1 (with a
+    // typmod) and R5-2 (without one) independently going red - the same
+    // "one mutation, two independent witnesses" shape the EXPR CALL scan's
+    // own removal mutation above uses for R3-39/R3-40.
+    name: "CAST TYPE: stop scanning for a schema-qualified type reference in cast position",
+    from: 'String.raw`::\\s*(${ID})\\.(${ID})`, "gi"), (m) => push(m[1], m[2], m[0], "CAST TYPE"));',
+    to: 'String.raw`(?!)`, "gi"), (m) => push(m[1], m[2], m[0], "CAST TYPE"));',
+  },
+  {
+    file: LINT,
+    // The registry-membership half of the CAST TYPE guard: without it, a
+    // cast to a schema no module owns (pg_catalog, information_schema) is
+    // reported exactly like a cast to a real foreign module's schema, which
+    // is the false positive finding 1 fixed and this task must not
+    // reintroduce. Witnessed by 0005_cast_type_own_schema_and_builtin.sql
+    // going red on its pg_catalog and information_schema columns (its
+    // own-schema columns would ALSO go red from this same mutation, since
+    // every schema, including this directory's own, is trivially "not in
+    // knownSchemas" once the check is removed entirely - but the point of
+    // THIS mutation is the registry half specifically, so `target.schema
+    // !== schema` is left standing and only the membership check is cut).
+    name: "M1: stop filtering CAST TYPE targets by registry membership",
+    from: "if (knownSchemas.has(target.schema) && target.schema !== schema) {",
+    to: "if (target.schema !== schema) {",
+  },
+  {
+    file: LINT,
+    // The schema-equality half of the same guard: without it, a cast to
+    // this directory's OWN schema (trivially a member of `knownSchemas`,
+    // since this directory is itself a registered module) is reported as
+    // touching a foreign schema. Witnessed by
+    // 0005_cast_type_own_schema_and_builtin.sql going red on its two
+    // own-schema columns.
+    name: "M1: stop excluding a CAST TYPE target that names this directory's own schema",
+    from: "if (knownSchemas.has(target.schema) && target.schema !== schema) {",
+    to: "if (knownSchemas.has(target.schema)) {",
+  },
 ];
 function runSuite() {
   try {

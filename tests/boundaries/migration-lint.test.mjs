@@ -564,6 +564,25 @@ const CONTROLS = [
     rule: "M1",
     match: 'touches schema "audit" but this directory owns "tenancy" (audit.is_valid_code()',
   },
+
+  // Round two re-review, follow-up to finding 1: `(?<!::\s*)` correctly
+  // stopped a typmod cast from being misidentified as a CALL, but it also
+  // made the cast itself undetectable as a reference to another module's
+  // TYPE - both with and without a typmod. The CAST TYPE scan closes both.
+  {
+    control: "R5-1",
+    threat: "a type cast with a typmod crosses a schema boundary",
+    file: "r5_cast_type_crosses_a_schema_with_typmod.sql",
+    rule: "M1",
+    match: 'casts to type "audit.decision_status", a type in another module\'s schema',
+  },
+  {
+    control: "R5-2",
+    threat: "a type cast with no typmod crosses a schema boundary",
+    file: "r5_cast_type_crosses_a_schema_no_typmod.sql",
+    rule: "M1",
+    match: 'casts to type "audit.decision_status", a type in another module\'s schema',
+  },
 ];
 
 // Control R3-6 is the inverse of the others: the fixture must be READ, not

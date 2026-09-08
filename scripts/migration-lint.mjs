@@ -662,6 +662,49 @@ function objectTargets(statement) {
     (m) => push(m[1], m[2], m[0], "EXPR CALL"),
   );
 
+  // A schema-qualified TYPE REFERENCE in CAST position - `::schema.name`,
+  // with or without a trailing typmod argument list. Round two re-review of
+  // this same task, a follow-up to finding 1 above: `(?<!::\s*)` correctly
+  // stops treating a cast's typmod as a CALL, but by construction it also
+  // made the cast itself undetectable as what it actually is - a reference
+  // to another module's TYPE. Before this task, `'0'::audit.mytype(10)` was
+  // misidentified as a call but happened to land on a true foreign-schema
+  // positive; after the guard above, it went silent for every schema,
+  // foreign included, and `::audit.mytype` with no typmod was never caught
+  // either way, before or after. This scan closes both forms, which is why
+  // it is strictly better than the incidental coverage the guard cost, not
+  // merely a restoration of it.
+  //
+  // Unlike every other extractor in this file (see the EXPR CALL comment
+  // above: "this file has never consulted the module registry"), THIS
+  // scan's targets are filtered against the registry before M1 ever
+  // reports on them (`knownSchemas`, threaded into `lintFile` from `main`,
+  // read in the M1 per-target loop below): a schema no module owns -
+  // `pg_catalog`, `information_schema`, an installed extension's own schema
+  // - is not another MODULE's schema, and a cast to one of its built-in
+  // types is exactly what finding 1 of the last round protected.
+  // `pg_catalog.numeric(10,2)` must stay silent whether or not it carries a
+  // typmod; only a cast to a schema some OTHER registered module actually
+  // owns is the cross-module reference this scan exists to catch. Registry
+  // membership, not a hand-maintained built-in-schema list: a second
+  // parallel list of names to exempt is exactly the shape constraint 10
+  // warns against, and the registry is already the one list this whole
+  // file is generated from. `verb` is its own value, `"CAST TYPE"`, read by
+  // its own branch in the M1 per-target loop rather than the shared
+  // "touches schema" branch every other verb here falls into - that shared
+  // branch has no registry to consult and must not gain one, or every
+  // other extractor's existing "no exemption" stance changes with it.
+  //
+  // No trailing `\s*\(` requirement, unlike EXPR CALL: a type reference in
+  // cast position is a reference whether or not it carries a typmod, so the
+  // shape here is simply `::` immediately followed by a schema-qualified
+  // name, nothing more. An array suffix (`::audit.mytype[]`,
+  // `::audit.mytype(10)[]`) or anything else trailing the name is not part
+  // of what this scan reads and does not need to be excluded - the
+  // schema-qualified name is already fully captured before `[` or `(` would
+  // appear, and neither one is required for a match.
+  scan(new RegExp(String.raw`::\s*(${ID})\.(${ID})`, "gi"), (m) => push(m[1], m[2], m[0], "CAST TYPE"));
+
   // CREATE|ALTER|DROP <TYPE> [schema.]name
   scan(
     new RegExp(
@@ -860,7 +903,7 @@ function exemptFromM5(sql) {
   return exempt;
 }
 
-function lintFile(path, moduleName, schema, errors) {
+function lintFile(path, moduleName, schema, errors, knownSchemas) {
   const rel = relative(ROOT, path).replace(/\\/g, "/");
   const rawSql = readFileSync(path, "utf8");
   const report = (rule, detail) => errors.push(`${rel}: ${rule}: ${detail}`);
@@ -951,6 +994,22 @@ function lintFile(path, moduleName, schema, errors) {
             `unqualified name lands wherever search_path points, which is how a ` +
             `migration escapes its own schema. Write "${schema}.${target.object}".`,
         );
+      } else if (target.verb === "CAST TYPE") {
+        // Registry membership, not the plain inequality every other verb
+        // here uses - see the CAST TYPE scan's comment in `objectTargets`.
+        // A schema no module owns (pg_catalog, information_schema, an
+        // installed extension's own schema) is silently not another
+        // module's schema; only a cast reaching a schema some OTHER
+        // registered module actually owns is reported.
+        if (knownSchemas.has(target.schema) && target.schema !== schema) {
+          report(
+            "M1",
+            `casts to type "${target.schema}.${target.object}", a type in another ` +
+              `module's schema (this directory owns "${schema}"); a cast reaches ` +
+              `that schema's type exactly as directly as a foreign key reaches its ` +
+              `table (${target.text.trim()})`,
+          );
+        }
       } else if (target.schema !== schema) {
         report(
           "M1",
@@ -1101,6 +1160,16 @@ function main() {
     registry.modules.filter((m) => m.schema !== "none").map((m) => [m.name, m.schema]),
   );
 
+  // Every schema a registered module owns, as a SET rather than the
+  // name-keyed Map above - the CAST TYPE scan's M1 branch (see its comment
+  // in `objectTargets`) needs only membership, not which module owns which
+  // schema. A schema no module owns (`pg_catalog`, `information_schema`, an
+  // installed extension's own schema) is not in this set, which is exactly
+  // how that branch tells "another module's schema" apart from "a built-in
+  // schema no module claims" without a second, hand-maintained list of
+  // built-in names.
+  const knownSchemas = new Set(schemaOf.values());
+
   if (!existsSync(base)) {
     process.stdout.write(`MIGRATION_LINT PASS ${target} does not exist yet; nothing to lint\n`);
     return 0;
@@ -1155,7 +1224,7 @@ function main() {
       // to be file-wide: one legitimately platform-owned table at the top
       // exempted every table below it in the same file, so a table with no
       // tenant_id could ride in behind it (peer review, minor finding).
-      lintFile(path, entry, schema, errors);
+      lintFile(path, entry, schema, errors, knownSchemas);
     }
   }
 
