@@ -32,7 +32,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -64,20 +64,19 @@ function listWorktreePaths() {
 }
 
 /** Runs the real script with extra env vars layered onto this process's own
- * environment, and returns { code, out } the same way every other spawn
- * helper in this suite does. */
+ * environment, and returns { code, out }. Uses `spawnSync` rather than
+ * `execFileSync`: the reclaim message (like most of this script's
+ * diagnostics) goes to stderr, and `execFileSync`'s return value on a
+ * SUCCESSFUL run carries only stdout - `spawnSync` reports both streams
+ * unconditionally, on success or failure alike, which every assertion below
+ * that reads a stderr-only message depends on. */
 function runScript(env) {
-  try {
-    const stdout = execFileSync(process.execPath, [SCRIPT], {
-      cwd: ROOT,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, ...env },
-    });
-    return { code: 0, out: stdout };
-  } catch (error) {
-    return { code: error.status ?? -1, out: `${error.stdout ?? ""}${error.stderr ?? ""}` };
-  }
+  const result = spawnSync(process.execPath, [SCRIPT], {
+    cwd: ROOT,
+    encoding: "utf8",
+    env: { ...process.env, ...env },
+  });
+  return { code: result.status ?? -1, out: `${result.stdout ?? ""}${result.stderr ?? ""}` };
 }
 
 test(
