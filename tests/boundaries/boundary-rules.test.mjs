@@ -176,6 +176,18 @@ const CONTROLS = [
     file: "packages/second/src/violates-rule-4-second-package.ts",
     rule: "rule-4-packages-import-no-module",
   },
+  {
+    control: 5,
+    threat: "an app that is not the control plane bypasses a contract",
+    file: "apps/broker-portal/src/violates-rule-5-from-broker-portal.ts",
+    rule: "rule-5-entry-points-see-contracts-only",
+  },
+  {
+    control: 6,
+    threat: "a module imports an app, not a service",
+    file: "modules/beta/src/public/violates-rule-5b-app-target.ts",
+    rule: "rule-5-nothing-imports-an-entry-point",
+  },
 ];
 
 for (const { control, threat, file, rule } of CONTROLS) {

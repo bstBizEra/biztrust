@@ -391,6 +391,18 @@ const MUTATIONS = [
   },
   {
     file: RULES,
+    name: "rule 5: narrow entry points to services only, dropping apps",
+    from: '    from: { path: "^(services|apps)/" },',
+    to: '    from: { path: "^services/" },',
+  },
+  {
+    file: RULES,
+    name: "rule 5b: narrow the entry-point target to services only, dropping apps",
+    from: '    to: { path: "^(services|apps)/" },',
+    to: '    to: { path: "^services/" },',
+  },
+  {
+    file: RULES,
     name: "rule 6: only a service may not import a test package",
     from: '    from: { pathNot: "^tests/" },',
     to: '    from: { path: "^services/" },',
