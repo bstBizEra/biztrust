@@ -10,3 +10,9 @@ coverage/
 .pnpm-store/
 __pycache__/
 *.pyc
+
+# Subagent-driven-development scratch workspace (ledger, briefs, review packages).
+.superpowers/
+[INFO] Recording command outcome: printf
+
+[OK] Command outcome recorded
