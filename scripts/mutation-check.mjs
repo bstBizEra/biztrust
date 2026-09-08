@@ -91,7 +91,27 @@ import { ROOT as REAL_ROOT } from "./registry.mjs";
 // recognisable to a later run: `reclaimOrphanWorktrees` below looks at
 // `git worktree list` for entries under this prefix rather than needing its
 // own separate bookkeeping file.
-const WORKTREE_PREFIX = join(tmpdir(), "biztrust-mutation-");
+//
+// TEST-ONLY: MUTATION_CHECK_TEST_WORKTREE_TAG, when set, appends a tag to
+// the prefix instead of using the fixed default. Read only by
+// tests/boundaries/mutation-check-worktree-lifecycle.test.mjs's finding-2
+// case, which deliberately leaves a real orphan behind to prove reclamation
+// - and `node --test` runs test FILES in parallel, so a sibling test file's
+// own, concurrently-spawned mutation-check.mjs (the exit-guard witness,
+// say) would otherwise see that orphan under the SAME default prefix and
+// legitimately reclaim it first, out from under the test that planted it.
+// Each test run generates its own random tag and threads it through every
+// child it spawns, so only that test's own invocations ever see its own
+// worktree - exactly the "give it a unique namespace" fix this task already
+// applied once, to the dirty-tree guard witness's filename, for the same
+// reason. A normal invocation never sets this, so production behaviour is
+// unchanged.
+const WORKTREE_PREFIX = join(
+  tmpdir(),
+  process.env.MUTATION_CHECK_TEST_WORKTREE_TAG
+    ? `biztrust-mutation-test-${process.env.MUTATION_CHECK_TEST_WORKTREE_TAG}-`
+    : "biztrust-mutation-",
+);
 
 /** The file a worktree's owner writes inside it, naming the pid that created
  * it. `reclaimOrphanWorktrees` uses this to tell "an earlier run died and
