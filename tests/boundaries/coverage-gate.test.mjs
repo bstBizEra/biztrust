@@ -29,9 +29,17 @@
  * The gate reads the two test files it checks from the repository. Proving it
  * fails needs test files that are MISSING a witness, and this repository's own
  * must not be edited to produce that (it would dirty the working tree, which
- * `check:mutations` refuses). `COVERAGE_GATE_TEST_TESTS_DIR` - a TEST-ONLY
- * seam a normal `pnpm check:coverage` never sets - points it at a temporary
- * copy instead.
+ * `check:mutations` refuses), so a TEST-ONLY `--tests-dir` ARGUMENT points it
+ * at a temporary copy instead.
+ *
+ * An argument, and deliberately not an environment variable. Round four
+ * residual 1: the seam was `COVERAGE_GATE_TEST_TESTS_DIR`, and one exported
+ * variable neutered the gate AND all four tests below at once - `gate()`
+ * spawned the script with the ambient environment, so the tests inherited the
+ * poisoned value and passed vacuously beside the check they exist to witness.
+ * Two things stop that now, and the fourth test below proves both: the gate
+ * reads only its own argv, and `gate()` scrubs the old variable out of the
+ * child environment unless a test passes it deliberately.
  */
 
 import { test } from "node:test";
@@ -51,14 +59,29 @@ const GATE = join(ROOT, "scripts", "coverage-gate.mjs");
 const MIGRATION_TESTS = join(HERE, "migration-lint.test.mjs");
 const BOUNDARY_TESTS = join(HERE, "boundary-rules.test.mjs");
 
-/** Runs the gate and returns { code, out }. */
-function gate(env = {}) {
+/** The environment variable this seam used to be, and must never be again.
+ * Named here so the scrub below and the witness at the bottom of this file
+ * cannot drift apart from each other. */
+const RETIRED_ENV_SEAM = "COVERAGE_GATE_TEST_TESTS_DIR";
+
+/**
+ * Runs the gate with the given arguments and returns { code, out }.
+ *
+ * The child NEVER inherits `RETIRED_ENV_SEAM` from this process unless a test
+ * passes it deliberately in `env`. Even though the gate no longer reads it,
+ * scrubbing it here is what stops these tests from ever again passing
+ * vacuously because the value they were given came from outside - and it is
+ * what makes the deliberate case, in the last test below, mean something.
+ */
+function gate(args = [], env = {}) {
+  const childEnv = { ...process.env, ...env };
+  if (!(RETIRED_ENV_SEAM in env)) delete childEnv[RETIRED_ENV_SEAM];
   try {
-    const stdout = execFileSync(process.execPath, [GATE], {
+    const stdout = execFileSync(process.execPath, [GATE, ...args], {
       cwd: ROOT,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, ...env },
+      env: childEnv,
     });
     return { code: 0, out: stdout };
   } catch (error) {
@@ -127,7 +150,7 @@ test("the coverage gate refuses an audit verb no control asserts", () => {
     name === "migration-lint.test.mjs" ? text.split(`"${verb}" is refused`).join("(removed)") : text,
   );
   try {
-    const { code, out } = gate({ COVERAGE_GATE_TEST_TESTS_DIR: dir });
+    const { code, out } = gate(["--tests-dir", dir]);
     assert.equal(
       code,
       1,
@@ -151,7 +174,7 @@ test("the coverage gate refuses a P0 domain stem no control asserts", () => {
       : text,
   );
   try {
-    const { code, out } = gate({ COVERAGE_GATE_TEST_TESTS_DIR: dir });
+    const { code, out } = gate(["--tests-dir", dir]);
     assert.equal(code, 1, `got ${code}:\n${out}`);
     assert.ok(
       out.includes(`M4 refuses a table named for the domain word "${label}"`),
@@ -173,11 +196,54 @@ test("the coverage gate refuses a generated rule family no control names", () =>
     name === "boundary-rules.test.mjs" ? text.split(family).join("rule-3-removed") : text,
   );
   try {
-    const { code, out } = gate({ COVERAGE_GATE_TEST_TESTS_DIR: dir });
+    const { code, out } = gate(["--tests-dir", dir]);
     assert.equal(code, 1, `got ${code}:\n${out}`);
     assert.ok(
       out.includes(`${family} is a rule shape the generator emits`),
       `expected the gate to name the unwitnessed rule family; got:\n${out}`,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the coverage gate reads its own argv and cannot be redirected by the environment", () => {
+  // Round four residual 1, both halves in one test, against the same poisoned
+  // directory: two EMPTY test files, in which every named protection is
+  // unwitnessed.
+  //
+  // The two assertions only mean something together. The first proves the
+  // directory really is poisoned and that the flag really does redirect the
+  // gate - without it, the second would pass against a seam that had simply
+  // stopped working. The second proves the retired environment variable
+  // reaches nothing: a gate that still honoured it would read the empty files,
+  // find all sixteen protections unwitnessed and exit 1.
+  const dir = testsDirWith(() => "");
+  try {
+    const viaFlag = gate(["--tests-dir", dir]);
+    assert.equal(
+      viaFlag.code,
+      1,
+      `the --tests-dir flag must redirect the gate, and this directory's two ` +
+        `empty files witness nothing at all; got ${viaFlag.code}:\n${viaFlag.out}`,
+    );
+
+    const viaEnv = gate([], { [RETIRED_ENV_SEAM]: dir });
+    assert.equal(
+      viaEnv.code,
+      0,
+      `${RETIRED_ENV_SEAM} must reach nothing. One exported variable used to ` +
+        `neuter this gate AND every test in this file at once, because the ` +
+        `tests spawned the gate with the ambient environment and inherited the ` +
+        `poisoned value - and mutation-check.mjs's runSuite forwards the ambient ` +
+        `environment too, so the sweep would not have seen it either. The gate ` +
+        `reads its own argv or it reads the repository. Got ${viaEnv.code}:\n${viaEnv.out}`,
+    );
+    assert.match(
+      viaEnv.out,
+      new RegExp(`COVERAGE_GATE PASS ${expectedProtectionCount()} named protections`),
+      `the gate must have read the REPOSITORY's own test files and counted every ` +
+        `protection, not the empty ones the environment pointed at; got:\n${viaEnv.out}`,
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });

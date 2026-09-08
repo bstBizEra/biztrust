@@ -692,6 +692,19 @@ const CONTROLS = [
     rule: "M1",
     match: "single-quoted string literal is refused",
   },
+
+  // Round four residual 2: C1 was closed for one spelling, not for the act.
+  // set_config() is SET search_path in function form, and wrapping it in a
+  // statement whose own target resolves defeated deny-by-default as well as
+  // both explicit checks. R6-1 cannot see this - its statement resolves
+  // nothing and is refused twice over - so this is its own fixture.
+  {
+    control: "R6-11",
+    threat: "set_config() changes the session search_path from inside a resolved statement",
+    file: "r6_set_config_changes_search_path.sql",
+    rule: "M1",
+    match: "calls set_config(), which sets a run-time parameter for the session",
+  },
 ];
 
 // Control R3-6 is the inverse of the others: the fixture must be READ, not

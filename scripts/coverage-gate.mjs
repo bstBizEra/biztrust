@@ -43,21 +43,49 @@ import { buildRules } from "./boundary-rules.mjs";
 const MIGRATION_TESTS = "tests/boundaries/migration-lint.test.mjs";
 const BOUNDARY_TESTS = "tests/boundaries/boundary-rules.test.mjs";
 
-// TEST-ONLY seam, read by tests/boundaries/coverage-gate.test.mjs. A normal
-// `pnpm check:coverage` never sets it and reads the repository's own test
-// files, exactly as before.
-//
-// Round four finding I9: this gate - the instrument built to answer 'is
-// every named protection witnessed by something?' - was itself witnessed by
-// nothing. `return 0;` as the first statement of main() made it print
-// nothing, exit 0, and `pnpm verify` sailed through; no test referenced it,
-// and mutation-check.mjs's runSuite() never spawned it. Proving it FAILS
-// when a protection is unwitnessed needs test files that are MISSING one,
-// and the repository's own must not be edited to produce that - it would
-// dirty the working tree, which check:mutations then refuses - so the
-// directory the two test files are read from is overridable here, and
-// nowhere else.
-const TESTS_DIR = process.env.COVERAGE_GATE_TEST_TESTS_DIR;
+/**
+ * TEST-ONLY: the directory the two test files are read from, overridden for
+ * tests/boundaries/coverage-gate.test.mjs. A normal `pnpm check:coverage`
+ * passes no arguments and reads the repository's own test files.
+ *
+ * Round four finding I9: this gate - the instrument built to answer "is every
+ * named protection witnessed by something?" - was itself witnessed by
+ * nothing. `return 0;` as the first statement of main() made it print
+ * nothing, exit 0, and `pnpm verify` sailed through. Proving it FAILS when a
+ * protection is unwitnessed needs test files that are MISSING one, and the
+ * repository's own must not be edited to produce that (it would dirty the
+ * working tree that check:mutations refuses), so the source directory has to
+ * be overridable from outside.
+ *
+ * A COMMAND-LINE ARGUMENT, and deliberately not an environment variable.
+ * Round four residual 1: the first version of this seam read
+ * `process.env.COVERAGE_GATE_TEST_TESTS_DIR`, and one exported variable then
+ * neutered the gate AND all four of its own witnesses at once - the tests
+ * spawn this script with the ambient environment, so they inherited the
+ * poisoned value and passed vacuously beside the check they exist to
+ * witness, and `runSuite` in mutation-check.mjs forwards the ambient
+ * environment too, so the mutation sweep would not have seen it either. That
+ * is the exact "a rule that would stay green if it were deleted" shape this
+ * whole round exists to close, reintroduced inside the instrument built to
+ * detect it.
+ *
+ * An argument cannot be inherited. `pnpm check:coverage` runs
+ * `node scripts/coverage-gate.mjs` with no arguments, and no exported
+ * variable, no CI workflow `env:` block and no parent process can add one -
+ * so this gate reads the repository's own test files or it reads nothing at
+ * all. tests/boundaries/coverage-gate.test.mjs witnesses both halves: the
+ * flag really does redirect it, and the environment really does not.
+ */
+function testsDirFromArgv() {
+  const argv = process.argv.slice(2);
+  const inline = argv.find((argument) => argument.startsWith("--tests-dir="));
+  if (inline !== undefined) return inline.slice("--tests-dir=".length);
+  const index = argv.indexOf("--tests-dir");
+  if (index !== -1 && argv[index + 1] !== undefined) return argv[index + 1];
+  return undefined;
+}
+
+const TESTS_DIR = testsDirFromArgv();
 
 function read(relative) {
   if (TESTS_DIR !== undefined) {

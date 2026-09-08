@@ -1006,6 +1006,18 @@ const MUTATIONS = [
   },
   {
     file: LINT,
+    // Round four residual 2: the third spelling of the act C1 refuses.
+    // `set_config('search_path', 'audit', false)` IS `SET search_path TO
+    // audit`, and wrapping it in a statement whose own target resolves
+    // defeated deny-by-default as well as both explicit checks. Caught by
+    // R6-11's message assertion: with this off, the fixture's INSERT
+    // resolves its own target, is understood, and the file passes outright.
+    name: "M1: stop refusing a set_config() call that can change the session search_path",
+    from: "    if (/\\bset_config\\s*\\(/i.test(statement)) {",
+    to: '    if (false) {',
+  },
+  {
+    file: LINT,
     // The single-quoted function body: as unreadable to this lint as a
     // dollar-quoted one, and refused only in the $$ spelling before.
     // Caught by R6-10.
@@ -1033,6 +1045,21 @@ const MUTATIONS = [
     name: "coverage gate: return 0 before checking any protection",
     from: "function main() {\n  let registry;",
     to: "function main() {\n  return 0;\n  let registry;",
+  },
+  {
+    file: GATE,
+    // Round four residual 1, and the reason the seam is an argument rather
+    // than an environment variable. The first version of it read
+    // process.env.COVERAGE_GATE_TEST_TESTS_DIR, so one exported variable
+    // redirected the gate AND every one of its own witnesses at once - the
+    // tests spawn it with the ambient environment, and runSuite (above)
+    // forwards the ambient environment into this very sweep, so nothing here
+    // would have seen it either. This restores exactly that, and is caught by
+    // the argv/environment witness, which points the retired variable at two
+    // EMPTY test files and requires the gate to keep reading the repository.
+    name: "coverage gate: honour an ambient COVERAGE_GATE_TEST_TESTS_DIR again",
+    from: "const TESTS_DIR = testsDirFromArgv();",
+    to: "const TESTS_DIR = testsDirFromArgv() ?? process.env.COVERAGE_GATE_TEST_TESTS_DIR;",
   },
   {
     file: GATE,

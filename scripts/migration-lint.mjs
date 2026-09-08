@@ -1180,6 +1180,40 @@ function lintFile(path, moduleName, schema, errors, knownSchemas) {
       );
     }
 
+    // M1, the THIRD spelling of the act the two checks above refuse, and
+    // round four residual 2. `set_config('search_path', 'audit', false)`
+    // IS `SET search_path TO audit`, written as a function call, and with
+    // `is_local = false` it is session-scoped exactly as the statement form
+    // is. Neither check above sees it: `scrub()` blanks the literal, so
+    // there is no `search_path` token to match, and the session-SET check
+    // is anchored to the start of a statement. Nor does deny-by-default,
+    // once the call is wrapped in a statement whose own target resolves -
+    // `INSERT INTO tenancy.probe (v) SELECT set_config('search_path',
+    // 'audit', false);` resolved `tenancy.probe`, was understood, and the
+    // whole file linted PASS with exit 0 while every unqualified name in
+    // every statement after it bound into another module's schema.
+    //
+    // The refusal reads no argument, because it CANNOT: scrub() has
+    // already blanked every string literal by the time any matcher runs,
+    // so this lint cannot tell `set_config('search_path', ...)` from
+    // `set_config('statement_timeout', ...)`. A parameter it cannot
+    // identify is a refusal, not a guess - the same answer this file gives
+    // a dollar-quoted body and a psql meta-command. `pg_catalog.set_config`
+    // and any other schema-qualified spelling are covered by the same
+    // pattern, since `.` is a non-word character and the `\b` holds after
+    // it; a qualified spelling is additionally reported by the EXPR CALL
+    // scan as touching that schema.
+    if (/\bset_config\s*\(/i.test(statement)) {
+      report(
+        "M1",
+        "calls set_config(), which sets a run-time parameter for the session; " +
+          "set_config('search_path', 'audit', false) IS \"SET search_path TO " +
+          "audit\" in function form. This lint blanks every string literal " +
+          "before it reads a statement, so it cannot see WHICH parameter is " +
+          "being set and refuses the call rather than guessing",
+      );
+    }
+
     // M1: a function or procedure body written as a SINGLE-QUOTED string
     // literal. `scrub()` blanks it to `''` exactly as it blanks any other
     // literal, so the body is as unreadable to this lint as a dollar-quoted
