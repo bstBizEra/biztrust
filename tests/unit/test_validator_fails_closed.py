@@ -207,6 +207,68 @@ forbidden:
   - "Any transition into ACCEPTED made by the implementing agent"
 """
 
+#: A minimal but STRUCTURALLY REAL capability registry. Task 6: badf/skills.yaml
+#: used to be checked for a version: line and nothing else, so record-a-gate and
+#: grant-authority could be set to AVAILABLE with nothing objecting. This has to
+#: carry both, pinned FORBIDDEN_TO_AGENTS, for the pin to mean anything.
+SKILLS_YAML = """version: "0.1.0"
+
+skills:
+  - id: read-records
+    what: "fixture"
+    authority_required: none
+    status: AVAILABLE
+
+  - id: record-a-gate
+    what: "fixture"
+    authority_required: "the human role the gate names"
+    status: FORBIDDEN_TO_AGENTS
+
+  - id: grant-authority
+    what: "fixture"
+    authority_required: "business-authority or repository-administrator"
+    status: FORBIDDEN_TO_AGENTS
+"""
+
+#: A minimal but STRUCTURALLY REAL role registry. Task 6: badf/agents.yaml had
+#: no field capable of recording who holds a seat, and may_be_an_agent could be
+#: flipped to true on all four human-only seats with nothing objecting. This
+#: carries all four, each false with a held_by field, plus one agent-eligible
+#: role and one routing entry, so both pins have something to bind to.
+AGENTS_YAML = """version: "0.1.0"
+
+roles:
+  - id: platform-engineer
+    owns: ["fixture"]
+    may_be_an_agent: true
+    held_by: null
+
+  - id: repository-administrator
+    owns: ["fixture"]
+    may_be_an_agent: false
+    held_by: null
+
+  - id: architecture-authority
+    owns: ["fixture"]
+    may_be_an_agent: false
+    held_by: null
+
+  - id: business-authority
+    owns: ["fixture"]
+    may_be_an_agent: false
+    held_by: null
+
+  - id: legal-compliance-reviewer
+    owns: ["fixture"]
+    may_be_an_agent: false
+    held_by: null
+
+routing:
+  - path: "modules/**"
+    owner: platform-engineer
+    verifier: peer-reviewer
+"""
+
 
 def build(tmp: Path, *, state=None, actions=None, decision_lines=None, checkpoint=None,
           registries=REGISTRIES, extra_files=None) -> Path:
@@ -230,6 +292,8 @@ def build(tmp: Path, *, state=None, actions=None, decision_lines=None, checkpoin
             "authority.yaml": AUTHORITY_YAML,
             "gates.yaml": GATES_YAML,
             "lifecycle.yaml": LIFECYCLE_YAML,
+            "agents.yaml": AGENTS_YAML,
+            "skills.yaml": SKILLS_YAML,
         }.get(name, REGISTRY_STUB)
         (badf / name).write_text(content, encoding="utf-8")
 
@@ -720,6 +784,168 @@ class RoundThreeForgeries(unittest.TestCase):
         checkpoint = copy.deepcopy(CHECKPOINT)
         checkpoint["branch"] = "no-such-branch"
         self._refused("branch", checkpoint=checkpoint)
+
+class SkillsAndAgentsRegistriesClosed(unittest.TestCase):
+    """Task 6: badf/skills.yaml and badf/agents.yaml were each checked for
+    existence, non-emptiness and a version: line and nothing else.
+
+    An agent could set record-a-gate or grant-authority to AVAILABLE in
+    skills.yaml, or flip may_be_an_agent to true on all four human-only seats
+    in agents.yaml, and `pnpm validate:records` returned exit 0. agents.yaml
+    also had no field capable of recording who holds a seat, so NS-001's
+    acceptance ("a named human holds the seat") could not be recorded in the
+    record it names. Every test below is one of those, kept so the hole
+    cannot reopen quietly.
+    """
+
+    def _run(self, *, skills=None, agents=None):
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = build(Path(directory))
+            if skills is not None:
+                (tmp / "badf" / "skills.yaml").write_text(skills, encoding="utf-8")
+            if agents is not None:
+                (tmp / "badf" / "agents.yaml").write_text(agents, encoding="utf-8")
+            return run(tmp)
+
+    def _refused(self, needle, **kwargs):
+        result = self._run(**kwargs)
+        self.assertEqual(
+            result.returncode, 1,
+            f"this forgery must be refused:\n{result.stdout}{result.stderr}",
+        )
+        self.assertIn(needle, result.stderr)
+
+    # ---- the baselines must pass, or every test below is meaningless -------
+
+    def test_the_skills_fixture_passes(self):
+        result = self._run(skills=SKILLS_YAML)
+        self.assertEqual(
+            result.returncode, 0,
+            f"the skills baseline must pass:\n{result.stdout}{result.stderr}",
+        )
+
+    def test_the_agents_fixture_passes(self):
+        result = self._run(agents=AGENTS_YAML)
+        self.assertEqual(
+            result.returncode, 0,
+            f"the agents baseline must pass:\n{result.stdout}{result.stderr}",
+        )
+
+    # ---- badf/skills.yaml: record-a-gate and grant-authority -------------
+
+    def test_making_record_a_gate_available_is_reported(self):
+        text = SKILLS_YAML.replace(
+            "  - id: record-a-gate\n"
+            '    what: "fixture"\n'
+            '    authority_required: "the human role the gate names"\n'
+            "    status: FORBIDDEN_TO_AGENTS",
+            "  - id: record-a-gate\n"
+            '    what: "fixture"\n'
+            '    authority_required: "the human role the gate names"\n'
+            "    status: AVAILABLE",
+        )
+        self.assertNotEqual(text, SKILLS_YAML, "the replace target did not match")
+        self._refused("record-a-gate", skills=text)
+
+    def test_making_grant_authority_available_is_reported(self):
+        text = SKILLS_YAML.replace(
+            "  - id: grant-authority\n"
+            '    what: "fixture"\n'
+            '    authority_required: "business-authority or repository-'
+            'administrator"\n'
+            "    status: FORBIDDEN_TO_AGENTS",
+            "  - id: grant-authority\n"
+            '    what: "fixture"\n'
+            '    authority_required: "business-authority or repository-'
+            'administrator"\n'
+            "    status: AVAILABLE",
+        )
+        self.assertNotEqual(text, SKILLS_YAML, "the replace target did not match")
+        self._refused("grant-authority", skills=text)
+
+    def test_deleting_record_a_gate_is_reported(self):
+        """Deleting the row is another way to stop it being FORBIDDEN_TO_AGENTS."""
+        text = SKILLS_YAML.replace(
+            "\n  - id: record-a-gate\n"
+            '    what: "fixture"\n'
+            '    authority_required: "the human role the gate names"\n'
+            "    status: FORBIDDEN_TO_AGENTS\n",
+            "\n",
+        )
+        self.assertNotEqual(text, SKILLS_YAML, "the replace target did not match")
+        self._refused("record-a-gate", skills=text)
+
+    def test_a_skill_status_outside_the_closed_set_is_reported(self):
+        text = SKILLS_YAML.replace(
+            "    status: AVAILABLE\n\n  - id: record-a-gate",
+            "    status: PROBABLY_FINE\n\n  - id: record-a-gate",
+        )
+        self.assertNotEqual(text, SKILLS_YAML, "the replace target did not match")
+        self._refused("PROBABLY_FINE", skills=text)
+
+    # ---- badf/agents.yaml: may_be_an_agent and held_by ---------------------
+
+    def test_flipping_may_be_an_agent_true_on_a_human_seat_is_reported(self):
+        text = AGENTS_YAML.replace(
+            "  - id: repository-administrator\n"
+            '    owns: ["fixture"]\n'
+            "    may_be_an_agent: false\n"
+            "    held_by: null",
+            "  - id: repository-administrator\n"
+            '    owns: ["fixture"]\n'
+            "    may_be_an_agent: true\n"
+            "    held_by: null",
+        )
+        self.assertNotEqual(text, AGENTS_YAML, "the replace target did not match")
+        self._refused("repository-administrator", agents=text)
+
+    def test_flipping_all_four_human_seats_to_agent_true_is_reported(self):
+        """The peer-review finding, verbatim: all four seats, one edit."""
+        text = AGENTS_YAML.replace("may_be_an_agent: false", "may_be_an_agent: true")
+        self.assertNotEqual(text, AGENTS_YAML, "the replace target did not match")
+        result = self._run(agents=text)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        for role in (
+            "architecture-authority",
+            "business-authority",
+            "repository-administrator",
+            "legal-compliance-reviewer",
+        ):
+            self.assertIn(role, result.stderr)
+
+    def test_deleting_a_human_only_role_is_reported(self):
+        """Deleting the row is another way to stop a seat being human-only."""
+        text = AGENTS_YAML.replace(
+            "\n  - id: legal-compliance-reviewer\n"
+            '    owns: ["fixture"]\n'
+            "    may_be_an_agent: false\n"
+            "    held_by: null\n",
+            "\n",
+        )
+        self.assertNotEqual(text, AGENTS_YAML, "the replace target did not match")
+        self._refused("legal-compliance-reviewer", agents=text)
+
+    def test_a_missing_held_by_field_is_reported(self):
+        text = AGENTS_YAML.replace(
+            "  - id: platform-engineer\n"
+            '    owns: ["fixture"]\n'
+            "    may_be_an_agent: true\n"
+            "    held_by: null",
+            "  - id: platform-engineer\n"
+            '    owns: ["fixture"]\n'
+            "    may_be_an_agent: true",
+        )
+        self.assertNotEqual(text, AGENTS_YAML, "the replace target did not match")
+        self._refused("held_by", agents=text)
+
+    def test_a_non_boolean_may_be_an_agent_is_reported(self):
+        text = AGENTS_YAML.replace(
+            "    may_be_an_agent: true\n    held_by: null\n\n  - id: repository-administrator",
+            "    may_be_an_agent: PROBABLY\n    held_by: null\n\n  - id: repository-administrator",
+        )
+        self.assertNotEqual(text, AGENTS_YAML, "the replace target did not match")
+        self._refused("PROBABLY", agents=text)
+
 
 class ValidatorRunsAgainstThisRepository(unittest.TestCase):
     def test_the_real_records_pass(self):

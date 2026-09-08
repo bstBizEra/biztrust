@@ -11,36 +11,44 @@ roles:
   - id: platform-engineer
     owns: ["modules/tenancy", "modules/platform-configuration", "the layout"]
     may_be_an_agent: true
+    held_by: null
 
   - id: security-engineer
     owns: ["modules/identity-access", "modules/audit", "tests/security"]
     may_be_an_agent: true
+    held_by: null
 
   - id: domain-engineer
     owns: ["the brokerage modules, none of which has a package yet"]
     may_be_an_agent: true
+    held_by: null
 
   - id: finance-engineer
     owns: ["the financial modules, none of which has a package yet"]
     may_be_an_agent: true
+    held_by: null
 
   - id: integration-engineer
     owns: ["the integration modules, none of which has a package yet"]
     may_be_an_agent: true
+    held_by: null
 
   - id: data-reviewer
     owns: ["db/migrations", "the migration lint", "the contract lint job"]
     may_be_an_agent: true
+    held_by: null
     note: "Verifier for the migration controls. Never the implementer of the same change."
 
   - id: peer-reviewer
     owns: ["independent review of a package before ACCEPTED"]
     may_be_an_agent: true
+    held_by: null
     note: "Must be a different session or agent from the implementer, with fresh context."
 
   - id: repository-administrator
     owns: ["branch protection", "required checks", "CI secrets"]
     may_be_an_agent: false
+    held_by: null
     note: >-
       A human role. Negative control 6 of the P0.2 design cannot be observed
       until this seat is filled and the protection recorded. Unfilled.
@@ -48,16 +56,19 @@ roles:
   - id: architecture-authority
     owns: ["ARCH-001 acceptance", "ADR acceptance", "BT-G0"]
     may_be_an_agent: false
+    held_by: null
     note: "Unfilled. No agent may act in this seat, and none may infer its decision."
 
   - id: business-authority
     owns: ["the operating model", "expiring implementation grants", "BT-G2"]
     may_be_an_agent: false
+    held_by: null
     note: "Unfilled."
 
   - id: legal-compliance-reviewer
     owns: ["jurisdiction, licence, delegated authority, client money, data obligations"]
     may_be_an_agent: false
+    held_by: null
     note: >-
       Unfilled. FOUNDATION_SEQUENCE.md slice S01 stops when an agent is asked to
       infer contract authority, or when a third-party summary is the only

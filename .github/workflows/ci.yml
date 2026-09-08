@@ -77,6 +77,13 @@ jobs:
       - name: Boundary check
         run: pnpm boundaries:check
 
+      # 4b. CODEOWNERS check. Fails if .github/CODEOWNERS drifted from the
+      #     routing block of badf/agents.yaml. Note: generating this file is
+      #     not the same as it doing anything - see the header this step's
+      #     generator writes into the file itself.
+      - name: CODEOWNERS is current
+        run: pnpm codeowners:check
+
       # 5. Migration lint. One schema per module; the audit schema append-only;
       #    no P0 domain table; tenant_id on every tenant-owned table.
       - name: Migration lint

@@ -613,6 +613,439 @@ def validate_authority_registry(state, errors: list[str]) -> None:
                 )
 
 
+#: The closed set of statuses a skill entry in badf/skills.yaml may declare.
+SKILL_STATUSES = {"AVAILABLE", "BLOCKED", "FORBIDDEN_TO_AGENTS"}
+
+#: These two skills grant or record authority. AGENTS.md section 4 makes a
+#: gate result and an authority grant human decisions, never inferred and
+#: never an agent's to set, whatever the registry's prose column says.
+FORBIDDEN_TO_AGENTS_SKILLS = ("record-a-gate", "grant-authority")
+
+#: The fields a skill entry may carry. Unknown to this set is refused, not
+#: skipped, in the same doctrine parse_authority documents at length: a
+#: capability registry with a status a reader silently skips is a capability
+#: an agent can set to AVAILABLE with nothing objecting.
+SKILL_FIELDS = {"what", "authority_required", "status", "why", "note"}
+
+
+def parse_skills(text: str) -> tuple[dict[str, dict[str, str]], list[str]]:
+    """Reads badf/skills.yaml, refusing every line it cannot classify.
+
+    Same doctrine as parse_authority below: the default is an error. Returns
+    {skill_id: {field: value}}.
+    """
+    entries: dict[str, dict[str, str]] = {}
+    problems: list[str] = []
+    in_skills = False
+    current: str | None = None
+    block_indent: int | None = None
+
+    for number, raw in enumerate(text.splitlines(), start=1):
+        if raw.strip() == "" or raw.lstrip().startswith("#"):
+            continue
+
+        indent = len(raw) - len(raw.lstrip(" "))
+
+        if block_indent is not None:
+            if indent >= block_indent:
+                continue
+            block_indent = None
+
+        if "\t" in raw:
+            problems.append(
+                f"badf/skills.yaml line {number}: contains a tab; this file is "
+                f"space-indented"
+            )
+            continue
+
+        if indent == 0:
+            match = re.match(r"^(\S+):\s*(.*)$", raw)
+            if match is None:
+                problems.append(
+                    f"badf/skills.yaml line {number}: neither a top-level key nor "
+                    f"indented under one: {raw.strip()!r}"
+                )
+                continue
+            key, rest = match.group(1), match.group(2).strip()
+            current = None
+            if key == "skills":
+                if rest != "":
+                    problems.append(
+                        f"badf/skills.yaml line {number}: 'skills' carries an "
+                        f"inline value; its entries must be written as a block"
+                    )
+                in_skills = True
+                continue
+            if key in ("version", "updated_at"):
+                in_skills = False
+                continue
+            problems.append(
+                f"badf/skills.yaml line {number}: unknown top-level key {key!r}"
+            )
+            in_skills = False
+            continue
+
+        if not in_skills:
+            problems.append(
+                f"badf/skills.yaml line {number}: indented content outside the "
+                f"skills: block: {raw.strip()!r}"
+            )
+            continue
+
+        if indent == 2:
+            match = re.match(r"^ {2}- id:\s*(\S.*)$", raw)
+            if match is None:
+                problems.append(
+                    f"badf/skills.yaml line {number}: a skill entry must open "
+                    f"with '- id: <value>': {raw.strip()!r}"
+                )
+                current = None
+                continue
+            current = match.group(1).strip()
+            if current in entries:
+                problems.append(
+                    f"badf/skills.yaml line {number}: duplicate skill id "
+                    f"{current!r}"
+                )
+            entries.setdefault(current, {})
+            continue
+
+        if indent == 4:
+            if current is None:
+                problems.append(
+                    f"badf/skills.yaml line {number}: a field outside any skill "
+                    f"entry: {raw.strip()!r}"
+                )
+                continue
+            match = re.match(r"^ {4}(\S+):\s*(.*)$", raw)
+            if match is None:
+                problems.append(
+                    f"badf/skills.yaml line {number}: not a field of a skill "
+                    f"entry: {raw.strip()!r}"
+                )
+                continue
+            field, value = match.group(1), match.group(2).strip()
+            if field not in SKILL_FIELDS:
+                problems.append(
+                    f"badf/skills.yaml line {number}: unknown field {field!r} on "
+                    f"skill {current!r}"
+                )
+                continue
+            if value in (">", ">-", "|", "|-", ""):
+                block_indent = 6
+                value = ""
+            entries[current][field] = value
+            continue
+
+        problems.append(
+            f"badf/skills.yaml line {number}: indented {indent} spaces, which is "
+            f"neither an entry nor a field: {raw.strip()!r}"
+        )
+
+    return entries, problems
+
+
+def validate_skills_registry(errors: list[str]) -> None:
+    """The capability registry: statuses from a closed set, with the two
+    authority-shaped skills pinned FORBIDDEN_TO_AGENTS.
+
+    badf/skills.yaml was validated for existence, non-emptiness and a
+    version: line only (validate_registries above). Nothing stopped an agent
+    setting record-a-gate or grant-authority to AVAILABLE: the registry lists
+    what a skill claims to need, but the claim is prose an agent could edit to
+    say anything at all, and nothing read the status column.
+    """
+    try:
+        text = (BADF / "skills.yaml").read_text(encoding="utf-8")
+    except OSError as exc:
+        errors.append(f"badf/skills.yaml: cannot read: {exc}")
+        return
+
+    entries, problems = parse_skills(text)
+    errors.extend(problems)
+
+    if not entries:
+        errors.append("badf/skills.yaml: no skill is recorded")
+
+    for skill_id, entry in sorted(entries.items()):
+        status = entry.get("status", "").strip().strip('"')
+        if status == "":
+            errors.append(f"badf/skills.yaml: {skill_id} records no status")
+            continue
+        if status not in SKILL_STATUSES:
+            errors.append(
+                f"badf/skills.yaml: {skill_id} has status {status!r}, which is "
+                f"not one of {sorted(SKILL_STATUSES)}"
+            )
+
+    for skill_id in FORBIDDEN_TO_AGENTS_SKILLS:
+        if skill_id not in entries:
+            errors.append(
+                f"badf/skills.yaml: {skill_id!r} is missing, so its "
+                f"FORBIDDEN_TO_AGENTS pin cannot be checked. Deleting a skill is "
+                f"how a forbidden capability stops being forbidden without "
+                f"anyone recording that"
+            )
+            continue
+        status = entries[skill_id].get("status", "").strip().strip('"')
+        if status != "FORBIDDEN_TO_AGENTS":
+            errors.append(
+                f"badf/skills.yaml: {skill_id} has status {status!r}. "
+                f"AGENTS.md section 4 makes this a human decision, so it is "
+                f"pinned FORBIDDEN_TO_AGENTS and cannot become AVAILABLE from "
+                f"a data edit"
+            )
+
+
+#: The four seats badf/authority.yaml and AGENTS.md section 4 name as
+#: human-only. An agent may occupy every other seat for a Work Package, never
+#: these, and never the verifier seat for its own work.
+AGENT_FORBIDDEN_ROLES = (
+    "architecture-authority",
+    "business-authority",
+    "repository-administrator",
+    "legal-compliance-reviewer",
+)
+
+ROLE_FIELDS = {"owns", "may_be_an_agent", "note", "held_by"}
+ROUTING_FIELDS = {"owner", "verifier", "note"}
+BOOLEAN_LITERALS = {"true", "false"}
+
+
+def parse_agents(
+    text: str,
+) -> tuple[dict[str, dict[str, str]], list[dict[str, str]], list[str]]:
+    """Reads badf/agents.yaml, refusing every line it cannot classify.
+
+    Same doctrine as parse_authority and parse_skills: the default is an
+    error, not a skip. Returns (roles, routing, problems):
+
+        roles   {role_id: {field: value}}
+        routing [{field: value}, ...] in file order, each carrying "path"
+    """
+    roles: dict[str, dict[str, str]] = {}
+    routing: list[dict[str, str]] = []
+    problems: list[str] = []
+    section: str | None = None  # "roles" or "routing" once opened
+    current_role: str | None = None
+    current_route: dict[str, str] | None = None
+    block_indent: int | None = None
+
+    for number, raw in enumerate(text.splitlines(), start=1):
+        if raw.strip() == "" or raw.lstrip().startswith("#"):
+            continue
+
+        indent = len(raw) - len(raw.lstrip(" "))
+
+        if block_indent is not None:
+            if indent >= block_indent:
+                continue
+            block_indent = None
+
+        if "\t" in raw:
+            problems.append(
+                f"badf/agents.yaml line {number}: contains a tab; this file is "
+                f"space-indented"
+            )
+            continue
+
+        if indent == 0:
+            match = re.match(r"^(\S+):\s*(.*)$", raw)
+            if match is None:
+                problems.append(
+                    f"badf/agents.yaml line {number}: neither a top-level key "
+                    f"nor indented under one: {raw.strip()!r}"
+                )
+                continue
+            key, rest = match.group(1), match.group(2).strip()
+            current_role = None
+            current_route = None
+            if key == "roles":
+                if rest != "":
+                    problems.append(
+                        f"badf/agents.yaml line {number}: 'roles' carries an "
+                        f"inline value; its entries must be written as a block"
+                    )
+                section = "roles"
+                continue
+            if key == "routing":
+                if rest != "":
+                    problems.append(
+                        f"badf/agents.yaml line {number}: 'routing' carries an "
+                        f"inline value; its entries must be written as a block"
+                    )
+                section = "routing"
+                continue
+            if key in ("version", "updated_at"):
+                section = None
+                continue
+            problems.append(
+                f"badf/agents.yaml line {number}: unknown top-level key {key!r}"
+            )
+            section = None
+            continue
+
+        if section is None:
+            problems.append(
+                f"badf/agents.yaml line {number}: indented content outside "
+                f"roles: or routing:: {raw.strip()!r}"
+            )
+            continue
+
+        if indent == 2:
+            if section == "roles":
+                match = re.match(r"^ {2}- id:\s*(\S.*)$", raw)
+                if match is None:
+                    problems.append(
+                        f"badf/agents.yaml line {number}: a role entry must "
+                        f"open with '- id: <value>': {raw.strip()!r}"
+                    )
+                    current_role = None
+                    continue
+                current_role = match.group(1).strip()
+                if current_role in roles:
+                    problems.append(
+                        f"badf/agents.yaml line {number}: duplicate role id "
+                        f"{current_role!r}"
+                    )
+                roles.setdefault(current_role, {})
+            else:
+                match = re.match(r"^ {2}- path:\s*(\S.*)$", raw)
+                if match is None:
+                    problems.append(
+                        f"badf/agents.yaml line {number}: a routing entry must "
+                        f"open with '- path: <value>': {raw.strip()!r}"
+                    )
+                    current_route = None
+                    continue
+                current_route = {"path": match.group(1).strip()}
+                routing.append(current_route)
+            continue
+
+        if indent == 4:
+            match = re.match(r"^ {4}(\S+):\s*(.*)$", raw)
+            if match is None:
+                problems.append(
+                    f"badf/agents.yaml line {number}: not a field of an entry: "
+                    f"{raw.strip()!r}"
+                )
+                continue
+            field, value = match.group(1), match.group(2).strip()
+            if section == "roles":
+                if current_role is None:
+                    problems.append(
+                        f"badf/agents.yaml line {number}: a field outside any "
+                        f"role entry: {raw.strip()!r}"
+                    )
+                    continue
+                if field not in ROLE_FIELDS:
+                    problems.append(
+                        f"badf/agents.yaml line {number}: unknown field "
+                        f"{field!r} on role {current_role!r}"
+                    )
+                    continue
+                if value in (">", ">-", "|", "|-", ""):
+                    block_indent = 6
+                    value = ""
+                roles[current_role][field] = value
+            else:
+                if current_route is None:
+                    problems.append(
+                        f"badf/agents.yaml line {number}: a field outside any "
+                        f"routing entry: {raw.strip()!r}"
+                    )
+                    continue
+                if field not in ROUTING_FIELDS:
+                    problems.append(
+                        f"badf/agents.yaml line {number}: unknown field "
+                        f"{field!r} on a routing entry"
+                    )
+                    continue
+                if value in (">", ">-", "|", "|-", ""):
+                    block_indent = 6
+                    value = ""
+                current_route[field] = value
+            continue
+
+        problems.append(
+            f"badf/agents.yaml line {number}: indented {indent} spaces, which "
+            f"is neither a section, an entry nor a field: {raw.strip()!r}"
+        )
+
+    return roles, routing, problems
+
+
+def validate_agents_registry(errors: list[str]) -> None:
+    """The role registry: may_be_an_agent pinned for the four human seats, and
+    every role recording a held_by field so NS-001's acceptance ("a named
+    human holds the seat") has somewhere in this registry to be recorded.
+
+    badf/agents.yaml was validated for existence, non-emptiness and a
+    version: line only. Nothing stopped an agent flipping may_be_an_agent to
+    true on all four authority seats, and no field could record who holds one
+    even honestly, so NS-001's acceptance criterion could not be recorded in
+    the record it names. held_by defaults to null on every seat here: filling
+    one is a human act this validator does not perform and does not pin.
+    """
+    try:
+        text = (BADF / "agents.yaml").read_text(encoding="utf-8")
+    except OSError as exc:
+        errors.append(f"badf/agents.yaml: cannot read: {exc}")
+        return
+
+    roles, routing, problems = parse_agents(text)
+    errors.extend(problems)
+
+    if not roles:
+        errors.append("badf/agents.yaml: no role is recorded")
+    if not routing:
+        errors.append("badf/agents.yaml: no routing entry is recorded")
+
+    for role_id, entry in sorted(roles.items()):
+        may_be_agent = entry.get("may_be_an_agent", "").strip().strip('"')
+        if may_be_agent == "":
+            errors.append(
+                f"badf/agents.yaml: role {role_id} records no may_be_an_agent"
+            )
+        elif may_be_agent not in BOOLEAN_LITERALS:
+            errors.append(
+                f"badf/agents.yaml: role {role_id} has may_be_an_agent "
+                f"{may_be_agent!r}, which is neither true nor false"
+            )
+        if "held_by" not in entry:
+            errors.append(
+                f"badf/agents.yaml: role {role_id} records no held_by field, "
+                f"so NS-001's acceptance (\"a named human holds the seat\") "
+                f"has nowhere in this registry to be recorded"
+            )
+
+    for role_id in AGENT_FORBIDDEN_ROLES:
+        if role_id not in roles:
+            errors.append(
+                f"badf/agents.yaml: role {role_id!r} is missing, so its "
+                f"may_be_an_agent pin cannot be checked. Deleting a role is "
+                f"how a human-only seat stops being human-only without anyone "
+                f"recording that"
+            )
+            continue
+        may_be_agent = roles[role_id].get("may_be_an_agent", "").strip().strip('"')
+        if may_be_agent != "false":
+            errors.append(
+                f"badf/agents.yaml: role {role_id} has may_be_an_agent "
+                f"{may_be_agent!r}. This is a human-only seat and it is "
+                f"pinned false; AGENTS.md section 4 and badf/authority.yaml "
+                f"record why"
+            )
+
+    for index, route in enumerate(routing, start=1):
+        for field in ("path", "owner", "verifier"):
+            if field not in route or route[field].strip() == "":
+                errors.append(
+                    f"badf/agents.yaml: routing entry {index} records no "
+                    f"{field}"
+                )
+
+
 #: The delivery gates, and the states no agent may move a Work Package into
 #: without a recorded acceptance by someone who is not its implementer.
 DELIVERY_GATES = ("BT-G0", "BT-G1", "BT-G2", "BT-G3", "BT-G4")
@@ -869,6 +1302,8 @@ def main() -> int:
     state = load_json("badf/current-state.json", [])
     validate_authority_registry(state, errors)
     validate_gates_registry(state, errors)
+    validate_skills_registry(errors)
+    validate_agents_registry(errors)
     validate_lifecycle_pins(errors)
     validate_acceptance_is_not_self_awarded(state, errors)
     validate_checkpoint_agrees(state, errors)

@@ -11,13 +11,15 @@
   "scripts": {
     "boundaries:generate": "node scripts/generate-boundary-rules.mjs",
     "boundaries:check": "node scripts/generate-boundary-rules.mjs --check && depcruise --config .dependency-cruiser.cjs modules packages services apps tests",
+    "codeowners:generate": "node scripts/generate-codeowners.mjs",
+    "codeowners:check": "node scripts/generate-codeowners.mjs --check",
     "lint:migrations": "node scripts/migration-lint.mjs db/migrations",
     "validate:records": "node scripts/python.mjs scripts/validate_continuity.py",
     "test:boundaries": "node --test \"tests/boundaries/*.test.mjs\"",
     "test": "node --test \"tests/boundaries/*.test.mjs\"",
     "typecheck": "tsc -p tsconfig.json",
     "check:modules": "node scripts/check-module-packages.mjs",
-    "verify": "pnpm validate:records && pnpm test:validator && pnpm typecheck && pnpm boundaries:check && pnpm lint:migrations && pnpm check:modules && pnpm check:coverage && pnpm test:boundaries && pnpm check:mutations",
+    "verify": "pnpm validate:records && pnpm test:validator && pnpm typecheck && pnpm boundaries:check && pnpm codeowners:check && pnpm lint:migrations && pnpm check:modules && pnpm check:coverage && pnpm test:boundaries && pnpm check:mutations",
     "test:validator": "node scripts/python.mjs -m unittest discover -s tests/unit",
     "check:mutations": "node scripts/mutation-check.mjs",
     "check:coverage": "node scripts/coverage-gate.mjs"
