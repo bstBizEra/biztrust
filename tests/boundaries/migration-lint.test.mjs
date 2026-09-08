@@ -164,19 +164,26 @@ const CONTROLS = [
     rule: "M1",
     match: "cannot resolve what schema the statement touches",
   },
+  // Lower-case here (and in every other control below that asserts the
+  // parenthesised echoed clause text) is not a typo: round three's own
+  // pulled-in finding (DEC-016's case-folding defect) made scrub() fold
+  // every unquoted "code" character - keywords included, the same as
+  // PostgreSQL folds an unquoted token - not just quoted-identifier text.
+  // The keyword casing these controls assert on is therefore always
+  // lower-case now, regardless of how the fixture itself is written.
   {
     control: 4,
     threat: "DROP SCHEMA against another module",
     file: "new2_unmodelled_verbs.sql",
     rule: "M1",
-    match: "DROP SCHEMA audit",
+    match: "drop schema audit",
   },
   {
     control: 4,
     threat: "moving an object into another schema with SET SCHEMA",
     file: "new2_unmodelled_verbs.sql",
     rule: "M1",
-    match: "SET SCHEMA audit",
+    match: "set schema audit",
   },
   {
     control: 0,
@@ -470,42 +477,42 @@ const CONTROLS = [
     threat: "CREATE TABLE ... AS SELECT ... FROM reads another module's schema",
     file: "r3_from_reads_audit.sql",
     rule: "M1",
-    match: 'touches schema "audit" but this directory owns "tenancy" (FROM audit.decision)',
+    match: 'touches schema "audit" but this directory owns "tenancy" (from audit.decision)',
   },
   {
     control: "R3-32",
     threat: "a JOIN reads another module's schema",
     file: "r3_join_reads_audit.sql",
     rule: "M1",
-    match: 'touches schema "audit" but this directory owns "tenancy" (JOIN audit.decision)',
+    match: 'touches schema "audit" but this directory owns "tenancy" (join audit.decision)',
   },
   {
     control: "R3-33",
     threat: "DELETE ... USING reads another module's schema",
     file: "r3_using_reads_audit.sql",
     rule: "M1",
-    match: 'touches schema "audit" but this directory owns "tenancy" (USING audit.decision)',
+    match: 'touches schema "audit" but this directory owns "tenancy" (using audit.decision)',
   },
   {
     control: "R3-34",
     threat: "PARTITION OF structurally couples to another module's schema",
     file: "r3_partition_of_audit.sql",
     rule: "M1",
-    match: 'touches schema "audit" but this directory owns "tenancy" (PARTITION OF audit.decision)',
+    match: 'touches schema "audit" but this directory owns "tenancy" (partition of audit.decision)',
   },
   {
     control: "R3-35",
     threat: "INHERITS structurally couples to another module's schema",
     file: "r3_inherits_audit.sql",
     rule: "M1",
-    match: 'touches schema "audit" but this directory owns "tenancy" (INHERITS (audit.decision)',
+    match: 'touches schema "audit" but this directory owns "tenancy" (inherits (audit.decision)',
   },
   {
     control: "R3-36",
     threat: "LIKE copies column definitions from another module's schema",
     file: "r3_like_audit.sql",
     rule: "M1",
-    match: 'touches schema "audit" but this directory owns "tenancy" (LIKE audit.decision)',
+    match: 'touches schema "audit" but this directory owns "tenancy" (like audit.decision)',
   },
 
   // Round three open finding 10, first half: the unqualified REFERENCES
@@ -570,6 +577,40 @@ test("control R3-6: a .SQL file is read despite the uppercase extension", () => 
     lines.some((line) => line.includes(": M5: ")),
     `expected the uppercase-extension fixture to be read and reported for M5; ` +
       `the lint said:\n${violating.out}`,
+  );
+});
+
+// Finding 2 (round three re-review of the EXPR CALL scan): before the fix, a
+// CREATE TABLE's own column list was ALSO read as a schema-qualified function
+// call, so a genuine cross-schema CREATE TABLE was reported for M1 TWICE for
+// the identical statement - once correctly by the CREATE/ALTER/DROP scan,
+// once more by the EXPR CALL scan mistaking the relation's own name and
+// column list for a call. "at least one" (what the CONTROLS loop below
+// asserts) is satisfied either way and would not notice the duplicate
+// returning, so this is its own test asserting an EXACT count.
+//
+// This could not be witnessed as "a conforming fixture goes red" the way
+// finding 1's and finding 3's guards are below: the EXPR CALL scan matching
+// a relation's own qualified name is only ever OBSERVABLE when that name's
+// schema differs from the directory's own (a real, independent M1
+// violation) - for any conforming fixture the two schemas are equal by
+// construction, so the extra push is silently harmless with or without the
+// fix. An exact-count assertion on a genuinely cross-schema fixture is the
+// only shape that actually distinguishes the two behaviours.
+test("finding 2: a cross-schema CREATE TABLE is reported for M1 exactly once, not twice", () => {
+  const lines = violating.out
+    .split(/\r?\n/)
+    .filter(
+      (line) =>
+        line.includes("rr_create_table_targets_tenancy_reported_once.sql") &&
+        line.includes(": M1: "),
+    );
+  assert.equal(
+    lines.length,
+    1,
+    `expected exactly one M1 line for the cross-schema CREATE TABLE, not a ` +
+      `duplicate from the EXPR CALL scan reading the table's own column list ` +
+      `as a call; the lint said:\n${lines.join("\n")}`,
   );
 });
 

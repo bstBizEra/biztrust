@@ -335,8 +335,29 @@ function scrub(sql) {
     // which matches no domain stem, so a P0 `policy` table passed. The lint
     // read a different name than PostgreSQL would create, which is the one
     // thing it must never do quietly.
-    if (sql.codePointAt(i) > 127) nonAscii.add(sql[i]);
-    out.push(sql[i]);
+    //
+    // ASCII code is lower-cased before it is pushed. PostgreSQL folds every
+    // UNQUOTED identifier to lower case (`AUDIT.decision` and `audit.decision`
+    // name the same schema), and this is the same folding the quoted-identifier
+    // branch above already applies to its own inner text - both branches now
+    // normalise to the one case every comparison in this file assumes,
+    // instead of each of M1's schema check, M2's foreign-key check and the
+    // CREATE/DROP SCHEMA extraction separately guessing at case-insensitivity
+    // on their own. An unquoted schema written `AUDIT`, `Audit` or `audit`
+    // reaches every matcher identically, exactly as PostgreSQL itself would
+    // resolve it - not just the schema position: an unquoted keyword folds
+    // the same way in real PostgreSQL, so this is not a special case for
+    // identifiers, it is what "every byte here is code, and code folds" means.
+    // A non-ASCII byte is pushed UNCHANGED, same as before this change - it is
+    // already refused by the `nonAscii` check below regardless of what this
+    // branch does with it, so there is nothing to gain and a needless risk of
+    // surprising `.toLowerCase()` behaviour on non-ASCII input to avoid.
+    if (sql.codePointAt(i) > 127) {
+      nonAscii.add(sql[i]);
+      out.push(sql[i]);
+    } else {
+      out.push(sql[i].toLowerCase());
+    }
     i += 1;
   }
 
@@ -601,7 +622,45 @@ function objectTargets(statement) {
   // matters, only whether it EQUALS this directory's own schema, and this
   // scan follows that same rule rather than inventing a second one. See the
   // task report for what was tried before settling on this.
-  scan(new RegExp(String.raw`\b(${ID})\.(${ID})\s*\(`, "gi"), (m) => push(m[1], m[2], m[0], "EXPR CALL"));
+  //
+  // Two other constructs share this exact textual shape without being a
+  // call, found by re-review of this same task, and both are ruled out by
+  // their own negative lookbehind rather than by narrowing the shape itself
+  // (which would risk losing the DEFAULT/CHECK detection this scan exists
+  // for):
+  //
+  //   - `'0'::pg_catalog.numeric(10,2)` - a schema-qualified TYPE CAST
+  //     carrying a precision/scale/length modifier. Ordinary, legal
+  //     PostgreSQL (`'x'::pg_catalog.varchar(255)`, `b'1'::pg_catalog.bit(8)`
+  //     all cast to an unrelated schema's own built-in type), and nothing in
+  //     `(${ID})\.(${ID})\s*\(` can tell that apart from a call - both are a
+  //     qualified name immediately followed by `(`. A cast WITHOUT a
+  //     modifier (`::pg_catalog.text`) already does not reach this scan at
+  //     all, because there is no trailing `(` for the shape to match; only
+  //     the typmod form does, and only the typmod form needs excluding.
+  //     `(?<!::\s*)` rules out exactly that: a qualified name immediately
+  //     preceded by the cast operator is a typmod, never a call.
+  //   - `CREATE TABLE tenancy.policy (tenant_id uuid, ...)` - the relation's
+  //     OWN column list, not a call to anything. The CREATE/ALTER/DROP scan
+  //     below already extracts `tenancy.policy` as this statement's target
+  //     (verb `CREATE TABLE`); this scan matching the identical text a
+  //     second time is not the tolerated double-reporting recorded above for
+  //     `CREATE FUNCTION audit.foo(...)` (a genuine call-shaped declaration)
+  //     - it is this scan matching a construct it was never meant to match, a
+  //     relation DEFINITION rather than an expression. The lookbehind reuses
+  //     RENAMEABLE_TYPES - the same alternation of column-list-bearing
+  //     relation types (TABLE, FOREIGN TABLE, VIEW, MATERIALIZED VIEW) this
+  //     file already shares with the RENAME TO scan above - rather than a
+  //     third, narrower, separately maintained list; its capturing group is
+  //     turned non-capturing here (`(` -> `(?:`) so it does not shift `m[1]`/
+  //     `m[2]` below, which still need to be the two ID groups.
+  scan(
+    new RegExp(
+      String.raw`(?<!::\s*)(?<!\bCREATE\s+${MODIFIERS}${RENAMEABLE_TYPES.replace("(", "(?:")}\s+(?:IF\s+NOT\s+EXISTS\s+)?)\b(${ID})\.(${ID})\s*\(`,
+      "gi",
+    ),
+    (m) => push(m[1], m[2], m[0], "EXPR CALL"),
+  );
 
   // CREATE|ALTER|DROP <TYPE> [schema.]name
   scan(

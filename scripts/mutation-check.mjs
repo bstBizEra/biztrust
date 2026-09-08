@@ -362,8 +362,8 @@ const MUTATIONS = [
   {
     file: LINT,
     name: "scrub: stop refusing a non-ASCII character in an unquoted identifier",
-    from: "    if (sql.codePointAt(i) > 127) nonAscii.add(sql[i]);",
-    to: "    if (false) nonAscii.add(sql[i]);",
+    from: "    if (sql.codePointAt(i) > 127) {\n      nonAscii.add(sql[i]);\n      out.push(sql[i]);\n    } else {",
+    to: "    if (false) {\n      nonAscii.add(sql[i]);\n      out.push(sql[i]);\n    } else {",
   },
   {
     file: LINT,
@@ -481,8 +481,63 @@ const MUTATIONS = [
   {
     file: LINT,
     name: "M1: stop scanning for a schema-qualified function call in expression position",
-    from: '  scan(new RegExp(String.raw`\\b(${ID})\\.(${ID})\\s*\\(`, "gi"), (m) => push(m[1], m[2], m[0], "EXPR CALL"));',
-    to: "  void 0;",
+    from: 'String.raw`(?<!::\\s*)(?<!\\bCREATE\\s+${MODIFIERS}${RENAMEABLE_TYPES.replace("(", "(?:")}\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?)\\b(${ID})\\.(${ID})\\s*\\(`,',
+    to: "String.raw`(?!)`,",
+  },
+
+  // ---- task 3 re-review, findings 1 and 2: the EXPR CALL scan over-fires on
+  // two constructs that share its exact textual shape without being a call --
+  {
+    file: LINT,
+    // Finding 1: a schema-qualified TYPE CAST carrying a precision/scale/
+    // length modifier (`'0'::pg_catalog.numeric(10,2)`) is ordinary, legal
+    // PostgreSQL, not a call. Without the `(?<!::\s*)` guard, the conforming
+    // fixture 0002_typmod_cast_not_a_call.sql - three such casts, none
+    // touching any schema this test suite's directories own - is reported
+    // for M1 against "pg_catalog", and the conforming-fixtures test (which
+    // requires the whole directory to pass with zero violations) goes red.
+    // Not witnessed by a violating-fixture control, because the fixture this
+    // guard protects is, by definition, one that must NOT be reported.
+    name: "EXPR CALL: stop excluding a schema-qualified type cast's typmod from the call shape",
+    from: 'String.raw`(?<!::\\s*)(?<!\\bCREATE\\s+${MODIFIERS}${RENAMEABLE_TYPES.replace("(", "(?:")}\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?)\\b(${ID})\\.(${ID})\\s*\\(`,',
+    to: 'String.raw`(?<!\\bCREATE\\s+${MODIFIERS}${RENAMEABLE_TYPES.replace("(", "(?:")}\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?)\\b(${ID})\\.(${ID})\\s*\\(`,',
+  },
+  {
+    file: LINT,
+    // Finding 2: a CREATE TABLE/FOREIGN TABLE/VIEW/MATERIALIZED VIEW's own
+    // qualified name, immediately followed by its column list, is a relation
+    // DEFINITION, not a call - the CREATE/ALTER/DROP scan already resolves
+    // this statement's real target from the identical text. This guard can
+    // never be witnessed by "a conforming fixture goes red": the relation
+    // being CREATEd always shares its directory's own schema in a conforming
+    // fixture, so the extra EXPR CALL push is schema-equal and silently
+    // harmless with or without the guard. It is witnessed instead by an
+    // EXACT-COUNT test on a genuinely cross-schema CREATE TABLE
+    // (rr_create_table_targets_tenancy_reported_once.sql, under violating/
+    // audit/): with the guard removed, that one statement is reported for M1
+    // twice, not once, and the test asserts the count is exactly 1.
+    name: "EXPR CALL: stop excluding a relation's own column list from the call shape",
+    from: 'String.raw`(?<!::\\s*)(?<!\\bCREATE\\s+${MODIFIERS}${RENAMEABLE_TYPES.replace("(", "(?:")}\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?)\\b(${ID})\\.(${ID})\\s*\\(`,',
+    to: 'String.raw`(?<!::\\s*)\\b(${ID})\\.(${ID})\\s*\\(`,',
+  },
+
+  // ---- task 3 re-review, finding 3: DEC-016's case-folding defect, pulled
+  // into this round by ruling ---------------------------------------------
+  {
+    file: LINT,
+    // scrub() unquoted every double-quoted identifier and lower-cased its
+    // inner text, but pushed unquoted "code" - including an unquoted
+    // identifier - through unchanged. PostgreSQL folds every unquoted
+    // identifier to lower case; without this, a schema written in a
+    // different case than the registry's compares literally and is treated
+    // as foreign. Witnessed by the conforming fixture
+    // 0004_own_schema_different_case.sql (CREATE SCHEMA IF NOT EXISTS
+    // TENANCY; CREATE TABLE Tenancy.mixed_case_ok (...)), which goes red
+    // without this fold, both for the bare schema name and the
+    // schema-qualified table name.
+    name: "scrub: stop folding an unquoted ASCII character to lower case",
+    from: "      out.push(sql[i].toLowerCase());",
+    to: "      out.push(sql[i]);",
   },
 ];
 function runSuite() {
