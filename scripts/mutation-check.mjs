@@ -350,6 +350,9 @@ try {
 }
 const RULES = join(WT_ROOT, "scripts", "boundary-rules.mjs");
 const LINT = join(WT_ROOT, "scripts", "migration-lint.mjs");
+const GATE = join(WT_ROOT, "scripts", "coverage-gate.mjs");
+const CODEOWNERS = join(WT_ROOT, "scripts", "generate-codeowners.mjs");
+const RECORDS = join(WT_ROOT, "scripts", "validate_continuity.py");
 
 /** Joins anchor lines, so no source string carries an embedded newline. */
 const lines = (...parts) => parts.join("\n");
@@ -1011,6 +1014,104 @@ const MUTATIONS = [
       "      /\\b(?:CREATE|ALTER)\\s+(?:OR\\s+REPLACE\\s+)?(?:FUNCTION|PROCEDURE)\\b[\\s\\S]*\\bAS\\s+''/i.test(",
     to: '      /(?!)/.test(',
   },
+
+  // ---- round four finding I9: the two instruments in `verify` and in CI that
+  // no test had ever spawned ------------------------------------------------
+  //
+  // scripts/coverage-gate.mjs is the instrument built to answer "is every
+  // named protection witnessed by something?", and `return 0;` as the first
+  // statement of its main() made it print nothing, exit 0, and `pnpm verify`
+  // sail through. scripts/generate-codeowners.mjs is 389 lines deciding who
+  // reviews what, with no test at all. Both are now spawned by
+  // tests/boundaries/coverage-gate.test.mjs and
+  // tests/boundaries/generate-codeowners.test.mjs, so both are reachable from
+  // this sweep.
+  {
+    file: GATE,
+    // The finding verbatim. Caught by the PASS-line assertion: a gate that
+    // returns before checking anything prints no count at all.
+    name: "coverage gate: return 0 before checking any protection",
+    from: "function main() {\n  let registry;",
+    to: "function main() {\n  return 0;\n  let registry;",
+  },
+  {
+    file: GATE,
+    // Caught twice over: the independently-derived count in the PASS-line
+    // test drops by four, and the unwitnessed-verb test stops being reported.
+    name: "coverage gate: stop asking whether the audit verbs are witnessed",
+    from: "  for (const verb of AUDIT_FORBIDDEN) {",
+    to: "  for (const verb of []) {",
+  },
+  {
+    file: GATE,
+    name: "coverage gate: stop asking whether the P0 domain stems are witnessed",
+    from: "  for (const { label } of P0_FORBIDDEN_TABLE_STEMS) {",
+    to: "  for (const { label } of []) {",
+  },
+  {
+    file: GATE,
+    name: "coverage gate: stop asking whether the generated rule families are witnessed",
+    from: "  for (const family of [...families].sort()) {",
+    to: "  for (const family of []) {",
+  },
+  {
+    file: GATE,
+    // The narrowest and nastiest of the five: the gate still finds every gap
+    // and still prints it, and returns 0 anyway. A gate that reports and does
+    // not gate is exactly what three review rounds kept finding one level
+    // down. Caught by the exit-code assertion in all three failure tests -
+    // none of which would notice on the message alone.
+    name: "coverage gate: report every gap but exit 0 anyway",
+    from: lines("    );", "    return 1;", "  }", "", "  process.stdout.write("),
+    to: lines("    );", "    return 0;", "  }", "", "  process.stdout.write("),
+  },
+  {
+    file: CODEOWNERS,
+    // --check is the entire enforcement: without it a hand edit of the
+    // generated routing file stands. Caught by the stale/missing test, which
+    // makes a real stale copy through the CODEOWNERS_TEST_OUT seam.
+    name: "codeowners: --check accepts a stale generated file",
+    from: "    if (found !== content) {",
+    to: "    if (false) {",
+  },
+  {
+    file: CODEOWNERS,
+    // A routing entry with no owner or no verifier becomes an UNOWNED
+    // governance path rather than a refusal - which is how a review
+    // requirement disappears with nothing recording that.
+    name: "codeowners: stop refusing a routing entry that records no owner or verifier",
+    from: "        throw new RegistryError(`routing entry ${path || \"?\"} records no ${label}`);",
+    to: "        continue;",
+  },
+  {
+    file: CODEOWNERS,
+    // The seat stops being emitted at all: every path becomes unowned. Caught
+    // by the team-slug test and by the byte-equality test against the real
+    // .github/CODEOWNERS.
+    name: "codeowners: emit no team slug for a seat that names a declared role",
+    from: "        teams.push(`@${ORG}/${value}`);",
+    to: "        void 0;",
+  },
+  {
+    file: CODEOWNERS,
+    // The forgery this generator exists to refuse: a bare @handle asserts that
+    // some named account owns the path, where a team slug asserts only that a
+    // seat does - and every seat in badf/agents.yaml records held_by: null.
+    // Caught by the never-a-person test.
+    name: "codeowners: emit a bare handle instead of a team slug under the organisation",
+    from: "        teams.push(`@${ORG}/${value}`);",
+    to: "        teams.push(`@${value}`);",
+  },
+  {
+    file: CODEOWNERS,
+    // The one routing entry whose owner is prose rather than a seat is emitted
+    // as a NOTE, not silently dropped - dropping it would make the file claim
+    // that path has a verifier and no owner. Caught by the prose test and by
+    // the byte-equality test.
+    name: "codeowners: drop the note for an owner that names no fixed seat",
+    from: "      lines.push(`# ${path}: ${notes.join(\"; \")}`);",
+    to: "      void 0;",
+  },
 ];
 
 // TEST-ONLY seam, read by tests/boundaries/mutation-check-guard.test.mjs.
@@ -1027,9 +1128,45 @@ if (process.env.MUTATION_CHECK_TEST_LIMIT !== undefined) {
   MUTATIONS.length = Math.max(0, Number(process.env.MUTATION_CHECK_TEST_LIMIT));
 }
 
-function runSuite() {
+/**
+ * The suites a mutation can be checked against, and the command each one is.
+ *
+ * There was one, hard-coded inside `runSuite`. Round four findings I6, I7
+ * and I8 add refusals to `scripts/validate_continuity.py`, which the
+ * boundary suite does not exercise at all - its witnesses live in
+ * `tests/unit`, run by `pnpm test:validator`. A mutation to that file
+ * checked against the boundary suite would SURVIVE every time and prove
+ * nothing about the witness that actually covers it, which is the same
+ * 'a rule that would stay green if it were deleted' defect one level up.
+ *
+ * Per-mutation rather than one combined run: the validator suite spawns a
+ * Python process per test and takes ~8s, so running it for every mutation
+ * would add ten minutes to `pnpm verify` for no added coverage - a mutation
+ * to the boundary rules is not observable there.
+ */
+const SUITES = {
+  boundaries: {
+    label: 'node --test "tests/boundaries/*.test.mjs"',
+    argv: ["--test", "tests/boundaries/*.test.mjs"],
+  },
+  validator: {
+    label: "node scripts/python.mjs -m unittest discover -s tests/unit",
+    argv: [join("scripts", "python.mjs"), "-m", "unittest", "discover", "-s", "tests/unit"],
+  },
+};
+
+/** The suite a mutation is checked against when it names none. */
+const DEFAULT_SUITE = "boundaries";
+
+function runSuite(suite = DEFAULT_SUITE) {
+  const spec = SUITES[suite];
+  if (spec === undefined) {
+    throw new Error(
+      `unknown suite ${JSON.stringify(suite)}; known: ${Object.keys(SUITES).join(", ")}`,
+    );
+  }
   try {
-    execFileSync(process.execPath, ["--test", "tests/boundaries/*.test.mjs"], {
+    execFileSync(process.execPath, spec.argv, {
       cwd: WT_ROOT,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
@@ -1046,14 +1183,23 @@ function runSuite() {
 }
 
 function main() {
-  if (runSuite() !== "GREEN") {
-    process.stderr.write(
-      "MUTATION_CHECK FAIL the baseline suite is not green, so this run proves " +
-        "nothing. Fix the suite first.\n",
-    );
-    return 2;
+  // One baseline per suite ACTUALLY used by a mutation, not one fixed run:
+  // a red suite makes every mutation checked against it meaningless, and a
+  // suite no mutation names should not be paid for.
+  const usedSuites = [...new Set(MUTATIONS.map((m) => m.suite ?? DEFAULT_SUITE))].sort();
+  for (const suite of usedSuites) {
+    if (runSuite(suite) !== "GREEN") {
+      process.stderr.write(
+        `MUTATION_CHECK FAIL the ${suite} baseline suite (${SUITES[suite].label}) is ` +
+          `not green, so this run proves nothing. Fix the suite first.\n`,
+      );
+      return 2;
+    }
   }
-  process.stdout.write(`MUTATION_CHECK baseline GREEN, ${MUTATIONS.length} mutations\n`);
+  process.stdout.write(
+    `MUTATION_CHECK baseline GREEN (${usedSuites.join(", ")}), ` +
+      `${MUTATIONS.length} mutations\n`,
+  );
 
   const survived = [];
   const missing = [];
@@ -1071,7 +1217,7 @@ function main() {
     writeFileSync(mutation.file, original.replace(mutation.from, mutation.to), "utf8");
     let result;
     try {
-      result = runSuite();
+      result = runSuite(mutation.suite ?? DEFAULT_SUITE);
     } finally {
       writeFileSync(mutation.file, original, "utf8");
     }

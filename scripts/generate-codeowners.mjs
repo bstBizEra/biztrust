@@ -50,12 +50,21 @@
  * invalid; 2 an unforeseen defect in this script.
  */
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { ROOT } from "./registry.mjs";
 import { loadAgentsRegistry, RegistryError } from "./agents-registry.mjs";
 
-const OUT = join(ROOT, ".github", "CODEOWNERS");
+// TEST-ONLY seam, read by tests/boundaries/generate-codeowners.test.mjs.
+// Round four finding I9: 389 new lines, in `verify` and in CI, and zero
+// tests - so `--check` quietly accepting a stale file, or the renderer
+// emitting nothing at all, would have gone unnoticed. Witnessing the
+// staleness branch needs a stale file, and the repository's own tracked
+// CODEOWNERS must not be made stale to produce one - that would dirty the
+// working tree, which `check:mutations` then refuses. A normal run never
+// sets this and reads and writes .github/CODEOWNERS exactly as before.
+const OUT = process.env.CODEOWNERS_TEST_OUT ?? join(ROOT, ".github", "CODEOWNERS");
 
 // The GitHub organisation this repository lives under (badf/current-state.json
 // "repository": "bstBizEra/biztrust"). A role maps to a team under this org;
@@ -68,7 +77,7 @@ function stripQuotes(value) {
   return v;
 }
 
-function renderCodeowners(registry) {
+export function renderCodeowners(registry) {
   const roleIds = new Set(registry.roles.map((r) => r.id));
   const lines = [];
 
@@ -184,11 +193,22 @@ function main() {
   return 0;
 }
 
-try {
-  process.exitCode = main();
-} catch (error) {
-  process.stderr.write(
-    `CODEOWNERS_GENERATION FAIL validator defect: ${error?.stack ?? error}\n`,
-  );
-  process.exitCode = 2;
+// Run only when invoked as a command - the same guard
+// scripts/migration-lint.mjs carries, for the same reason: the tests import
+// `renderCodeowners` above to exercise the rendering rules directly against
+// hand-built registries, and an import that regenerated .github/CODEOWNERS
+// as a side effect could not do that.
+const invokedDirectly =
+  process.argv[1] !== undefined &&
+  realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+
+if (invokedDirectly) {
+  try {
+    process.exitCode = main();
+  } catch (error) {
+    process.stderr.write(
+      `CODEOWNERS_GENERATION FAIL validator defect: ${error?.stack ?? error}\n`,
+    );
+    process.exitCode = 2;
+  }
 }

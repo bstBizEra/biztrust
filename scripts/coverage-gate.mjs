@@ -43,7 +43,26 @@ import { buildRules } from "./boundary-rules.mjs";
 const MIGRATION_TESTS = "tests/boundaries/migration-lint.test.mjs";
 const BOUNDARY_TESTS = "tests/boundaries/boundary-rules.test.mjs";
 
+// TEST-ONLY seam, read by tests/boundaries/coverage-gate.test.mjs. A normal
+// `pnpm check:coverage` never sets it and reads the repository's own test
+// files, exactly as before.
+//
+// Round four finding I9: this gate - the instrument built to answer 'is
+// every named protection witnessed by something?' - was itself witnessed by
+// nothing. `return 0;` as the first statement of main() made it print
+// nothing, exit 0, and `pnpm verify` sailed through; no test referenced it,
+// and mutation-check.mjs's runSuite() never spawned it. Proving it FAILS
+// when a protection is unwitnessed needs test files that are MISSING one,
+// and the repository's own must not be edited to produce that - it would
+// dirty the working tree, which check:mutations then refuses - so the
+// directory the two test files are read from is overridable here, and
+// nowhere else.
+const TESTS_DIR = process.env.COVERAGE_GATE_TEST_TESTS_DIR;
+
 function read(relative) {
+  if (TESTS_DIR !== undefined) {
+    return readFileSync(join(TESTS_DIR, relative.split("/").pop()), "utf8");
+  }
   return readFileSync(join(ROOT, relative), "utf8");
 }
 
