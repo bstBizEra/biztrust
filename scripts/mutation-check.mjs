@@ -100,12 +100,16 @@ const MUTATIONS = [
   {
     file: LINT,
     name: "scrub: stop unquoting double-quoted identifiers",
-    from: '    .replace(/"([^"]+)"/g, (_match, inner) => inner.toLowerCase())',
-    to: '    .replace(/never-matches-anything/g, "")',
+    from: "      out.push(inner.toLowerCase());",
+    to: "      out.push('\"' + inner + '\"');",
   },
   {
     file: LINT,
-    name: "M1: stop reporting an unqualified object name",
+    // The rewrite below falls through to the `else if (target.schema !== schema)`
+    // branch, which still reports M1 - with `touches schema "null"`. So this
+    // mutation is caught by the control's MESSAGE assertion, not by the rule
+    // continuing to fire. Round three found the old name claiming the opposite.
+    name: "M1: report an unqualified name as a schema mismatch instead (message only)",
     from: '      if (target.schema === null) {',
     to: '      if (false) {',
   },
@@ -190,8 +194,44 @@ const MUTATIONS = [
   {
     file: LINT,
     name: "walk: revert to a non-recursive directory read",
-    from: '    for (const path of sqlFilesUnder(dir)) {',
-    to: '    for (const path of sqlFilesUnder(dir).filter((f) => !f.includes("nested"))) {',
+    from: "      if (statSync(full).isDirectory()) walk(full);",
+    to: "      if (statSync(full).isDirectory()) continue;",
+  },
+  {
+    file: LINT,
+    name: "scrub: blank literals in a separate pass, as before (the apostrophe hole)",
+    from: '      if (!/^[A-Za-z0-9_]+$/.test(inner)) oddIdentifiers.push(inner);',
+    to: "      if (false) oddIdentifiers.push(inner);",
+  },
+  {
+    file: LINT,
+    name: "scrub: stop refusing a non-ASCII character in an unquoted identifier",
+    from: "    if (sql.codePointAt(i) > 127) nonAscii.add(sql[i]);",
+    to: "    if (false) nonAscii.add(sql[i]);",
+  },
+  {
+    file: LINT,
+    name: "M1: stop refusing a dollar-quoted body",
+    from: "  if (dollarQuoted > 0) {",
+    to: "  if (false) {",
+  },
+  {
+    file: LINT,
+    name: "M6: skip a non-directory under the migrations root, as before",
+    from: "    if (!statSync(dir).isDirectory()) {",
+    to: "    if (!statSync(dir).isDirectory()) { continue; } if (false) {",
+  },
+  {
+    file: LINT,
+    name: "walk: match the .sql extension case-sensitively again",
+    from: '      else if (entry.toLowerCase().endsWith(".sql")) found.push(full);',
+    to: '      else if (entry.endsWith(".sql")) found.push(full);',
+  },
+  {
+    file: LINT,
+    name: "walk: stop reporting a file this lint would not read",
+    from: "      else others.push(full);",
+    to: "      else if (false) others.push(full);",
   },
 ];
 function runSuite() {

@@ -285,46 +285,161 @@ def cross_record_rules(state, actions, decisions, errors: list[str]) -> None:
         errors.append("badf/decision-log.jsonl: decision ids are not ascending")
 
 
-#: The only top-level keys badf/authority.yaml may carry. Anything else is a
-#: section nothing validates, and a section nothing validates is where a forged
-#: grant lives. A peer review appended `granted_extra:` with two forged grants
-#: and the validator passed.
-AUTHORITY_SECTIONS = {"version", "updated_at", "not_granted", "granted", "tool_authority"}
+#: The only top-level sections badf/authority.yaml may carry.
+AUTHORITY_SECTIONS = ("version", "updated_at", "not_granted", "granted", "tool_authority")
+
+#: The only statuses a withheld entry may carry, and the only one a grant may.
+#: A prefix test let `NOT_GRANTED_BUT_ACTUALLY_FINE_TO_PROCEED` through, and the
+#: suffix is where a reader's conclusion actually lives.
+WITHHELD_STATUSES = {"NOT_GRANTED", "NOT_RECORDED", "UNRECORDED"}
+GRANTED_STATUSES = {"GRANTED"}
+
+#: A grant either expires on a date or says in as many words that it does not.
+UNBOUNDED = "UNBOUNDED_PENDING_REVIEW"
+
+#: The one entry allowed to carry `recorded_by: agent`. Every other grant is a
+#: human decision, and a human decision recorded by an agent is not one.
+AGENT_RECORDABLE = "repository_scaffold"
+
+#: Where the children of a refused section go, so one bad line is one error.
+QUARANTINE = "__refused_section__"
 
 
-def parse_authority(text: str) -> tuple[dict[str, dict[str, str]], list[str]]:
-    """Reads badf/authority.yaml into {section: {key: status}}.
+def parse_authority(text: str) -> tuple[dict[str, dict[str, dict[str, str]]], list[str]]:
+    """Reads badf/authority.yaml, refusing every line it cannot classify.
 
-    Deliberately small and strict, like the module registry reader. It
-    understands exactly the shape this file has: two-space keys under a
-    section, and a four-space ``status:`` under each of those.
+    This replaces a reader that SKIPPED what it did not recognise, and the
+    difference is the whole point. Peer review round three defeated the earlier
+    version three ways in one sitting, each of them ordinary, legal YAML:
+
+        p0_implementation: {status: GRANTED, granted_by: "business authority"}
+
+    was invisible, because an entry was required to have nothing after its
+    colon, so the granted/not_granted overlap check never fired.
+    `GRANTED_EXTRA:` was invisible, because the section pattern was
+    `^[a-z0-9_]+:` and one uppercase letter matched nothing at all - no section
+    opened, no unknown-section error fired, and its children were attributed to
+    whatever section came before. A tab-indented block was invisible for the
+    same reason. Each of those forged `p0_implementation`, the grant this whole
+    repository exists to withhold, and `pnpm validate:records` returned exit 0.
+
+    The lesson of round two was to invert the default rather than extend the
+    list. Round three found that lesson written down in the records and NOT
+    applied to the fix round two shipped: an allow-list of five section names
+    sitting on top of a reader whose default was `continue`. So the default here
+    is an error. A line that is not blank, not a comment and not one of the four
+    shapes below is a problem, whatever it happens to look like.
+
+    Returns {section: {entry: {field: value}}}.
     """
-    sections: dict[str, dict[str, str]] = {}
+    sections: dict[str, dict[str, dict[str, str]]] = {}
     problems: list[str] = []
-    section = None
-    key = None
-    for number, line in enumerate(text.splitlines(), start=1):
-        if line.strip() == "" or line.lstrip().startswith("#"):
+    section: str | None = None
+    key: str | None = None
+    block_indent: int | None = None
+
+    for number, raw in enumerate(text.splitlines(), start=1):
+        if raw.strip() == "" or raw.lstrip().startswith("#"):
             continue
-        top = re.match(r"^([a-z0-9_]+):\s*(.*)$", line)
-        if top:
-            section, rest = top.group(1), top.group(2).strip()
+
+        indent = len(raw) - len(raw.lstrip(" "))
+
+        # A folded or literal scalar's body is anything indented past the field
+        # that opened it. It is prose, and it is not read for meaning.
+        if block_indent is not None:
+            if indent >= block_indent:
+                continue
+            block_indent = None
+
+        if "\t" in raw:
+            problems.append(
+                f"badf/authority.yaml line {number}: contains a tab; this file is "
+                f"space-indented, and a tab made a whole block invisible to the "
+                f"reader this one replaces"
+            )
+            continue
+
+        if indent == 0:
+            match = re.match(r"^(\S+):\s*(.*)$", raw)
+            if match is None:
+                problems.append(
+                    f"badf/authority.yaml line {number}: neither a top-level key nor "
+                    f"indented under one: {raw.strip()!r}"
+                )
+                continue
+            section, rest = match.group(1), match.group(2).strip()
+            key = None
             if section not in AUTHORITY_SECTIONS:
                 problems.append(
                     f"badf/authority.yaml line {number}: unknown top-level section "
-                    f"{section!r}; a section nothing validates is where a forged grant lives"
+                    f"{section!r}; a section nothing validates is where a forged "
+                    f"grant lives"
                 )
+                # The section is already refused. Park its children somewhere
+                # harmless so each one does not raise a second, vaguer error.
+                section = QUARANTINE
+                sections.setdefault(section, {})
+                continue
             sections.setdefault(section, {})
-            key = None
+            if rest and section not in ("version", "updated_at"):
+                problems.append(
+                    f"badf/authority.yaml line {number}: section {section!r} carries "
+                    f"an inline value; its entries must be written as a block"
+                )
             continue
-        entry = re.match(r"^  ([a-z0-9_]+):\s*$", line)
-        if entry and section is not None:
-            key = entry.group(1)
-            sections.setdefault(section, {}).setdefault(key, "")
+
+        if section is None:
+            problems.append(
+                f"badf/authority.yaml line {number}: indented content before any "
+                f"section: {raw.strip()!r}"
+            )
             continue
-        status = re.match(r"^    status:\s*(\S+)\s*$", line)
-        if status and section is not None and key is not None:
-            sections[section][key] = status.group(1)
+
+        if indent == 2:
+            match = re.match(r"^ {2}(\S+):\s*(.*)$", raw)
+            if match is None:
+                problems.append(
+                    f"badf/authority.yaml line {number}: not an entry under "
+                    f"{section!r}: {raw.strip()!r}"
+                )
+                continue
+            key, rest = match.group(1), match.group(2).strip()
+            sections[section].setdefault(key, {})
+            if rest:
+                problems.append(
+                    f"badf/authority.yaml line {number}: entry {section}.{key} carries "
+                    f"the inline value {rest!r}. A flow-style mapping written exactly "
+                    f"this way forged a grant the previous reader could not see"
+                )
+            continue
+
+        if indent == 4:
+            if raw.lstrip().startswith("- "):
+                if section != "tool_authority":
+                    problems.append(
+                        f"badf/authority.yaml line {number}: a list item under "
+                        f"{section!r}, which takes named fields, not a list"
+                    )
+                continue
+            match = re.match(r"^ {4}(\S+):\s*(.*)$", raw)
+            if match is None or key is None:
+                problems.append(
+                    f"badf/authority.yaml line {number}: not a field of an entry: "
+                    f"{raw.strip()!r}"
+                )
+                continue
+            field, value = match.group(1), match.group(2).strip()
+            if value in (">", ">-", "|", "|-", ""):
+                block_indent = 6
+                value = ""
+            sections[section][key][field] = value
+            continue
+
+        problems.append(
+            f"badf/authority.yaml line {number}: indented {indent} spaces, which is "
+            f"neither a section, an entry nor a field: {raw.strip()!r}"
+        )
+
     return sections, problems
 
 
@@ -344,15 +459,48 @@ def validate_registries(errors: list[str]) -> None:
             errors.append(f"badf/{name}: declares no version")
 
 
+def _expiry_problem(key: str, entry: dict[str, str], now: str) -> str | None:
+    """An expiring grant that never expires is a grant.
+
+    AGENTS.md section 5 makes the EXPIRING implementation grant the entire
+    mechanism for implementation authority, and section 11 makes expired
+    authority a stop condition. Peer review round three asked what enforced
+    `expires_at` and the answer was nothing at all: back-dating it to 2020 and
+    widening `scope_limit` to cover every P0 epic passed with exit 0. The
+    checkpoint declared that gap honestly, but a declared gap in the one field
+    that separates "an expiring grant" from "a grant" is load-bearing.
+    """
+    expires = entry.get("expires_at", "").strip().strip('"')
+    if expires == "":
+        return f"badf/authority.yaml: granted.{key} records no expires_at"
+    if expires == UNBOUNDED:
+        return None
+    if not re.match(r"^\d{4}-\d{2}-\d{2}", expires):
+        return (
+            f"badf/authority.yaml: granted.{key} has expires_at {expires!r}, which is "
+            f"neither a date nor the literal {UNBOUNDED}"
+        )
+    if expires[:10] < now[:10]:
+        return (
+            f"badf/authority.yaml: granted.{key} expired on {expires[:10]}, and the "
+            f"records were updated on {now[:10]}. An expired grant is a stop "
+            f"condition (AGENTS.md section 11), not a live one"
+        )
+    return None
+
+
 def validate_authority_registry(state, errors: list[str]) -> None:
     """The authority REGISTRY, and its agreement with the state file.
 
     ``badf/authority.yaml`` is the source of record: the P0.2 design calls it
     the place a Work Package's implementation grant, with its expiry, is
-    recorded before any code lands. Hardening only its mirror in
-    ``current-state.json`` left the source itself checked for nothing but a
-    ``version:`` line, so the two could disagree silently -- the JSON pinned to
-    NOT_GRANTED while the YAML claimed GRANTED.
+    recorded before any code lands. Round two hardened its MIRROR in
+    ``current-state.json`` and checked the source for nothing but a ``version:``
+    line. Round three then showed the relation was one-directional as well as
+    thin: only keys the state file already named were examined, so a grant ADDED
+    to the registry agreed with nothing and passed. The relation below is total
+    in both directions, which is what makes the schema enum on the state side
+    actually cost something.
     """
     try:
         text = (BADF / "authority.yaml").read_text(encoding="utf-8")
@@ -368,19 +516,59 @@ def validate_authority_registry(state, errors: list[str]) -> None:
 
     if not not_granted:
         errors.append("badf/authority.yaml: has no not_granted section")
+    if not granted:
+        errors.append("badf/authority.yaml: has no granted section")
 
-    overlap = set(not_granted) & set(granted)
-    for key in sorted(overlap):
+    for key in sorted(set(not_granted) & set(granted)):
         errors.append(
             f"badf/authority.yaml: {key!r} appears under both granted and "
             f"not_granted; one of them is a lie"
         )
 
-    for key, status in sorted(not_granted.items()):
-        if status and not status.startswith(("NOT_", "UNRECORDED")):
+    now = ""
+    if isinstance(state, dict):
+        now = str(state.get("updated_at") or "")
+
+    # Every entry carries a status, and the status comes from a closed set. An
+    # entry with NO status line used to count as a recorded grant, because
+    # membership was established by the key alone.
+    for section_name, allowed in (("not_granted", WITHHELD_STATUSES), ("granted", GRANTED_STATUSES)):
+        for key, entry in sorted(sections.get(section_name, {}).items()):
+            status = entry.get("status", "").strip().strip('"')
+            if status == "":
+                errors.append(
+                    f"badf/authority.yaml: {section_name}.{key} records no status; an "
+                    f"entry with no status used to count as a recorded grant"
+                )
+                continue
+            if status not in allowed:
+                errors.append(
+                    f"badf/authority.yaml: {section_name}.{key} has status {status!r}, "
+                    f"which is not one of {sorted(allowed)}"
+                )
+
+    for key, entry in sorted(granted.items()):
+        problem = _expiry_problem(key, entry, now)
+        if problem is not None:
+            errors.append(problem)
+        recorded_by = entry.get("recorded_by", "").strip().strip('"')
+        if recorded_by == "":
             errors.append(
-                f"badf/authority.yaml: not_granted.{key} has status {status!r}, "
-                f"which does not read as withheld"
+                f"badf/authority.yaml: granted.{key} records no recorded_by. Leaving "
+                f"the field out was a way to avoid the rule below without stating "
+                f"anything untrue"
+            )
+        if entry.get("granted_by", "").strip().strip('"') == "":
+            errors.append(
+                f"badf/authority.yaml: granted.{key} records no granted_by, so no seat "
+                f"is named as having decided it"
+            )
+        if recorded_by == "agent" and key != AGENT_RECORDABLE:
+            errors.append(
+                f"badf/authority.yaml: granted.{key} is recorded_by \"agent\". Only "
+                f"{AGENT_RECORDABLE!r} may be, because it records an operator "
+                f"instruction rather than a seat's decision. Every other grant is a "
+                f"human decision, and a human decision recorded by an agent is not one"
             )
 
     if not isinstance(state, dict):
@@ -389,6 +577,7 @@ def validate_authority_registry(state, errors: list[str]) -> None:
     if not isinstance(authority, dict):
         return
 
+    # Direction one: the state file may not name what the registry does not record.
     for key, value in sorted(authority.items()):
         in_not_granted = key in not_granted
         in_granted = key in granted
@@ -409,6 +598,225 @@ def validate_authority_registry(state, errors: list[str]) -> None:
             errors.append(
                 f"authority.{key}: badf/authority.yaml records it under granted "
                 f"but badf/current-state.json says {value!r}"
+            )
+
+    # Direction two, the half round three walked through. A grant present only
+    # in the registry answered to nothing, so adding one cost a single edit to a
+    # data file. It now requires the schema-pinned enum on the state side too.
+    for section_name in ("granted", "not_granted"):
+        for key in sorted(sections.get(section_name, {})):
+            if key not in authority:
+                errors.append(
+                    f"badf/authority.yaml: {section_name}.{key} has no matching key in "
+                    f"badf/current-state.json authority, so it is recorded in the "
+                    f"registry while the schema-pinned mirror never sees it"
+                )
+
+
+#: The delivery gates, and the states no agent may move a Work Package into
+#: without a recorded acceptance by someone who is not its implementer.
+DELIVERY_GATES = ("BT-G0", "BT-G1", "BT-G2", "BT-G3", "BT-G4")
+TERMINAL_STATES = ("ACCEPTED", "CLOSED")
+
+
+def validate_gates_registry(state, errors: list[str]) -> None:
+    """The gate REGISTRY, and its agreement with the state file.
+
+    Round one pinned the ``gates`` block of ``current-state.json`` to
+    ``UNRECORDED`` in the schema. Round three found the registry that block
+    mirrors - and which AGENTS.md section 4 names as the source of truth for
+    gate results, not the state file - validated for a ``version:`` line and
+    nothing else. Setting every gate to ``PASSED`` passed. Deleting the whole
+    ``delivery_gates:`` section passed. Recording BT-G0 in the registry while
+    the mirror still read UNRECORDED passed, which is the worse case: the
+    AUTHORITATIVE copy was the unvalidated one.
+
+    Requiring the two to agree makes recording a gate a change to a schema file,
+    because the state side is enum-pinned. That is what an authority record
+    should cost, and it is the same mechanism DEC-007 chose one file over.
+    """
+    try:
+        text = (BADF / "gates.yaml").read_text(encoding="utf-8")
+    except OSError as exc:
+        errors.append(f"badf/gates.yaml: cannot read: {exc}")
+        return
+
+    recorded: dict[str, str] = {}
+    current: str | None = None
+    for number, raw in enumerate(text.splitlines(), start=1):
+        identifier = re.match(r"^\s*-\s+id:\s*(\S+)\s*$", raw)
+        if identifier is not None:
+            current = identifier.group(1)
+            continue
+        status = re.match(r"^\s*status:\s*(\S+)\s*$", raw)
+        if status is not None and current is not None:
+            if current in recorded:
+                errors.append(
+                    f"badf/gates.yaml line {number}: {current} carries a second status"
+                )
+            recorded[current] = status.group(1)
+
+    for gate in DELIVERY_GATES:
+        if gate not in recorded:
+            errors.append(
+                f"badf/gates.yaml: {gate} is missing, or carries no status. Deleting a "
+                f"gate is how a gate stops being unrecorded without anyone recording it"
+            )
+
+    if not isinstance(state, dict):
+        return
+    gates = state.get("gates")
+    if not isinstance(gates, dict):
+        return
+
+    for gate in DELIVERY_GATES:
+        in_registry = recorded.get(gate)
+        in_state = gates.get(gate)
+        if in_registry is None or in_state is None:
+            continue
+        if in_registry != in_state:
+            errors.append(
+                f"{gate}: badf/gates.yaml says {in_registry!r} and "
+                f"badf/current-state.json says {in_state!r}. AGENTS.md section 4 makes "
+                f"the registry authoritative, so the two disagreeing means the "
+                f"authoritative copy is the one nothing checks"
+            )
+
+
+def validate_acceptance_is_not_self_awarded(state, errors: list[str]) -> None:
+    """A Work Package cannot accept itself.
+
+    ``badf/lifecycle.yaml`` records ``ENGINEERING_READY -> ACCEPTED`` as
+    ``requires_human: true``, with the role "verifier, who is not the
+    implementer", and forbids "any transition into ACCEPTED made by the
+    implementing agent". No code path read that file. Round three set the work
+    package state to ACCEPTED, ``resume_decision`` to COMPLETE and the
+    checkpoint to ACCEPTED, left the authority registry untouched, and the
+    validator returned exit 0 - then did it again with all three records made
+    mutually consistent and a forged grant, and got exit 0 again.
+
+    So the state now has to be paid for out of the authority record, which the
+    schema pins and which the registry cross-check above makes total.
+    """
+    if not isinstance(state, dict):
+        return
+    package = state.get("active_work_package")
+    if not isinstance(package, dict):
+        return
+    package_state = package.get("state")
+    if package_state not in TERMINAL_STATES:
+        return
+
+    identifier = str(package.get("id") or "")
+    match = re.match(r"^BIZTRUST-WP-(\d{3})$", identifier)
+    if match is None:
+        errors.append(
+            f"badf/current-state.json: work package id {identifier!r} is not a shape "
+            f"this check can bind an acceptance grant to"
+        )
+        return
+    key = f"wp_{match.group(1)}_acceptance"
+
+    authority = state.get("authority")
+    value = authority.get(key) if isinstance(authority, dict) else None
+    if value != "ACCEPTED_BY_INDEPENDENT_VERIFIER":
+        errors.append(
+            f"badf/current-state.json: active_work_package.state is {package_state!r} "
+            f"while authority.{key} is {value!r}. badf/lifecycle.yaml records this "
+            f"transition as requires_human with the role \"verifier, who is not the "
+            f"implementer\", so the state may not run ahead of the acceptance record"
+        )
+        return
+
+    try:
+        text = (BADF / "authority.yaml").read_text(encoding="utf-8")
+    except OSError:
+        return
+    sections, _ = parse_authority(text)
+    if key not in sections.get("granted", {}):
+        errors.append(
+            f"badf/authority.yaml: the state file records {key} as accepted, but the "
+            f"registry does not record it under granted:"
+        )
+
+
+def validate_lifecycle_pins(errors: list[str]) -> None:
+    """The acceptance transition stays human, and stays forbidden to the builder.
+
+    A rule an agent can edit is a rule an agent does not have. Round three
+    rewrote this transition to ``requires_human: false`` with role "owner",
+    deleted the matching ``forbidden:`` line, and the validator passed. This
+    pins only the two statements the acceptance check above depends on; the rest
+    of the registry is recorded as non-coverage rather than silently trusted.
+    """
+    try:
+        text = (BADF / "lifecycle.yaml").read_text(encoding="utf-8")
+    except OSError as exc:
+        errors.append(f"badf/lifecycle.yaml: cannot read: {exc}")
+        return
+
+    transition = re.search(
+        r"-\s+from:\s*ENGINEERING_READY\s*\n\s*to:\s*ACCEPTED\s*\n"
+        r"\s*role:\s*(?P<role>.+?)\s*\n\s*requires_human:\s*(?P<human>\S+)",
+        text,
+    )
+    if transition is None:
+        errors.append(
+            "badf/lifecycle.yaml: records no ENGINEERING_READY -> ACCEPTED transition; "
+            "the acceptance check has nothing to stand on"
+        )
+        return
+    if transition.group("human").strip() != "true":
+        errors.append(
+            "badf/lifecycle.yaml: ENGINEERING_READY -> ACCEPTED is recorded as "
+            "requires_human: "
+            f"{transition.group('human')!r}. Only a human accepts work (AGENTS.md "
+            "section 5)"
+        )
+    if "not the implementer" not in transition.group("role"):
+        errors.append(
+            "badf/lifecycle.yaml: the ENGINEERING_READY -> ACCEPTED role no longer "
+            "excludes the implementer"
+        )
+    if "Any transition into ACCEPTED made by the implementing agent" not in text:
+        errors.append(
+            "badf/lifecycle.yaml: the forbidden list no longer refuses a transition "
+            "into ACCEPTED made by the implementing agent"
+        )
+
+
+def validate_checkpoint_agrees(state, errors: list[str]) -> None:
+    """The checkpoint the state file points at must describe the same work.
+
+    Round three wrote a checkpoint naming a branch that does not exist, a
+    baseline commit of `deadbeef...`, files that are not files, a command that
+    was never run, and the state CLOSED - and it validated, because conforming
+    to the schema was the whole test. These three agreements are cheap and
+    catch the case that matters: a checkpoint claiming a state or a package the
+    records do not.
+    """
+    if not isinstance(state, dict):
+        return
+    relative_path = state.get("latest_checkpoint")
+    if not isinstance(relative_path, str):
+        return
+    checkpoint = load_json(relative_path, [])
+    if not isinstance(checkpoint, dict):
+        return
+    package = state.get("active_work_package")
+    if not isinstance(package, dict):
+        return
+
+    for field, expected, where in (
+        ("work_package", package.get("id"), "active_work_package.id"),
+        ("state", package.get("state"), "active_work_package.state"),
+        ("branch", (state.get("source") or {}).get("branch"), "source.branch"),
+    ):
+        actual = checkpoint.get(field)
+        if actual != expected:
+            errors.append(
+                f"{relative_path}: {field} is {actual!r} but badf/current-state.json "
+                f"{where} is {expected!r}"
             )
 
 
@@ -458,7 +866,12 @@ def main() -> int:
     errors: list[str] = []
     validate_records(errors)
     validate_registries(errors)
-    validate_authority_registry(load_json("badf/current-state.json", []), errors)
+    state = load_json("badf/current-state.json", [])
+    validate_authority_registry(state, errors)
+    validate_gates_registry(state, errors)
+    validate_lifecycle_pins(errors)
+    validate_acceptance_is_not_self_awarded(state, errors)
+    validate_checkpoint_agrees(state, errors)
     validate_no_secrets(errors)
 
     if errors:

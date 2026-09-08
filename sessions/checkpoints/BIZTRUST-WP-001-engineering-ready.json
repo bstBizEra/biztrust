@@ -2,100 +2,109 @@
   "schema_version": "1.0.0",
   "work_package": "BIZTRUST-WP-001",
   "state": "ENGINEERING_READY",
-  "created_at": "2026-09-08T04:28:00Z",
-  "objective": "Create the platform repository skeleton described by the P0.2 design of the guide repository: one workspace, the layout every later package lands in, the module registry, the seven dependency rules generated from it, the migration lint, a boundary suite that proves both fire, the charter, the continuity records and their schemas, and the CI skeleton. Revised twice after independent peer review: four blockers on the first pass, three more plus two minor findings on the second.",
+  "created_at": "2026-09-08T05:25:00Z",
+  "objective": "Create the platform repository skeleton described by the P0.2 design of the guide repository: one workspace, the layout every later package lands in, the module registry, the seven dependency rules generated from it, the migration lint, a boundary suite that proves both fire, the charter, the continuity records and their schemas, and the CI skeleton. Revised three times after independent peer review: four blockers, then three, then two total fail-open holes and a class of coverage gap running through all three rounds.",
   "completed_scope": [
     "One pnpm workspace with the top-level layout the P0.2 design draws",
-    "modules/modules.yaml registering all 30 candidate modules of the ARCH-001 capability map, grouped platform, brokerage, financial and integration, plus platform-configuration from the P0.12 design",
+    "modules/modules.yaml registering all 30 candidate modules of the ARCH-001 capability map, plus platform-configuration from the P0.12 design",
     "Four module packages, tenancy, identity-access, audit and platform-configuration, each with a public contract and a private internal half; every exported function throws",
     "packages/contracts and packages/observability, which import no module; services/api, which imports contracts only",
-    "scripts/registry.mjs, a strict dependency-free reader that refuses a malformed registry, an unknown top-level key or an unknown field with a line number",
+    "scripts/registry.mjs, a strict dependency-free reader that refuses a malformed registry with a line number",
     "scripts/boundary-rules.mjs and scripts/generate-boundary-rules.mjs, generating .dependency-cruiser.cjs and tsconfig.paths.json from the registry, stamped with the registry SHA-256 and compared by --check",
-    "scripts/migration-lint.mjs enforcing M1 to M6, now DENYING BY DEFAULT: a statement opening with CREATE, ALTER or DROP from which no target resolves is a violation rather than a gap, which closes DROP SCHEMA, ALTER ... SET SCHEMA and CREATE VIEW, POLICY, TRIGGER, SEQUENCE, TYPE, FUNCTION and MATERIALIZED VIEW against another module's schema",
-    "The four P0 forbidden domain words match as prefixes of a name part, so policyholder and claimant are caught along with the plurals; the breadth is deliberate and recorded in DEC-013",
-    "The M5 not-tenant-owned exemption resolved per statement rather than per file, so a legitimate platform-owned table no longer exempts every table below it",
-    "scripts/mutation-check.mjs, which loosens each rule in turn and requires the suite to go red; 24 mutations, up from 18",
-    "scripts/check-module-packages.mjs, with its own test suite",
-    "scripts/validate_continuity.py, fail-closed, which now parses badf/authority.yaml itself, refuses an unknown top-level section, refuses a key recorded under both granted and not_granted, and requires the registry to agree with the authority block of badf/current-state.json",
-    "tests/boundaries with a fixture workspace and fixture migrations, one violation shape per fixture, asserted on the message rather than the rule name alone; five new fixtures for the round-two findings",
+    "scripts/migration-lint.mjs enforcing M1 to M6, denying by default on an unmodelled DDL statement, and reading SQL through a SINGLE-PASS SCANNER rather than four independent regex passes. It refuses what it cannot represent: a quoted identifier carrying anything outside [A-Za-z0-9_], a non-ASCII character in an unquoted one, and a dollar-quoted body",
+    "The file walk refuses what it does not read: a non-directory under the migrations root, a non-.sql file under a module directory, and the .sql extension is matched case-insensitively",
+    "scripts/validate_continuity.py, fail-closed. Its authority reader errors on any line it cannot classify; statuses come from closed sets; expires_at is enforced against the record date; the state-registry relation is total in BOTH directions; badf/gates.yaml is validated and must agree with the state file; the two badf/lifecycle.yaml statements the acceptance check stands on are pinned; and a Work Package cannot enter ACCEPTED or CLOSED ahead of its acceptance grant",
+    "scripts/coverage-gate.mjs, which fails the build when a protection this repository NAMES is witnessed by no fixture. It derives the list from the code - the audit verb list, the domain stem list, the generated rule shapes - so adding one without a fixture fails rather than quietly widening the unwitnessed set",
+    "scripts/mutation-check.mjs, 30 mutations, including six for the round-three refusals; two mutations whose labels described something other than what they did are corrected",
+    "tests/boundaries with a fixture workspace and fixture migrations, one violation shape per fixture for every fixture added since round two; 11 new fixtures this round",
+    "tests/unit with 50 tests, 14 of them the round-three forgeries, each kept so the hole cannot reopen quietly",
     "badf/ with five registries and three records; schemas/ with five JSON schemas",
-    "AGENTS.md, the charter carried from the guide repository and revised for a repository that ships software",
-    ".github/workflows/ci.yml running the same eight commands a developer runs, green on pull request #1"
+    "evidence/security-proof/negative-control-6.md: branch protection applied and the control observed, both halves, for the first time",
+    ".github/workflows/ci.yml running the same nine commands a developer runs"
   ],
   "branch": "motor/p0.2/repository-and-boundaries",
   "baseline_commit": "062a0f7c1b350e4af695978b238b28e323b7d0e0",
   "files_changed": [
-    "Round two, on top of commit 3f970e4:",
+    "Round three, on top of commit c3f704b:",
+    ".github/workflows/ci.yml",
+    "package.json",
+    "scripts/coverage-gate.mjs",
     "scripts/migration-lint.mjs",
     "scripts/mutation-check.mjs",
     "scripts/validate_continuity.py",
     "tests/boundaries/migration-lint.test.mjs",
     "tests/unit/test_validator_fails_closed.py",
-    "tests/boundaries/fixtures/migrations/violating/audit/m3_type_change.sql",
-    "tests/boundaries/fixtures/migrations/violating/tenancy/new2_unmodelled_verbs.sql",
-    "tests/boundaries/fixtures/migrations/violating/tenancy/new_marker_leaks_to_later_tables.sql",
-    "tests/boundaries/fixtures/migrations/violating/tenancy/new_plural_claims.sql",
-    "tests/boundaries/fixtures/migrations/violating/tenancy/new_policyholder.sql",
-    "badf/authority.yaml",
+    "tests/boundaries/fixtures/migrations/violating/r3_root_level.sql",
+    "tests/boundaries/fixtures/migrations/violating/audit/m3_update.sql",
+    "tests/boundaries/fixtures/migrations/violating/audit/m3_truncate.sql",
+    "tests/boundaries/fixtures/migrations/violating/audit/m3_drop.sql",
+    "tests/boundaries/fixtures/migrations/violating/tenancy/m4_client.sql",
+    "tests/boundaries/fixtures/migrations/violating/tenancy/m4_premium.sql",
+    "tests/boundaries/fixtures/migrations/violating/tenancy/r3_apostrophe_identifier.sql",
+    "tests/boundaries/fixtures/migrations/violating/tenancy/r3_non_ascii_identifier.sql",
+    "tests/boundaries/fixtures/migrations/violating/tenancy/r3_dollar_quoted_body.sql",
+    "tests/boundaries/fixtures/migrations/violating/tenancy/r3_uppercase_extension.SQL",
+    "tests/boundaries/fixtures/migrations/violating/tenancy/r3_not_a_sql_file.txt",
+    "evidence/security-proof/negative-control-6.md",
     "badf/current-state.json",
     "badf/decision-log.jsonl",
     "sessions/checkpoints/BIZTRUST-WP-001-engineering-ready.json",
-    "The first-pass file list is in commit 5e71470 and the round-one revision in 3f970e4; 110 tracked files in total."
+    "145 tracked files in total. The previous checkpoint said 110, which was a number carried forward rather than counted; the commit it described held 132."
   ],
   "validation": [
     {
-      "command": "pnpm install --frozen-lockfile",
-      "exit_status": 0,
-      "observed_at": "2026-09-08T04:28:08Z",
-      "output_reference": "8 workspace projects, already up to date. Environment for every row below: Node 24.12.0, pnpm 11.9.0, Python 3.13.12, dependency-cruiser 16.10.4, typescript 5.9.3, Windows 11 build 26200 under MINGW64. No database: nothing here connects to one."
-    },
-    {
       "command": "pnpm validate:records",
       "exit_status": 0,
-      "observed_at": "2026-09-08T04:28:09Z",
-      "output_reference": "CONTINUITY_VALIDATION PASS, including the authority-registry parse and the registry-versus-state cross-check added this round"
+      "observed_at": "2026-09-08T05:25:44Z",
+      "output_reference": "CONTINUITY_VALIDATION PASS. Environment for every row below: Node 24.12.0, pnpm 11.9.0, Python 3.13.12, dependency-cruiser 16.10.4, typescript 5.9.3, Windows 11 build 26200 under MINGW64. No database: nothing here connects to one."
     },
     {
       "command": "pnpm test:validator",
       "exit_status": 0,
-      "observed_at": "2026-09-08T04:28:10Z",
-      "output_reference": "Ran 36 tests, OK. 31 in the previous checkpoint; the five new ones cover the forged granted_extra: section, a key recorded under both granted and not_granted, a withheld grant that does not read as withheld, and a state authority key the registry does not record"
+      "observed_at": "2026-09-08T05:25:45Z",
+      "output_reference": "Ran 50 tests, OK. 36 in the previous checkpoint; the 14 new ones are the round-three forgeries, each of which returned exit 0 before this round"
     },
     {
       "command": "pnpm typecheck",
       "exit_status": 0,
-      "observed_at": "2026-09-08T04:28:14Z",
+      "observed_at": "2026-09-08T05:25:51Z",
       "output_reference": "tsc -p tsconfig.json, no diagnostic"
     },
     {
       "command": "pnpm boundaries:check",
       "exit_status": 0,
-      "observed_at": "2026-09-08T04:28:15Z",
-      "output_reference": "BOUNDARY_GENERATION PASS 30 modules, generated files are current; no dependency violations found, 23 modules and 28 dependencies cruised"
+      "observed_at": "2026-09-08T05:25:52Z",
+      "output_reference": "BOUNDARY_GENERATION PASS 30 modules, generated files are current; no dependency violations found"
     },
     {
       "command": "pnpm lint:migrations",
       "exit_status": 0,
-      "observed_at": "2026-09-08T04:28:16Z",
+      "observed_at": "2026-09-08T05:25:53Z",
       "output_reference": "MIGRATION_LINT PASS 2 file(s), no violation"
     },
     {
       "command": "pnpm check:modules",
       "exit_status": 0,
-      "observed_at": "2026-09-08T04:28:17Z",
+      "observed_at": "2026-09-08T05:25:54Z",
       "output_reference": "MODULE_PACKAGES PASS 30 registered, 4 with a package, every directory registered"
+    },
+    {
+      "command": "pnpm check:coverage",
+      "exit_status": 0,
+      "observed_at": "2026-09-08T05:25:54Z",
+      "output_reference": "COVERAGE_GATE PASS 16 named protections, every one witnessed by a control. Observed FAILING first: adding a fifth audit verb to AUDIT_FORBIDDEN produced COVERAGE_GATE FAIL 1 of 17, exit 1, and the verb was removed again"
     },
     {
       "command": "pnpm test:boundaries",
       "exit_status": 0,
-      "observed_at": "2026-09-08T04:28:18Z",
-      "output_reference": "53 tests, 53 pass, 0 fail. 46 in the previous checkpoint; the seven new ones are the round-two migration controls"
+      "observed_at": "2026-09-08T05:25:55Z",
+      "output_reference": "64 tests, 64 pass, 0 fail. 53 in the previous checkpoint"
     },
     {
       "command": "pnpm check:mutations",
       "exit_status": 0,
-      "observed_at": "2026-09-08T04:28:19Z",
-      "output_reference": "MUTATION_CHECK PASS 24 mutations, every one caught. 18 in the previous checkpoint; the six new ones cover deny-by-default on an unmodelled DDL statement, CREATE and DROP SCHEMA, ALTER ... SET SCHEMA, the anchored stems that let policyholder escape, the file-wide M5 marker, and the audit column type change"
+      "observed_at": "2026-09-08T05:25:56Z",
+      "output_reference": "MUTATION_CHECK PASS 30 mutations, every one caught. 24 in the previous checkpoint. The rewrite of scrub() and the file walk was correctly reported as ANCHOR LOST on two mutations before they were repaired, which is the check doing its job"
     }
   ],
   "decisions": [
@@ -104,48 +113,63 @@
     "DEC-003 the registry reader is a strict purpose-built parser, not a YAML library",
     "DEC-004 negative control 6 and every runtime control are declared non-coverage, not passed",
     "DEC-005 the broker policy module is registered as policy-record, not policy",
-    "DEC-006 mutation testing becomes a committed, required check rather than a one-off review technique",
-    "DEC-007 gates and authority are enumerated in the schema, so recording a gate or widening a grant is a reviewed schema change and not a data edit",
-    "DEC-008 the migration lint normalises quoting and refuses unqualified names, and its docstring now states its real limits rather than a conservatism it did not have",
-    "DEC-009 the generated configuration is stamped with the SHA-256 of the registry, and --check compares that stamp",
+    "DEC-006 mutation testing becomes a committed, required check",
+    "DEC-007 gates and authority are enumerated in the schema of the state file",
+    "DEC-008 the migration lint normalises quoting and refuses unqualified names",
+    "DEC-009 the generated configuration is stamped with the SHA-256 of the registry",
     "DEC-010 a migration control asserts on the lint's message, not only on the rule name",
-    "DEC-011 the secret scan reads bytes rather than decoded text, and the registry reader refuses an unknown top-level key",
+    "DEC-011 the secret scan reads bytes; the registry reader refuses an unknown top-level key",
     "DEC-012 the migration lint denies by default on an unmodelled DDL statement",
-    "DEC-013 the P0 forbidden domain words match as prefixes, deliberately broad, to be retired with the phase rather than loosened during it",
-    "DEC-014 badf/authority.yaml is itself parsed, refuses an unknown top-level section, and must agree with the state file",
-    "DEC-015 the M5 not-tenant-owned exemption is per statement, not per file"
+    "DEC-013 the P0 forbidden domain words match as prefixes, to be retired with the phase",
+    "DEC-014 badf/authority.yaml is parsed and must agree with the state file",
+    "DEC-015 the M5 not-tenant-owned exemption is per statement, not per file",
+    "DEC-016 scrub() becomes a single-pass scanner and refuses what it cannot represent",
+    "DEC-017 a file this lint does not read is a violation, not a skip",
+    "DEC-018 the authority reader's default becomes an error, and the state-registry relation is total both ways",
+    "DEC-019 gates.yaml and two lifecycle statements are validated; a Work Package cannot accept itself",
+    "DEC-020 a protection this repository names must be witnessed by a fixture, checked by the coverage gate",
+    "DEC-021 three claims the records made about their own defences are withdrawn as false, and the residual forgery is declared"
   ],
   "assumptions": [
     "ASSUMED: the modular monolith of ARCH-001 section 4.1, with the seven dependency rules and one schema per module. ADR-001 decides this and is DRAFT_REQUIRED.",
     "ASSUMED: the candidate modules of the ARCH-001 capability map are the registry entries. Whether each is a bounded context, a subdomain or an aggregate is BIZTRUST-DOMAIN-001's decision.",
     "ASSUMED: dependency-cruiser as the checker. The rules are generated, so a different checker consumes the same registry.",
     "ASSUMED: the migration lint is a deterministic script under scripts/, per P0.2 open question 5. It is a text check over SQL and its blind spots are listed under declared_non_coverage.",
-    "ASSUMED: GitHub as the host, with the branch protection the guide charter describes."
+    "ASSUMED: GitHub as the host, with the branch protection the guide charter describes. This is now observed rather than assumed."
   ],
   "blockers": [
     "BT-G0 is unrecorded. ARCH-001 is a draft, and FOUNDATION_SEQUENCE.md slice S01 needs five human review seats that are unfilled. No P0 epic may be implemented until an architecture authority records it.",
     "ADR-001, ADR-004, ADR-005, ADR-010 and ADR-011 are all DRAFT_REQUIRED. The rules in this repository are the proposal of a design at IN_REVIEW.",
-    "The repository administrator seat is unfilled, so main is unprotected and negative control 6 cannot be observed. Pull request #1 is open and its CI is green, but nothing prevents a merge with a red check, so the gate is still convention rather than mechanism.",
-    "The peer review has returned REVISION_REQUIRED twice, four blockers then three. All seven are addressed on this branch, but a re-review of THIS head has not happened, and the reviewer, not the implementer, decides whether a revision closes a finding. Round two is itself the evidence that a green suite is not a substitute for that judgement."
+    "NS-001 is half done. Branch protection is applied and negative control 6 is observed, but its other half - a named human holding the repository-administrator seat in badf/agents.yaml - is not, and that registry has no field capable of holding an occupant's name. An agent applied a setting on an operator's instruction; that is not a named human recording that they decided it.",
+    "Peer review has returned REVISION_REQUIRED three times. This round's findings came from two fresh-context AGENT reviewers, and neither is the independent human verifier the P0.2 design names. No re-review of this head has happened, and the reviewer decides whether a revision closes a finding."
   ],
-  "authority_status": "The scaffold was built under a direct operator instruction, recorded in badf/authority.yaml under granted.repository_scaffold. That is an operator instruction recorded by an agent; it is NOT the expiring implementation grant from a business authority seat that the P0.2 design requires. Every other authority in that file is NOT_GRANTED, wp_001_acceptance included, and the registry is now parsed and cross-checked against the state file so that neither a forged section nor a silent disagreement between the two survives validation. Pushing this branch and updating pull request #1 are both inside tool_authority.may; pushing to main is not, and main has not been touched.",
+  "authority_status": "The scaffold was built under a direct operator instruction, recorded in badf/authority.yaml under granted.repository_scaffold. That is an operator instruction recorded by an agent; it is NOT the expiring implementation grant from a business authority seat that the P0.2 design requires. Every other authority in that file is NOT_GRANTED, wp_001_acceptance included. The registry is now parsed strictly, its statuses come from closed sets, its expiries are enforced, and it must agree key-for-key with the schema-pinned mirror in both directions. What this does NOT establish is that any record here was written by a human: a forgery that edits all three records consistently still passes, and the only mechanism that addresses it is the approval requirement now enforced on main. Pushing this branch and updating pull request #1 are inside tool_authority.may; pushing to main is not, and the attempt recorded as evidence was refused by the protection rather than by restraint.",
   "next_action_id": "NS-001",
-  "next_action": "Fill the repository administrator seat and record branch protection on main, so that negative control 6 becomes observable and every later package merges through a required check.",
-  "recovery": "Read AGENTS.md, then badf/authority.yaml, then badf/current-state.json and badf/next-actions.json. The branch is motor/p0.2/repository-and-boundaries off 062a0f7c1b350e4af695978b238b28e323b7d0e0 on main, and pull request #1 tracks it. First safe command: pnpm install --frozen-lockfile, then pnpm verify, which runs the eight checks after it in order. All nine rows above were observed at this head. If any fails, the tree has diverged from this checkpoint and the answer is RECOVERY_REQUIRED, not a fix.",
+  "next_action": "Fill the repository administrator seat with a named human in badf/agents.yaml, and have that person record the branch protection decision. The protection itself is applied and negative control 6 is observed; what is missing is the record and the name, which no agent may write.",
+  "recovery": "Read AGENTS.md, then badf/authority.yaml, then badf/current-state.json and badf/next-actions.json. The branch is motor/p0.2/repository-and-boundaries off 062a0f7c1b350e4af695978b238b28e323b7d0e0 on main, and pull request #1 tracks it. First safe command: pnpm install --frozen-lockfile, then pnpm verify, which runs the nine checks above in order. All nine were observed at this head with the exit statuses recorded. If any fails, the tree has diverged from this checkpoint and the answer is RECOVERY_REQUIRED, not a fix. Do not run two agents against this working tree at once: the boundary suite and the mutation check both mutate tracked files and restore them, so concurrent runs corrupt each other's readings.",
   "declared_non_coverage": [
-    "Negative control 6 of the P0.2 design: a push straight to main and a merge with a failing check. Needs branch protection, which is a human record. Unobserved.",
-    "The runtime half of every control. Nothing runs: there is no server, no database and no configuration.",
-    "The migration lint is a text check over SQL, not a parser. It handles double-quoted identifiers, unqualified names, search_path and plurals, and it now denies by default on an unmodelled DDL statement; it CANNOT see through a dollar-quoted function body, a DO block, dynamic SQL built at runtime, or an extension that creates objects as a side effect. An earlier version of this file called the lint conservative by design, which was affirmatively wrong.",
-    "Deny-by-default is triggered by a statement OPENING with CREATE, ALTER or DROP. GRANT, REVOKE, COMMENT ON, SECURITY LABEL, IMPORT FOREIGN SCHEMA, SELECT ... INTO and CALL are therefore outside it: they are not treated as DDL, so a statement of that shape passes for want of a target rather than failing for want of one. This is a new limit introduced alongside the new rule, stated here rather than left for the next reviewer to find.",
-    "The authority registry parser reads the status: line and nothing else. It does NOT read expires_at, so a grant whose expiry has passed still reads as GRANTED to every check in this repository, including the one recorded as UNBOUNDED_PENDING_REVIEW. Expiry is enforced by a human reading the file, not by an instrument.",
-    "Rule 7's outbound host allow-list does not exist. The P0.2 design makes it a check of its own and control 10's second half a CI check; neither is implemented, and apps/ contains only a README, so rule 7 binds nothing outside the fixture. This is a CI-side gap, not covered by the runtime-control disclaimer above.",
+    "THE ONE THAT MATTERS MOST. A forgery that edits badf/authority.yaml, badf/current-state.json and the checkpoint CONSISTENTLY passes every check in this repository. Nothing here binds a record to a human identity, and no validator can close that. The mechanism that addresses it is the approval requirement on main, recorded under NS-001. Verified deliberately after this round's fixes, not assumed.",
+    "badf/skills.yaml and badf/agents.yaml are validated for existence, non-emptiness and a version line only. An agent can set record-a-gate and grant-authority to AVAILABLE, or flip may_be_an_agent to true on all four authority seats, and nothing objects. Only the two badf/lifecycle.yaml statements the acceptance check depends on are pinned; the rest of that file is in the same position.",
+    "badf/agents.yaml has no field capable of recording who holds a seat. Occupancy lives in a free-text note, so NS-001's acceptance cannot be recorded in the record it names.",
+    "No CODEOWNERS exists. badf/agents.yaml routes badf/authority.yaml to a human owner and verifier in prose, and every commit touching it so far has been agent-authored with nothing objecting. Now that main is protected, a CODEOWNERS file would make that routing a mechanism.",
+    "The checkpoint's baseline_commit, branch and files_changed are checked for agreement with badf/current-state.json but are NOT verified against git. A commit that does not exist, or a path that is not a file, still validates.",
+    "The migration lint is a text check over SQL, not a parser. Its scanner handles comments, literals, dollar-quoted bodies and quoted identifiers in one pass, and it refuses what it cannot represent; it still cannot see dynamic SQL built at runtime, or an extension that creates objects as a side effect.",
+    "Deny-by-default triggers on a statement OPENING with CREATE, ALTER or DROP. GRANT, REVOKE, COMMENT ON, SECURITY LABEL, IMPORT FOREIGN SCHEMA, SELECT ... INTO, CALL, COPY, MERGE, REFRESH MATERIALIZED VIEW, LOCK, ANALYZE, VACUUM, REINDEX and CLUSTER are outside it. COPY and MERGE write rows across a schema boundary, which is the same act INSERT is modelled for; this is a KNOWN OPEN FINDING from round three, not merely a limit.",
+    "M4 and M5 fire only on the resolved verb CREATE TABLE. CREATE FOREIGN TABLE, ALTER ... RENAME TO, CREATE VIEW and CREATE MATERIALIZED VIEW are outside both, so a P0 domain table can still be created as a foreign table or reached by renaming a neutral one. KNOWN OPEN FINDING from round three.",
+    "Cross-schema reads and structural coupling - SELECT ... FROM another schema, PARTITION OF, INHERITS - pass. KNOWN OPEN FINDING from round three.",
+    "REFERENCES <table> with no column list escapes M2, and psql meta-commands such as \\i pass silently. KNOWN OPEN FINDINGS from round three.",
+    "Rules 5 and 5b have no apps/-side fixture, so an app other than the control plane importing a module's public-but-not-contract file is caught by nothing. The coverage gate checks rule SHAPES, not both arms of each shape, so it does not catch this. KNOWN OPEN FINDING from round three.",
+    "Fixture target monoculture: rules 3, 4, 6 and 7 can each be narrowed to the single fixture target they point at with the suite staying green.",
+    "The boundary suite and the mutation check MUTATE TRACKED FILES and restore them in a finally. A concurrent or interrupted run can leave a loosened rule in a tracked source file, so a recorded PASS is not reproducible by construction. Observed during this round when two reviewers ran against one working tree. KNOWN OPEN FINDING.",
+    "Negative control 6 is observed; every OTHER runtime control is not. Nothing runs: there is no server, no database and no configuration.",
+    "Rule 7's outbound host allow-list does not exist, and apps/ contains only a README, so rule 7 binds nothing outside the fixture.",
     "The contract lint over openapi/ and events/. Both directories are reserved and empty; the rules are P0.8 and P0.9.",
     "The observability tests. The baseline is P0.11.",
     "The security proof suite over tests/security/. The BT-G1 matrix needs BT-G0 first.",
     "No fixture proves the typecheck fails, so the compiler is an unwitnessed instrument.",
-    "CI runs one Verify job with sequential steps, not the nine independently required checks the design names, and there is no Build job. The merge-blocking effect is equivalent; the divergence is recorded rather than hidden.",
-    "The mutation check covers the dependency rules and the migration lint. It does NOT mutate the record validator, the registry reader or the module-package check, so those three are tested by their own suites but not mutation-tested. The round-two authority-registry validator falls in that set, which is worth naming because it is the check that guards authority.",
-    "Rules 1 and 2 are generated per module; the fixture exercises one instance of each family, not all four.",
-    "The design's control 7 says the boundary check's GENERATION step catches a package with no registry row. It does not; a separate script does. Different instrument from the one specified, recorded here rather than glossed."
+    "CI runs one Verify job with sequential steps, not the independently required checks the design names, and there is no Build job. Two checks are required on main: Verify and Scope boundary.",
+    "The mutation check covers the dependency rules and the migration lint. It does NOT mutate the record validator, the registry reader, the module-package check or the coverage gate, so the checks that guard authority and coverage are themselves tested only by their own suites.",
+    "Rules 1 and 2 are generated per module; the fixture exercises one instance of each family, and the coverage gate deliberately asks for families rather than instances.",
+    "The design's control 7 says the boundary check's GENERATION step catches a package with no registry row. It does not; a separate script does."
   ]
 }

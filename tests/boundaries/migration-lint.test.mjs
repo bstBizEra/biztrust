@@ -199,7 +199,99 @@ const CONTROLS = [
     rule: "M4",
     match: 'table "claims" is named for the domain word "claim"',
   },
+  // Round three. The first of these is the one that mattered: the lint was a
+  // no-op on a legal file, and the suite was green.
+  {
+    control: "R3-1",
+    threat: "an apostrophe inside a double-quoted identifier",
+    file: "r3_apostrophe_identifier.sql",
+    rule: "M1",
+    match: `the quoted identifier "o'brien" carries a character outside`,
+  },
+  {
+    control: "R3-2",
+    threat: "a non-ASCII character in an unquoted identifier",
+    file: "r3_non_ascii_identifier.sql",
+    rule: "M1",
+    match: "an unquoted identifier carries the non-ASCII character",
+  },
+  {
+    control: "R3-3",
+    threat: "a dollar-quoted body this lint cannot read",
+    file: "r3_dollar_quoted_body.sql",
+    rule: "M1",
+    match: "dollar-quoted body",
+  },
+  {
+    control: "R3-4",
+    threat: "a migration file directly under the migrations root",
+    file: "r3_root_level.sql",
+    rule: "M6",
+    match: "sits directly under the migrations root",
+  },
+  {
+    control: "R3-5",
+    threat: "a file under a migration directory that this lint would not read",
+    file: "r3_not_a_sql_file.txt",
+    rule: "M6",
+    match: "reads only *.sql under a migration directory",
+  },
+
+  // AGENTS.md section 5 names four verbs M3 refuses and four domain words M4
+  // refuses. One verb and two words had a fixture; the rest were enforced by
+  // code and witnessed by nothing, so each could be deleted with the suite
+  // green. scripts/coverage-gate.mjs now asks for these by name, derived from
+  // the lists in the lint itself rather than from a list kept beside them.
+  {
+    control: "R3-7",
+    threat: "UPDATE on the audit schema",
+    file: "m3_update.sql",
+    rule: "M3",
+    match: '"UPDATE" is refused',
+  },
+  {
+    control: "R3-8",
+    threat: "TRUNCATE on the audit schema",
+    file: "m3_truncate.sql",
+    rule: "M3",
+    match: '"TRUNCATE" is refused',
+  },
+  {
+    control: "R3-9",
+    threat: "DROP on the audit schema",
+    file: "m3_drop.sql",
+    rule: "M3",
+    match: '"DROP" is refused',
+  },
+  {
+    control: "R3-10",
+    threat: "the second P0 domain word",
+    file: "m4_client.sql",
+    rule: "M4",
+    match: 'the domain word "client"',
+  },
+  {
+    control: "R3-11",
+    threat: "the fourth P0 domain word",
+    file: "m4_premium.sql",
+    rule: "M4",
+    match: 'the domain word "premium"',
+  },
 ];
+
+// Control R3-6 is the inverse of the others: the fixture must be READ, not
+// refused. An uppercase extension used to make the file invisible, so the
+// evidence is that its CONTENT is reported.
+test("control R3-6: a .SQL file is read despite the uppercase extension", () => {
+  const lines = violating.out
+    .split(/\r?\n/)
+    .filter((line) => line.includes("r3_uppercase_extension.SQL"));
+  assert.ok(
+    lines.some((line) => line.includes(": M5: ")),
+    `expected the uppercase-extension fixture to be read and reported for M5; ` +
+      `the lint said:\n${violating.out}`,
+  );
+});
 
 const violating = lint(`${FIXTURES}/violating`);
 

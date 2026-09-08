@@ -168,6 +168,43 @@ not_granted:
 granted:
   repository_scaffold:
     status: GRANTED
+    granted_by: "operator, direct instruction"
+    recorded_by: "agent"
+    expires_at: "UNBOUNDED_PENDING_REVIEW"
+"""
+
+#: The gate registry, which AGENTS.md section 4 makes authoritative for gate
+#: results. A stub left it checked for a version line, so a review set every
+#: gate to PASSED and deleted the whole delivery_gates section, both with a
+#: pass. It has to carry the same five ids the state file mirrors.
+GATES_YAML = """version: "0.1.0"
+
+delivery_gates:
+  - id: BT-G0
+    status: UNRECORDED
+  - id: BT-G1
+    status: UNRECORDED
+  - id: BT-G2
+    status: UNRECORDED
+  - id: BT-G3
+    status: UNRECORDED
+  - id: BT-G4
+    status: UNRECORDED
+"""
+
+#: Only the two statements the acceptance check stands on. A rule an agent can
+#: edit is a rule an agent does not have, and a review rewrote this transition
+#: to requires_human: false and got a pass.
+LIFECYCLE_YAML = """version: "0.1.0"
+
+transitions:
+  - from: ENGINEERING_READY
+    to: ACCEPTED
+    role: "verifier, who is not the implementer"
+    requires_human: true
+
+forbidden:
+  - "Any transition into ACCEPTED made by the implementing agent"
 """
 
 
@@ -189,7 +226,11 @@ def build(tmp: Path, *, state=None, actions=None, decision_lines=None, checkpoin
     lines = [json.dumps(DECISION)] if decision_lines is None else decision_lines
     (badf / "decision-log.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
     for name in registries:
-        content = AUTHORITY_YAML if name == "authority.yaml" else REGISTRY_STUB
+        content = {
+            "authority.yaml": AUTHORITY_YAML,
+            "gates.yaml": GATES_YAML,
+            "lifecycle.yaml": LIFECYCLE_YAML,
+        }.get(name, REGISTRY_STUB)
         (badf / name).write_text(content, encoding="utf-8")
 
     checkpoints = tmp / "sessions" / "checkpoints"
@@ -515,6 +556,170 @@ class ValidatorFailsClosed(unittest.TestCase):
             result = run(tmp)
         self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
 
+
+
+class RoundThreeForgeries(unittest.TestCase):
+    """Every forgery peer review round three got a pass with.
+
+    Round two hardened the state file's authority enum and left the registry it
+    mirrors readable only by two regexes. Round three walked through the gap
+    five different ways, and through three registries nothing read at all. Each
+    test below is one of those, kept so the hole cannot reopen quietly.
+    """
+
+    def _run(self, *, authority=None, gates=None, lifecycle=None, state=None,
+             checkpoint=None):
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = build(Path(directory), state=state, checkpoint=checkpoint)
+            if authority is not None:
+                (tmp / "badf" / "authority.yaml").write_text(authority, encoding="utf-8")
+            if gates is not None:
+                (tmp / "badf" / "gates.yaml").write_text(gates, encoding="utf-8")
+            if lifecycle is not None:
+                (tmp / "badf" / "lifecycle.yaml").write_text(lifecycle, encoding="utf-8")
+            return run(tmp)
+
+    def _refused(self, needle, **kwargs):
+        result = self._run(**kwargs)
+        self.assertEqual(
+            result.returncode, 1,
+            f"this forgery must be refused:\n{result.stdout}{result.stderr}",
+        )
+        self.assertIn(needle, result.stderr)
+
+    # ---- the reader itself -------------------------------------------------
+
+    def test_a_flow_style_grant_is_reported(self):
+        """One line of valid YAML forged the grant this repository withholds.
+
+        An entry was required to have nothing after its colon, so this was
+        invisible and the granted/not_granted overlap check never fired.
+        """
+        self._refused(
+            "inline value",
+            authority=AUTHORITY_YAML.replace(
+                "granted:\n  repository_scaffold:",
+                "granted:\n  p0_implementation: {status: GRANTED}\n  repository_scaffold:",
+            ),
+        )
+
+    def test_an_uppercase_forged_section_is_reported(self):
+        """`GRANTED_EXTRA:` walked past a `^[a-z0-9_]+:` section sniffer."""
+        self._refused(
+            "GRANTED_EXTRA",
+            authority=AUTHORITY_YAML + "\nGRANTED_EXTRA:\n  p0_override:\n    status: GRANTED\n",
+        )
+
+    def test_a_tab_indented_block_is_reported(self):
+        self._refused(
+            "tab",
+            authority=AUTHORITY_YAML + "\ngranted:\n\tp0_implementation:\n\t\tstatus: GRANTED\n",
+        )
+
+    def test_an_unexpected_indent_is_reported(self):
+        self._refused(
+            "indented 3 spaces",
+            authority=AUTHORITY_YAML + "\ngranted:\n   p0_implementation:\n      status: GRANTED\n",
+        )
+
+    # ---- what the reader is asked ------------------------------------------
+
+    def test_a_granted_entry_with_no_status_is_reported(self):
+        """Membership used to be established by the key alone."""
+        self._refused(
+            "records no status",
+            authority=AUTHORITY_YAML + "  p0_implementation_for_wp002:\n    what: \"anything\"\n",
+        )
+
+    def test_an_expired_grant_is_reported(self):
+        """AGENTS.md section 11 makes expired authority a stop condition.
+
+        Nothing enforced `expires_at`, so back-dating it to 2020 passed.
+        """
+        self._refused(
+            "expired on 2020-01-01",
+            authority=AUTHORITY_YAML.replace(
+                'expires_at: "UNBOUNDED_PENDING_REVIEW"', 'expires_at: "2020-01-01"'
+            ),
+        )
+
+    def test_a_grant_present_only_in_the_registry_is_reported(self):
+        """The state/registry relation was one-directional.
+
+        Only keys the state file already named were examined, so a grant ADDED
+        to the registry agreed with nothing and passed.
+        """
+        self._refused(
+            "no matching key",
+            authority=AUTHORITY_YAML + (
+                "  p0_2_implementation:\n"
+                "    status: GRANTED\n"
+                '    granted_by: "business authority seat"\n'
+                '    recorded_by: "business-authority"\n'
+                '    expires_at: "2099-01-01"\n'
+            ),
+        )
+
+    def test_a_grant_recorded_by_an_agent_is_reported(self):
+        self._refused(
+            'recorded_by "agent"',
+            authority=AUTHORITY_YAML + (
+                "  p0_2_implementation:\n"
+                "    status: GRANTED\n"
+                '    granted_by: "business authority seat"\n'
+                '    recorded_by: "agent"\n'
+                '    expires_at: "2099-01-01"\n'
+            ),
+        )
+
+    # ---- the three registries nothing read ---------------------------------
+
+    def test_a_recorded_gate_in_the_registry_is_reported(self):
+        """AGENTS.md section 4 makes gates.yaml authoritative, and it was the
+        unvalidated copy. Setting BT-G0 to PASSED there passed."""
+        self._refused(
+            "BT-G0", gates=GATES_YAML.replace(
+                "  - id: BT-G0\n    status: UNRECORDED",
+                "  - id: BT-G0\n    status: PASSED",
+            ),
+        )
+
+    def test_deleting_the_delivery_gates_is_reported(self):
+        self._refused("BT-G0 is missing", gates='version: "0.1.0"\n')
+
+    def test_rewriting_the_acceptance_transition_is_reported(self):
+        self._refused(
+            "requires_human",
+            lifecycle=LIFECYCLE_YAML.replace(
+                '    role: "verifier, who is not the implementer"\n    requires_human: true',
+                '    role: "owner"\n    requires_human: false',
+            ),
+        )
+
+    def test_deleting_the_forbidden_self_acceptance_line_is_reported(self):
+        self._refused(
+            "forbidden list",
+            lifecycle=LIFECYCLE_YAML.replace(
+                '  - "Any transition into ACCEPTED made by the implementing agent"\n', ""
+            ),
+        )
+
+    # ---- an agent accepting its own work -----------------------------------
+
+    def test_a_work_package_cannot_accept_itself(self):
+        """The state ran ahead of the acceptance record and nothing objected."""
+        state = copy.deepcopy(STATE)
+        state["active_work_package"]["state"] = "ACCEPTED"
+        checkpoint = copy.deepcopy(CHECKPOINT)
+        checkpoint["state"] = "ACCEPTED"
+        self._refused("may not run ahead of the acceptance record",
+                      state=state, checkpoint=checkpoint)
+
+    def test_a_checkpoint_that_describes_other_work_is_reported(self):
+        """A forged checkpoint conformed to the schema and was bound to nothing."""
+        checkpoint = copy.deepcopy(CHECKPOINT)
+        checkpoint["branch"] = "no-such-branch"
+        self._refused("branch", checkpoint=checkpoint)
 
 class ValidatorRunsAgainstThisRepository(unittest.TestCase):
     def test_the_real_records_pass(self):

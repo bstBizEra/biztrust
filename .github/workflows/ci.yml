@@ -102,6 +102,16 @@ jobs:
       - name: Every module package is registered
         run: pnpm check:modules
 
+      # 9. Coverage gate: a protection this repository NAMES must be witnessed
+      #    by a fixture asserting its own message. Three review rounds each
+      #    found the same defect in a different instrument - the suite was
+      #    green while a rule did nothing - so this asks the question one level
+      #    up, and derives the list from the code rather than from a list kept
+      #    beside it. Adding an audit verb, a domain word or a module without a
+      #    fixture fails here.
+      - name: Every named protection has a control
+        run: pnpm check:coverage
+
   # A reminder in the checks list, not a gate. It cannot pass or fail on its
   # own; it prints what a reader of this repository must not assume.
   scope:
