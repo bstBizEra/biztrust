@@ -407,6 +407,56 @@ const CONTROLS = [
     rule: "M5",
     match: 'view "summary" has no tenant_id column',
   },
+
+  // Review of the R3-22..25 pass above found the RENAME TO scan recognised
+  // only the literal keyword TABLE, so ALTER VIEW / ALTER FOREIGN TABLE /
+  // ALTER MATERIALIZED VIEW ... RENAME TO all walked past M4 despite their
+  // CREATE forms being in TABLE_CREATING_VERBS - the exact finding this task
+  // exists to close, reproduced one call site over. Each form of the
+  // RENAMEABLE_TYPES alternation is independently deletable, so each gets
+  // its own fixture and its own message assertion (including the "kind"
+  // word, which is derived from the matched keyword and would silently say
+  // "table" for a view or foreign table if that derivation regressed).
+  {
+    control: "R3-26",
+    threat: "ALTER VIEW ... RENAME TO renames a view to a domain word",
+    file: "r3_rename_view_domain_word.sql",
+    rule: "M4",
+    match: 'view "policy" is named for the domain word "policy"',
+  },
+  {
+    control: "R3-27",
+    threat: "ALTER FOREIGN TABLE ... RENAME TO renames a foreign table to a domain word",
+    file: "r3_rename_foreign_table_domain_word.sql",
+    rule: "M4",
+    match: 'foreign table "claim" is named for the domain word "claim"',
+  },
+  {
+    control: "R3-28",
+    threat: "ALTER MATERIALIZED VIEW ... RENAME TO renames a materialized view to a domain word",
+    file: "r3_rename_materialized_view_domain_word.sql",
+    rule: "M4",
+    match: 'view "premium" is named for the domain word "premium"',
+  },
+
+  // Added by ruling on review of this task (not in the original brief's verb
+  // list): SELECT ... INTO creates a table exactly as CREATE TABLE does and
+  // was left out of TABLE_CREATING_VERBS, the same class of escape this task
+  // exists to close.
+  {
+    control: "R3-29",
+    threat: "SELECT ... INTO creates a P0 domain table",
+    file: "r3_select_into_domain_word.sql",
+    rule: "M4",
+    match: 'table "policy" is named for the domain word "policy"',
+  },
+  {
+    control: "R3-30",
+    threat: "SELECT ... INTO creates a table with no tenant_id",
+    file: "r3_select_into_without_tenant_id.sql",
+    rule: "M5",
+    match: 'table "aggregate" has no tenant_id column',
+  },
 ];
 
 // Control R3-6 is the inverse of the others: the fixture must be READ, not

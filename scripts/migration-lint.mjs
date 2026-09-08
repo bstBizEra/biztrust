@@ -98,21 +98,75 @@ export const AUDIT_FORBIDDEN = ["UPDATE", "DELETE", "TRUNCATE", "DROP"];
  * or its SELECT) is satisfiable by any view that actually re-exposes the
  * column, so a conforming view costs one word, and an unwitnessed one is
  * refused rather than passed in silence.
+ *
+ * `SELECT ... INTO <target>` is here too, added by ruling on review of this
+ * task: it creates a table exactly as `CREATE TABLE` does, as a side effect
+ * of a query, and `objectTargets` already extracts it (verb `SELECT INTO`,
+ * added in the round-three work that came before this task, for M1). Leaving
+ * it out of this set would be the same hole M4 and M5 were built to close,
+ * one call site over - a table-creating statement that these two rules never
+ * look at because nobody added its verb to the list.
  */
-export const TABLE_CREATING_VERBS = new Set(["CREATE TABLE", "CREATE FOREIGN TABLE", "CREATE VIEW"]);
+export const TABLE_CREATING_VERBS = new Set([
+  "CREATE TABLE",
+  "CREATE FOREIGN TABLE",
+  "CREATE VIEW",
+  "SELECT INTO",
+]);
 
 /**
- * The word M4 and M5 use in their own messages for what was created relative
- * to the size of TABLE_CREATING_VERBS. `RENAME TO` (below) is not itself a
- * CREATE verb - it is modelled as its own target with the destination as the
- * object - and reports as a table, mirroring the `ALTER TABLE ... RENAME TO`
- * shape the brief for this task names explicitly.
+ * The word M4 and M5 use in their own messages for what was created, DERIVED
+ * from the actual PostgreSQL keyword a target was resolved from rather than
+ * hard-coded per verb string.
+ *
+ * The first version of this file (this task, first pass) hard-coded the
+ * mapping as a per-verb-string lookup that defaulted to "table" for anything
+ * it didn't recognise - which was correct only because `RENAME TO` was, at
+ * the time, reachable solely through `ALTER TABLE`. Review of that pass
+ * found the same defect this task exists to close, one call site over:
+ * `ALTER VIEW ... RENAME TO` and `ALTER FOREIGN TABLE ... RENAME TO` are
+ * both valid PostgreSQL for object types this very file treats as
+ * table-creating, and the RENAME TO scan recognised only the literal keyword
+ * `TABLE`, so neither was extracted as a target at all - M4 and M5 both
+ * walked past a rename of exactly the kind this task was written to close.
+ * Fixing the extraction (below) without fixing this label would then mislabel
+ * a renamed view or foreign table as a "table" in its own violation message,
+ * which is a defect in this project: every control asserts on the message.
+ *
+ * `relationKind` is the single source both the CREATE/ALTER/DROP scan and the
+ * RENAME TO scan call with the raw keyword text they matched (`TABLE`,
+ * `VIEW`, `FOREIGN TABLE`, `MATERIALIZED VIEW`), so a target's message word
+ * is derived from what PostgreSQL actually calls it, not re-guessed from a
+ * second list that has to be kept in step with the first by hand.
  */
-function kindLabel(verb) {
-  if (verb === "CREATE FOREIGN TABLE") return "foreign table";
-  if (verb === "CREATE VIEW") return "view";
+function relationKind(typeKeyword) {
+  const normalised = typeKeyword.toUpperCase().replace(/\s+/g, " ");
+  if (normalised === "FOREIGN TABLE") return "foreign table";
+  if (normalised === "VIEW" || normalised === "MATERIALIZED VIEW") return "view";
   return "table";
 }
+
+/**
+ * The object types PostgreSQL allows `RENAME TO` on, as ONE alternation,
+ * reused by the RENAME TO scan below. `FOREIGN\s+TABLE` and
+ * `MATERIALIZED\s+VIEW` are ordered before their shorter substrings
+ * (`TABLE`, `VIEW`) only for readability; JS regex alternation tries each in
+ * order but the match position after `ALTER\s+` makes the two pairs mutually
+ * exclusive in practice (`ALTER FOREIGN TABLE` cannot also start matching
+ * plain `TABLE` at that position).
+ *
+ * This is deliberately the SAME shape as TABLE_CREATING_VERBS' four forms,
+ * not a separately maintained, shorter list. Review of this task's first
+ * pass found the RENAME TO scan hard-coded to the literal keyword `TABLE`
+ * alone - an allow-list of one, extended from the finding this task closes
+ * to a call site the same finding did not think to check. Deriving the
+ * RENAME TO source from this alternation, instead of enumerating a longer
+ * fixed list of keywords, means a future object type added to
+ * TABLE_CREATING_VERBS' CREATE side and to this alternation together stays
+ * symmetric by construction rather than by someone remembering to update
+ * both.
+ */
+const RENAMEABLE_TYPES = String.raw`(FOREIGN\s+TABLE|MATERIALIZED\s+VIEW|VIEW|TABLE)`;
 
 /** An identifier, bare or double-quoted. Both forms are legal PostgreSQL. */
 const ID = String.raw`(?:"[^"]+"|[A-Za-z_]\w*)`;
@@ -390,8 +444,13 @@ function pushCommaSeparatedTargets(rest, verb, push) {
  */
 function objectTargets(statement) {
   const targets = [];
-  const push = (schema, object, text, verb) =>
-    targets.push({ schema: schema ?? null, object: object ?? null, text, verb });
+  // `kind` is optional and only meaningful for a target M4/M5 will report on
+  // (see relationKind above); every other call site below omits it and gets
+  // `null`, which M4/M5 never read because they only reach a target whose
+  // verb is in TABLE_CREATING_VERBS or is RENAME TO, and both of those push
+  // sites always pass one.
+  const push = (schema, object, text, verb, kind = null) =>
+    targets.push({ schema: schema ?? null, object: object ?? null, text, verb, kind });
 
   const scan = (re, handler) => {
     for (const match of statement.matchAll(re)) handler(match);
@@ -410,28 +469,38 @@ function objectTargets(statement) {
     (m) => push(m[1], null, m[0], "SET SCHEMA"),
   );
 
-  // ALTER TABLE [ONLY] [schema.]name RENAME TO <destination>. Symmetric with
-  // SET SCHEMA above: the DESTINATION is what matters. Round three open
-  // finding 8's second half: `ALTER TABLE tenancy.neutral RENAME TO policies`
-  // creates the same P0 domain table `SET SCHEMA` creates a cross-schema
-  // write, in two statements instead of one, because the rename destination
-  // was never extracted as a target at all - so a table built under an
-  // innocent name and renamed afterward walked past M4 with no violation
-  // anywhere in the file. PostgreSQL's RENAME TO grammar carries no schema of
-  // its own (a rename cannot cross schemas), so the destination inherits the
-  // schema of the name being renamed, qualified or not; an unqualified
-  // origin is already its own M1 finding on the base ALTER TABLE target
+  // ALTER {TABLE|VIEW|FOREIGN TABLE|MATERIALIZED VIEW} [ONLY] [schema.]name
+  // RENAME TO <destination>. Symmetric with SET SCHEMA above: the
+  // DESTINATION is what matters. Round three open finding 8's second half:
+  // `ALTER TABLE tenancy.neutral RENAME TO policies` creates the same P0
+  // domain table `SET SCHEMA` creates a cross-schema write, in two
+  // statements instead of one, because the rename destination was never
+  // extracted as a target at all - so a table built under an innocent name
+  // and renamed afterward walked past M4 with no violation anywhere in the
+  // file. This task's own review then found the first fix recognised only
+  // the literal keyword `TABLE`, so `ALTER VIEW ... RENAME TO` and
+  // `ALTER FOREIGN TABLE ... RENAME TO` - both valid PostgreSQL for object
+  // types this file treats as table-creating - reached the same unmodelled
+  // place. RENAMEABLE_TYPES is the same four-form alternation
+  // TABLE_CREATING_VERBS covers on the CREATE side, so a rename recognises
+  // exactly what a create does. PostgreSQL's RENAME TO grammar carries no
+  // schema of its own (a rename cannot cross schemas), so the destination
+  // inherits the schema of the name being renamed, qualified or not; an
+  // unqualified origin is already its own M1 finding on the base target
   // above; pushing the destination too, with the same (possibly absent)
   // schema, is what puts it in front of M1 and M4's per-target loops rather
-  // than leaving it invisible to both.
+  // than leaving it invisible to both. `kind` is derived from the matched
+  // keyword itself (relationKind), not re-guessed from the verb string, so a
+  // renamed view or foreign table reports as one in its own M4 message.
   scan(
     new RegExp(
-      String.raw`\bALTER\s+TABLE\s+(?:ONLY\s+)?(?:IF\s+EXISTS\s+)?(${ID})(?:\.(${ID}))?\s+RENAME\s+TO\s+(${ID})`,
+      String.raw`\bALTER\s+${RENAMEABLE_TYPES}\s+(?:ONLY\s+)?(?:IF\s+EXISTS\s+)?(${ID})(?:\.(${ID}))?\s+RENAME\s+TO\s+(${ID})`,
       "gi",
     ),
     (m) => {
-      if (m[2] === undefined) push(null, m[3], m[0], "RENAME TO");
-      else push(m[1], m[3], m[0], "RENAME TO");
+      const kind = relationKind(m[1]);
+      if (m[3] === undefined) push(null, m[4], m[0], "RENAME TO", kind);
+      else push(m[2], m[4], m[0], "RENAME TO", kind);
     },
   );
 
@@ -443,8 +512,9 @@ function objectTargets(statement) {
     ),
     (m) => {
       const verb = `${m[1].toUpperCase()} ${m[2].toUpperCase().replace(/\s+/g, " ")}`;
-      if (m[4] === undefined) push(null, m[3], m[0], verb);
-      else push(m[3], m[4], m[0], verb);
+      const kind = relationKind(m[2]);
+      if (m[4] === undefined) push(null, m[3], m[0], verb, kind);
+      else push(m[3], m[4], m[0], verb, kind);
     },
   );
 
@@ -561,8 +631,13 @@ function objectTargets(statement) {
       "gi",
     ),
     (m) => {
-      if (m[2] === undefined) push(null, m[1], m[0], "SELECT INTO");
-      else push(m[1], m[2], m[0], "SELECT INTO");
+      // Added to TABLE_CREATING_VERBS by ruling on review of this task: a
+      // SELECT INTO always creates an ordinary table (never a view or a
+      // foreign table), so its kind is not derived from a keyword the way
+      // the other two table-creating scans' kinds are - there is only one
+      // kind SELECT INTO can produce.
+      if (m[2] === undefined) push(null, m[1], m[0], "SELECT INTO", "table");
+      else push(m[1], m[2], m[0], "SELECT INTO", "table");
     },
   );
 
@@ -733,7 +808,7 @@ function lintFile(path, moduleName, schema, errors) {
           if (pattern.test(part)) {
             report(
               "M4",
-              `${kindLabel(target.verb)} "${target.object}" is named for the domain word ` +
+              `${target.kind ?? "table"} "${target.object}" is named for the domain word ` +
                 `"${label}"; P0 builds no domain table, and a table by this name means the ` +
                 `phase has been left`,
             );
@@ -758,7 +833,7 @@ function lintFile(path, moduleName, schema, errors) {
       } else {
         report(
           "M5",
-          `${kindLabel(created.verb)} "${created.object}" has no tenant_id column; every ` +
+          `${created.kind ?? "table"} "${created.object}" has no tenant_id column; every ` +
             `tenant-owned table carries the baseline of DOMAIN_MODEL.md section 6, ` +
             `tenant_id first. A platform-owned table that is genuinely not tenant-owned ` +
             `puts a "-- not-tenant-owned:" comment immediately before its own CREATE ` +

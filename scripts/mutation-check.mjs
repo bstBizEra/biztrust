@@ -194,8 +194,8 @@ const MUTATIONS = [
   {
     file: LINT,
     name: "M1: stop modelling SELECT ... INTO as a target of the schema it creates a table in",
-    from: "  scan(\n    new RegExp(\n      String.raw`\\bSELECT\\b.*?\\bINTO\\s+(?:TEMPORARY\\s+|TEMP\\s+|UNLOGGED\\s+)?(?:TABLE\\s+)?(${ID})(?:\\.(${ID}))?`,\n      \"gi\",\n    ),\n    (m) => {\n      if (m[2] === undefined) push(null, m[1], m[0], \"SELECT INTO\");\n      else push(m[1], m[2], m[0], \"SELECT INTO\");\n    },\n  );",
-    to: '  void 0;',
+    from: '      if (m[2] === undefined) push(null, m[1], m[0], "SELECT INTO", "table");\n      else push(m[1], m[2], m[0], "SELECT INTO", "table");',
+    to: '      void 0;',
   },
   {
     file: LINT,
@@ -251,30 +251,43 @@ const MUTATIONS = [
     file: LINT,
     // Both M4 and M5 filter their targets through TABLE_CREATING_VERBS, so
     // dropping CREATE FOREIGN TABLE from the set turns both rules blind to a
-    // foreign table at once; the R3-22 fixture (M4 on a foreign table) is
-    // what catches it, because no M5 fixture uses a foreign table.
+    // foreign table at once; the R3-22 fixture (M4 on CREATE FOREIGN TABLE)
+    // and R3-27 (M4 on ALTER FOREIGN TABLE ... RENAME TO, which is gated by
+    // the same set membership check) both catch it.
     name: "M4/M5: drop CREATE FOREIGN TABLE from the table-creating verb set",
-    from: 'export const TABLE_CREATING_VERBS = new Set(["CREATE TABLE", "CREATE FOREIGN TABLE", "CREATE VIEW"]);',
-    to: 'export const TABLE_CREATING_VERBS = new Set(["CREATE TABLE", "CREATE VIEW"]);',
+    from: '  "CREATE FOREIGN TABLE",\n',
+    to: "",
   },
   {
     file: LINT,
-    // Same set, the other new entry. This one is caught twice over: R3-24
-    // (M4 on a view named for a domain word) and R3-25 (M5 on a view with no
-    // tenant_id, the open-question decision this task made) both depend on
-    // CREATE VIEW being in this set.
+    // Same set, the other CREATE-side entry from this task's first pass.
+    // Caught by R3-24 (M4 on CREATE VIEW named for a domain word), R3-25 (M5
+    // on a view with no tenant_id, the open-question decision this task
+    // made), R3-26 (M4 on ALTER VIEW ... RENAME TO) and R3-28 (M4 on ALTER
+    // MATERIALIZED VIEW ... RENAME TO, which folds to the same "VIEW" verb).
     name: "M4/M5: drop CREATE VIEW from the table-creating verb set",
-    from: 'export const TABLE_CREATING_VERBS = new Set(["CREATE TABLE", "CREATE FOREIGN TABLE", "CREATE VIEW"]);',
-    to: 'export const TABLE_CREATING_VERBS = new Set(["CREATE TABLE", "CREATE FOREIGN TABLE"]);',
+    from: '  "CREATE VIEW",\n',
+    to: "",
   },
   {
     file: LINT,
-    // The rename destination stops becoming a target at all: a table built
-    // under an innocent name and renamed to a domain word afterward (the
-    // R3-23 fixture) walks past M4 again, exactly as it did before this task.
-    name: "M4: stop modelling ALTER TABLE ... RENAME TO as a target of the name it renames an object to",
-    from: "  scan(\n    new RegExp(\n      String.raw`\\bALTER\\s+TABLE\\s+(?:ONLY\\s+)?(?:IF\\s+EXISTS\\s+)?(${ID})(?:\\.(${ID}))?\\s+RENAME\\s+TO\\s+(${ID})`,\n      \"gi\",\n    ),\n    (m) => {\n      if (m[2] === undefined) push(null, m[3], m[0], \"RENAME TO\");\n      else push(m[1], m[3], m[0], \"RENAME TO\");\n    },\n  );",
-    to: '  void 0;',
+    // Added by ruling on review of this task, not the original brief: SELECT
+    // ... INTO creates a table exactly as CREATE TABLE does. Caught by R3-29
+    // (M4) and R3-30 (M5).
+    name: "M4/M5: drop SELECT INTO from the table-creating verb set",
+    from: '  "SELECT INTO",\n',
+    to: "",
+  },
+  {
+    file: LINT,
+    // The rename destination stops becoming a target at all, for every
+    // renameable object type: a table (or view, or foreign table) built
+    // under an innocent name and renamed to a domain word afterward walks
+    // past M4 again, exactly as it did before this task. Catches R3-23,
+    // R3-26, R3-27 and R3-28 together.
+    name: "M4: stop modelling ALTER ... RENAME TO as a target of the name it renames an object to",
+    from: "  scan(\n    new RegExp(\n      String.raw`\\bALTER\\s+${RENAMEABLE_TYPES}\\s+(?:ONLY\\s+)?(?:IF\\s+EXISTS\\s+)?(${ID})(?:\\.(${ID}))?\\s+RENAME\\s+TO\\s+(${ID})`,\n      \"gi\",\n    ),\n    (m) => {\n      const kind = relationKind(m[1]);\n      if (m[3] === undefined) push(null, m[4], m[0], \"RENAME TO\", kind);\n      else push(m[2], m[4], m[0], \"RENAME TO\", kind);\n    },\n  );",
+    to: "  void 0;",
   },
   {
     file: LINT,
@@ -284,6 +297,37 @@ const MUTATIONS = [
     name: "M4: stop accepting RENAME TO as a verb this rule checks",
     from: '      if (!TABLE_CREATING_VERBS.has(target.verb) && target.verb !== "RENAME TO") continue;',
     to: "      if (!TABLE_CREATING_VERBS.has(target.verb)) continue;",
+  },
+  {
+    file: LINT,
+    // Round three review of this task's first pass, CRITICAL: the RENAME TO
+    // scan recognised only the literal keyword TABLE, so ALTER VIEW / ALTER
+    // FOREIGN TABLE / ALTER MATERIALIZED VIEW ... RENAME TO all walked past
+    // M4 despite their CREATE forms being in TABLE_CREATING_VERBS. Narrowing
+    // the alternation back to just TABLE reproduces that exact regression.
+    // Catches R3-26, R3-27 and R3-28 (R3-23's plain-table rename still
+    // matches TABLE alone, so it alone would not catch this).
+    name: "M4: narrow the RENAME TO alternation back to the literal keyword TABLE",
+    from: "const RENAMEABLE_TYPES = String.raw`(FOREIGN\\s+TABLE|MATERIALIZED\\s+VIEW|VIEW|TABLE)`;",
+    to: "const RENAMEABLE_TYPES = String.raw`(TABLE)`;",
+  },
+  {
+    file: LINT,
+    // relationKind stops distinguishing a foreign table from a plain table,
+    // so its M4/M5 message says "table" instead - a defect in this project,
+    // since every control asserts on the message. Caught by R3-22 (CREATE
+    // FOREIGN TABLE) and R3-27 (ALTER FOREIGN TABLE ... RENAME TO).
+    name: "M4/M5: relationKind stops labelling a foreign table as one",
+    from: '  if (normalised === "FOREIGN TABLE") return "foreign table";',
+    to: "  if (false) return \"foreign table\";",
+  },
+  {
+    file: LINT,
+    // Same defect, the view/materialized-view half. Caught by R3-24, R3-25,
+    // R3-26 and R3-28.
+    name: "M4/M5: relationKind stops labelling a view as one",
+    from: '  if (normalised === "VIEW" || normalised === "MATERIALIZED VIEW") return "view";',
+    to: "  if (false) return \"view\";",
   },
   {
     file: LINT,
