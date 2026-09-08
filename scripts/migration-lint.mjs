@@ -236,10 +236,34 @@ const NAMED_TYPES = String.raw`(?:TABLE|VIEW|SEQUENCE|TYPE|DOMAIN|FUNCTION|PROCE
 const ON_CLAUSE_TYPES = String.raw`(?:INDEX|TRIGGER|POLICY|RULE)`;
 
 /**
+ * Leading verbs that are PROVABLY unable to move an object or a row across a
+ * schema boundary, and so are exempt from the deny-by-default refusal below
+ * even when nothing here resolves a target from them.
+ *
+ * This list is deliberately short - shorter than the number of statement
+ * types PostgreSQL has - because the failure mode round three found was an
+ * ALLOW-list of opening verbs (`CREATE|ALTER|DROP`) that let every other verb
+ * through in silence. Growing a second allow-list the same way would be the
+ * same defect with a different name (checkpoint declared_non_coverage item
+ * 7). `SET` is here on a considered decision, not by omission: a bare
+ * `SET <parameter> = <value>` changes a session setting, not an object, so it
+ * cannot write into another module's schema. `SET search_path` is the one
+ * exception - it changes what an UNQUALIFIED name later resolves to - and
+ * that is refused by its own explicit check below, independent of this list.
+ * `COMMENT` is deliberately NOT here: `COMMENT ON <type> <schema.object>`
+ * names an object in a specific schema, exactly the shape M1 exists to check,
+ * and this script does not yet resolve which schema that object belongs to.
+ * Rather than guess, an unresolved COMMENT is refused like any other
+ * unmodelled statement.
+ */
+const HARMLESS_LEADING_VERBS = new Set(["SET"]);
+
+/**
  * Every object a statement touches, and whether the lint understood it at all.
  *
- * Returns `{ targets, understood }`. `understood` is false when a statement
- * begins with a DDL verb and NOTHING here resolved a target from it.
+ * Returns `{ targets, understood }`. `understood` is false when NOTHING here
+ * resolved a target from the statement AND its leading verb is not on the
+ * short harmless list above.
  *
  * `schema: null` means the name was UNQUALIFIED. That is a violation in its own
  * right: without a qualifier the object lands in whatever `search_path` happens
@@ -251,6 +275,18 @@ const ON_CLAUSE_TYPES = String.raw`(?:INDEX|TRIGGER|POLICY|RULE)`;
  * SEQUENCE / TYPE / FUNCTION / MATERIALIZED VIEW against another module's
  * schema all linted clean. An unmodelled statement is now a failure rather than
  * a gap, which is what the docstring always should have meant by conservative.
+ *
+ * Checkpoint declared_non_coverage item 7 widened that same hole: the
+ * unrecognised-statement refusal only fired for a statement OPENING with
+ * `CREATE`, `ALTER` or `DROP`, so `COPY`, `MERGE`, `REFRESH MATERIALIZED
+ * VIEW`, `LOCK`, `ANALYZE`, `VACUUM`, `REINDEX`, `CLUSTER`, `GRANT`, `REVOKE`,
+ * `COMMENT ON`, `SECURITY LABEL`, `IMPORT FOREIGN SCHEMA`, `SELECT ... INTO`
+ * and `CALL` all linted clean regardless of what schema they touched. `COPY`
+ * and `MERGE` in particular write rows into another module's schema - the
+ * same act `INSERT INTO` is already modelled for. The opening-verb ALLOW-list
+ * is replaced below by the HARMLESS_LEADING_VERBS DENY-list: every statement
+ * this scanner does not resolve a target from is now refused, whatever verb
+ * it opens with, unless that verb is provably incapable of crossing a schema.
  */
 function objectTargets(statement) {
   const targets = [];
@@ -312,8 +348,98 @@ function objectTargets(statement) {
     },
   );
 
-  const isDDL = /^\s*(?:CREATE|ALTER|DROP)\b/i.test(statement);
-  return { targets, understood: !isDDL || targets.length > 0 };
+  // COPY <target> ... and MERGE INTO <target> ... . Checkpoint
+  // declared_non_coverage item 7: both write rows into another module's
+  // schema, the same act INSERT INTO is already modelled for above. `COPY
+  // (query) TO ...` has no table target and is left unresolved on purpose -
+  // it is refused as an unmodelled statement rather than guessed at.
+  scan(new RegExp(String.raw`\bCOPY\s+(${ID})(?:\.(${ID}))?`, "gi"), (m) => {
+    if (m[2] === undefined) push(null, m[1], m[0], "COPY");
+    else push(m[1], m[2], m[0], "COPY");
+  });
+  scan(new RegExp(String.raw`\bMERGE\s+INTO\s+(${ID})(?:\.(${ID}))?`, "gi"), (m) => {
+    if (m[2] === undefined) push(null, m[1], m[0], "MERGE INTO");
+    else push(m[1], m[2], m[0], "MERGE INTO");
+  });
+
+  // REFRESH MATERIALIZED VIEW [CONCURRENTLY] <target>
+  scan(
+    new RegExp(
+      String.raw`\bREFRESH\s+MATERIALIZED\s+VIEW\s+(?:CONCURRENTLY\s+)?(${ID})(?:\.(${ID}))?`,
+      "gi",
+    ),
+    (m) => {
+      if (m[2] === undefined) push(null, m[1], m[0], "REFRESH MATERIALIZED VIEW");
+      else push(m[1], m[2], m[0], "REFRESH MATERIALIZED VIEW");
+    },
+  );
+
+  // LOCK [TABLE] [ONLY] <target>
+  scan(
+    new RegExp(String.raw`\bLOCK\s+(?:TABLE\s+)?(?:ONLY\s+)?(${ID})(?:\.(${ID}))?`, "gi"),
+    (m) => {
+      if (m[2] === undefined) push(null, m[1], m[0], "LOCK");
+      else push(m[1], m[2], m[0], "LOCK");
+    },
+  );
+
+  // ANALYZE [(options)] [VERBOSE] <target> ; VACUUM [(options)|FULL|FREEZE|
+  // VERBOSE|ANALYZE ...] <target>. Both take an optional column list after the
+  // table name, which this lint does not need to resolve the target.
+  scan(
+    new RegExp(String.raw`\bANALYZE\s+(?:\([^)]*\)\s+)?(?:VERBOSE\s+)?(${ID})(?:\.(${ID}))?`, "gi"),
+    (m) => {
+      if (m[2] === undefined) push(null, m[1], m[0], "ANALYZE");
+      else push(m[1], m[2], m[0], "ANALYZE");
+    },
+  );
+  scan(
+    new RegExp(
+      String.raw`\bVACUUM\s+(?:\([^)]*\)\s+)?(?:(?:FULL|FREEZE|VERBOSE|ANALYZE)\s+)*(${ID})(?:\.(${ID}))?`,
+      "gi",
+    ),
+    (m) => {
+      if (m[2] === undefined) push(null, m[1], m[0], "VACUUM");
+      else push(m[1], m[2], m[0], "VACUUM");
+    },
+  );
+
+  // REINDEX [(options)] {INDEX|TABLE|SCHEMA|DATABASE|SYSTEM} [CONCURRENTLY] <target>
+  scan(
+    new RegExp(
+      String.raw`\bREINDEX\s+(?:\([^)]*\)\s+)?(?:INDEX|TABLE|SCHEMA|DATABASE|SYSTEM)\s+(?:CONCURRENTLY\s+)?(${ID})(?:\.(${ID}))?`,
+      "gi",
+    ),
+    (m) => {
+      if (m[2] === undefined) push(null, m[1], m[0], "REINDEX");
+      else push(m[1], m[2], m[0], "REINDEX");
+    },
+  );
+
+  // CLUSTER [VERBOSE] <target> [USING index]
+  scan(new RegExp(String.raw`\bCLUSTER\s+(?:VERBOSE\s+)?(${ID})(?:\.(${ID}))?`, "gi"), (m) => {
+    if (m[2] === undefined) push(null, m[1], m[0], "CLUSTER");
+    else push(m[1], m[2], m[0], "CLUSTER");
+  });
+
+  // SELECT ... INTO [TEMPORARY|TEMP|UNLOGGED] [TABLE] <target> - creates a
+  // table as a side effect of a query, in whatever schema <target> names.
+  // `INSERT INTO ... SELECT ...` is not this shape: INTO precedes SELECT
+  // there, so it is left to the DML scan above rather than matched twice.
+  scan(
+    new RegExp(
+      String.raw`\bSELECT\b.*?\bINTO\s+(?:TEMPORARY\s+|TEMP\s+|UNLOGGED\s+)?(?:TABLE\s+)?(${ID})(?:\.(${ID}))?`,
+      "gi",
+    ),
+    (m) => {
+      if (m[2] === undefined) push(null, m[1], m[0], "SELECT INTO");
+      else push(m[1], m[2], m[0], "SELECT INTO");
+    },
+  );
+
+  const firstWord = /^\s*([A-Za-z]+)/.exec(statement)?.[1]?.toUpperCase();
+  const harmless = firstWord !== undefined && HARMLESS_LEADING_VERBS.has(firstWord);
+  return { targets, understood: harmless || targets.length > 0 };
 }
 
 function foreignKeyTargets(statement) {

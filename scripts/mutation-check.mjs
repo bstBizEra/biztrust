@@ -121,9 +121,33 @@ const MUTATIONS = [
   },
   {
     file: LINT,
-    name: "M1: stop denying by default on an unmodelled DDL statement",
-    from: '  return { targets, understood: !isDDL || targets.length > 0 };',
+    name: "M1: stop denying by default on an unmodelled statement",
+    from: '  return { targets, understood: harmless || targets.length > 0 };',
     to: '  return { targets, understood: true };',
+  },
+  {
+    file: LINT,
+    // Round three, checkpoint declared_non_coverage item 7: the old refusal
+    // fired only when a statement OPENED with CREATE, ALTER or DROP, so COPY,
+    // MERGE and every other verb outside that allow-list linted clean no
+    // matter what schema they touched. Reverting to that allow-list must turn
+    // the suite red by itself, independent of whether any target scan below
+    // still runs.
+    name: "M1: revert the deny-list to the old CREATE/ALTER/DROP opening-verb allow-list",
+    from: '  const firstWord = /^\\s*([A-Za-z]+)/.exec(statement)?.[1]?.toUpperCase();\n  const harmless = firstWord !== undefined && HARMLESS_LEADING_VERBS.has(firstWord);\n  return { targets, understood: harmless || targets.length > 0 };',
+    to: '  const isDDL = /^\\s*(?:CREATE|ALTER|DROP)\\b/i.test(statement);\n  return { targets, understood: !isDDL || targets.length > 0 };',
+  },
+  {
+    file: LINT,
+    name: "M1: stop modelling COPY as a target of the schema it writes into",
+    from: '  scan(new RegExp(String.raw`\\bCOPY\\s+(${ID})(?:\\.(${ID}))?`, "gi"), (m) => {\n    if (m[2] === undefined) push(null, m[1], m[0], "COPY");\n    else push(m[1], m[2], m[0], "COPY");\n  });',
+    to: '  void 0;',
+  },
+  {
+    file: LINT,
+    name: "M1: stop modelling MERGE INTO as a target of the schema it writes into",
+    from: '  scan(new RegExp(String.raw`\\bMERGE\\s+INTO\\s+(${ID})(?:\\.(${ID}))?`, "gi"), (m) => {\n    if (m[2] === undefined) push(null, m[1], m[0], "MERGE INTO");\n    else push(m[1], m[2], m[0], "MERGE INTO");\n  });',
+    to: '  void 0;',
   },
   {
     file: LINT,

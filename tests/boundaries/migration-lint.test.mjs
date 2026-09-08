@@ -277,6 +277,35 @@ const CONTROLS = [
     rule: "M4",
     match: 'the domain word "premium"',
   },
+
+  // Checkpoint declared_non_coverage item 7: deny-by-default triggered only
+  // on a statement OPENING with CREATE, ALTER or DROP, so COPY, MERGE and
+  // every other unmodelled verb linted clean regardless of what schema they
+  // touched. COPY and MERGE INTO write rows into another module's schema,
+  // the same act INSERT INTO is already modelled for; the third fixture below
+  // is a verb this lint still does not model at all, now caught by the
+  // inverted default rather than let through.
+  {
+    control: "R3-12",
+    threat: "COPY writes rows into another module's schema",
+    file: "r3_copy_into_audit.sql",
+    rule: "M1",
+    match: 'touches schema "audit"',
+  },
+  {
+    control: "R3-13",
+    threat: "MERGE INTO writes rows into another module's schema",
+    file: "r3_merge_into_audit.sql",
+    rule: "M1",
+    match: 'touches schema "audit"',
+  },
+  {
+    control: "R3-14",
+    threat: "a statement opening with a verb this lint does not model at all",
+    file: "r3_comment_unmodelled.sql",
+    rule: "M1",
+    match: "cannot resolve what schema the statement touches",
+  },
 ];
 
 // Control R3-6 is the inverse of the others: the fixture must be READ, not
