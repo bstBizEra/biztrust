@@ -81,6 +81,69 @@ const CONTROLS = [
     file: "m5_table_without_tenant_id.sql",
     rule: "M5",
   },
+
+  // Below: every input a peer review used to walk straight past this lint.
+  // Each one passed silently before the quoting, qualification and plural
+  // fixes. Each fixture carries exactly ONE violation shape, and each control
+  // asserts on the MESSAGE, not just the rule name: mutation testing showed
+  // that a file with two M4 violations proves nothing about either, because
+  // disabling one still leaves the file reported.
+  {
+    control: 4,
+    threat: "a double-quoted schema name writes outside its schema",
+    file: "f1_quoted_schema.sql",
+    rule: "M1",
+    match: 'touches schema "audit"',
+  },
+  {
+    control: 11,
+    threat: "a domain table name hidden behind double quotes",
+    file: "f1_quoted_domain_table.sql",
+    rule: "M4",
+    match: 'table "policy" is named for the domain word "policy"',
+  },
+  {
+    control: 11,
+    threat: "a domain table name in the plural",
+    file: "f1_plural_domain_table.sql",
+    rule: "M4",
+    match: 'table "policies" is named for the domain word "policy"',
+  },
+  {
+    control: 5,
+    threat: "a double-quoted foreign key crosses a schema",
+    file: "f1_quoted_fk.sql",
+    rule: "M2",
+    match: 'to "audit.decision" crosses a schema boundary',
+  },
+  {
+    control: 0,
+    threat: "an object name with no schema qualifier",
+    file: "f1_unqualified_table.sql",
+    rule: "M1",
+    match: "with no schema qualifier",
+  },
+  {
+    control: 0,
+    threat: "a migration that sets search_path",
+    file: "f1_search_path.sql",
+    rule: "M1",
+    match: "sets search_path",
+  },
+  {
+    control: 0,
+    threat: "an unqualified REFERENCES",
+    file: "ml3_unqualified_fk.sql",
+    rule: "M2",
+    match: "unqualified REFERENCES",
+  },
+  {
+    control: 4,
+    threat: "a migration in a nested directory",
+    file: "nested/f2_nested.sql",
+    rule: "M1",
+    match: 'touches schema "audit"',
+  },
 ];
 
 const violating = lint(`${FIXTURES}/violating`);
@@ -93,7 +156,7 @@ test("the violating fixtures fail the lint with exit code 1", () => {
   );
 });
 
-for (const { control, threat, file, rule } of CONTROLS) {
+for (const { control, threat, file, rule, match } of CONTROLS) {
   const label = control === 0 ? "baseline" : `control ${control}`;
   test(`${label}: ${threat} is reported as ${rule}`, () => {
     const lines = violating.out
@@ -103,6 +166,20 @@ for (const { control, threat, file, rule } of CONTROLS) {
       lines.length > 0,
       `expected ${file} to be reported for ${rule}; the lint said:\n${violating.out}`,
     );
+    // Asserting the rule NAME alone is not enough. A rule with more than one
+    // violation shape reports the same name either way, so disabling the shape
+    // under test leaves the file still reported and the control still green.
+    // Mutation testing found exactly that: `M1: stop reporting an unqualified
+    // object name` fell through to the else-branch and reported
+    // `touches schema "null"`, which satisfied a name-only assertion.
+    if (match !== undefined) {
+      assert.ok(
+        lines.some((line) => line.includes(match)),
+        `${file} was reported for ${rule}, but not for the reason under test.\n` +
+          `expected a message containing: ${match}\n` +
+          `got:\n${lines.join("\n")}`,
+      );
+    }
   });
 }
 

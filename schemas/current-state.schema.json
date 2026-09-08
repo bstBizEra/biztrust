@@ -127,22 +127,79 @@
       }
     },
     "gates": {
-      "type": "object"
+      "description": "Every gate and instrument, enumerated. A bare {\"type\":\"object\"} here let a peer review erase every gate and still get exit 0. The delivery gates are pinned to UNRECORDED: recording one is a human decision, so it takes a reviewed change to this schema and cannot be a one-word edit to a data file.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "BT-G0",
+        "BT-G1",
+        "BT-G2",
+        "BT-G3",
+        "BT-G4",
+        "boundary_check",
+        "migration_lint",
+        "record_validation",
+        "typecheck",
+        "mutation_check",
+        "branch_protection"
+      ],
+      "properties": {
+        "BT-G0": { "enum": ["UNRECORDED"] },
+        "BT-G1": { "enum": ["UNRECORDED"] },
+        "BT-G2": { "enum": ["UNRECORDED"] },
+        "BT-G3": { "enum": ["UNRECORDED"] },
+        "BT-G4": { "enum": ["UNRECORDED"] },
+        "boundary_check": { "enum": ["PASS", "FAIL", "NOT_RUN"] },
+        "migration_lint": { "enum": ["PASS", "FAIL", "NOT_RUN"] },
+        "record_validation": { "enum": ["PASS", "FAIL", "NOT_RUN"] },
+        "typecheck": { "enum": ["PASS", "FAIL", "NOT_RUN"] },
+        "mutation_check": { "enum": ["PASS", "FAIL", "NOT_RUN"] },
+        "branch_protection": {
+          "enum": ["NOT_RECORDED_REQUIRES_REPOSITORY_ADMIN", "RECORDED"]
+        }
+      }
     },
     "authority": {
-      "type": "object"
+      "description": "What is and is not granted, enumerated. Unconstrained, this block accepted three forged grants including the one this package waits on. Each key is pinned to the values legal today; widening one is a reviewed schema change, which is what an authority record should cost.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository_scaffold",
+        "architecture_contract_freeze",
+        "p0_implementation",
+        "adr_acceptance",
+        "production_deployment",
+        "main_branch_protection",
+        "wp_001_acceptance"
+      ],
+      "properties": {
+        "repository_scaffold": {
+          "enum": ["GRANTED_BY_OPERATOR_INSTRUCTION_2026_09_08"]
+        },
+        "architecture_contract_freeze": { "enum": ["NOT_GRANTED"] },
+        "p0_implementation": { "enum": ["NOT_GRANTED"] },
+        "adr_acceptance": { "enum": ["NOT_GRANTED"] },
+        "production_deployment": { "enum": ["NOT_GRANTED"] },
+        "main_branch_protection": {
+          "enum": ["NOT_RECORDED_REQUIRES_REPOSITORY_ADMIN", "RECORDED"]
+        },
+        "wp_001_acceptance": {
+          "enum": [
+            "NOT_GRANTED_AWAITING_INDEPENDENT_VERIFIER",
+            "REVISION_REQUIRED_BY_INDEPENDENT_VERIFIER",
+            "ACCEPTED_BY_INDEPENDENT_VERIFIER"
+          ]
+        }
+      }
     },
     "latest_checkpoint": {
-      "type": [
-        "string",
-        "null"
-      ]
+      "description": "Checked for existence AND shape. Existence alone accepted \"README.md\" as a checkpoint.",
+      "type": ["string", "null"],
+      "pattern": "^sessions/checkpoints/[A-Za-z0-9._-]+\\.json$"
     },
     "latest_handoff": {
-      "type": [
-        "string",
-        "null"
-      ]
+      "type": ["string", "null"],
+      "pattern": "^sessions/handoffs/[A-Za-z0-9._-]+\\.json$"
     },
     "primary_next_action_id": {
       "type": "string",

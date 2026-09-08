@@ -32,7 +32,6 @@
 # finding.
 
 version: "0.1.0"
-generated_from: "modules/modules.yaml"
 
 modules:
   # ---- Platform -----------------------------------------------------------
@@ -172,6 +171,18 @@ modules:
     source: contract
     package: false
 
+  # RENAMED from the capability map, which calls this module "Policy".
+  #
+  # Two reasons, both recorded in badf/decision-log.jsonl as DEC-005. First,
+  # ARCH-001 section 9 is emphatic that a broker policy representation is not
+  # the insurer-authoritative issued contract, and the longer name keeps that
+  # distinction in the registry rather than only in prose. Second, the
+  # migration lint refuses a P0 table named for the word "policy", and
+  # allow-listing the very first row would weaken the rule before it had ever
+  # fired.
+  #
+  # A reader diffing this registry against ARCH-001 section 6 will see one name
+  # that does not match. This comment is that difference, declared.
   - name: policy-record
     group: brokerage
     owner_role: domain-engineer

@@ -6,7 +6,7 @@
  *
  * Registry:          modules/modules.yaml
  * Registry version:  0.1.0
- * Registry revision: uncommitted
+ * Registry sha256:   aa8955a51703095b50c69194236c17ff0c12dadd1603acd3b5742ba6917516cf
  * Modules:           30 registered, 4 with a package
  *
  * To change a rule, change the registry or the generator, never this file.

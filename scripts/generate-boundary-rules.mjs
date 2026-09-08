@@ -25,24 +25,32 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { execFileSync } from "node:child_process";
-import { ROOT, loadRegistry, RegistryError } from "./registry.mjs";
+import { createHash } from "node:crypto";
+import { ROOT, REGISTRY_PATH, loadRegistry, RegistryError } from "./registry.mjs";
 import { buildRules } from "./boundary-rules.mjs";
 
 const DEPCRUISE_OUT = join(ROOT, ".dependency-cruiser.cjs");
 const PATHS_OUT = join(ROOT, "tsconfig.paths.json");
 
-function registryRevision() {
-  try {
-    const sha = execFileSync(
-      "git",
-      ["log", "-1", "--format=%H", "--", "modules/modules.yaml"],
-      { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
-    ).trim();
-    return sha === "" ? "uncommitted" : sha;
-  } catch {
-    return "unavailable";
-  }
+/**
+ * The content hash of the registry the configuration was generated from.
+ *
+ * Peer review F8: this used to be the last commit touching modules/modules.yaml,
+ * which was empty before the first commit and never refreshed after, so it read
+ * `uncommitted` permanently. A commit SHA is also the wrong thing to bind to -
+ * it changes when any other file in that commit changes. A content hash of the
+ * registry itself is stable, comparable, and is what the P0.2 design's owners
+ * table actually needs: which registry produced these rules.
+ *
+ * It is compared by --check, unlike the revision line it replaces.
+ */
+function registryDigest() {
+  // Carriage returns are stripped first: the same registry checked out on
+  // Windows and on the CI runner must produce the same digest, or --check
+  // fails on one platform and not the other.
+  const CR = String.fromCharCode(13);
+  const text = readFileSync(REGISTRY_PATH, "utf8").split(CR).join("");
+  return createHash("sha256").update(text, "utf8").digest("hex");
 }
 
 function renderDepcruise(registry, rules) {
@@ -55,7 +63,7 @@ function renderDepcruise(registry, rules) {
     " *",
     ` * Registry:          modules/modules.yaml`,
     ` * Registry version:  ${registry.version}`,
-    ` * Registry revision: ${registryRevision()}`,
+    ` * Registry sha256:   ${registryDigest()}`,
     ` * Modules:           ${registry.modules.length} registered, ` +
       `${registry.modules.filter((m) => m.package).length} with a package`,
     " *",
@@ -134,11 +142,12 @@ function main() {
     const stale = [];
     for (const [path, wanted, label] of outputs) {
       const found = readOrNull(path);
-      // The revision line changes with every commit that touches the registry;
-      // comparing it would make --check fail on a fresh clone. Compare
+      // Compared, not stripped. The old revision line was excluded from the
+      // comparison because it changed per commit, which meant the one field
+      // recording WHICH registry produced these rules was never checked. A
+      // content hash is stable across commits, so it is compared like
       // everything else.
-      const strip = (t) => (t === null ? null : t.replace(/^ \* Registry revision:.*$/m, ""));
-      if (strip(found) !== strip(wanted)) {
+      if (found !== wanted) {
         stale.push(found === null ? `${label} is missing` : `${label} is stale`);
       }
     }

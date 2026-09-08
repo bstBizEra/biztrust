@@ -1,0 +1,255 @@
+#!/usr/bin/env node
+/**
+ * The instrument that tests the instruments.
+ *
+ *   node scripts/mutation-check.mjs
+ *
+ * A test suite that passes whether or not the rule works is worth nothing, and
+ * a green suite cannot tell you which of the two it is. This script loosens one
+ * rule at a time, runs the boundary and migration suites, and requires the
+ * suite to go RED. A mutation that SURVIVES names a rule that is not actually
+ * enforced by any fixture.
+ *
+ * It exists because a peer review of `BIZTRUST-WP-001` did exactly this by
+ * hand and found four loosenings the suite did not notice: rule 5 widened to
+ * any `src/public/` file, rule 5 narrowed to internals only, rule 6 narrowed to
+ * services, and rule 5b narrowed to modules. Every one of those would have
+ * shipped a boundary that looked tested and was not. Running it by hand once
+ * finds today's gaps; running it in CI keeps them found.
+ *
+ * Two mutations that SURVIVED on the second pass were not rule bugs but test
+ * bugs: a fixture carrying two violations of the same rule proves neither,
+ * because disabling one leaves the file still reported. The migration controls
+ * now assert on the message, not just the rule name.
+ *
+ * Restores every file it touches, on success, on failure and on throw.
+ *
+ * Exit codes: 0 every mutation caught; 1 at least one survived; 2 the baseline
+ * suite was not green to begin with, so the run proves nothing.
+ */
+
+import { readFileSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { join } from "node:path";
+import { ROOT } from "./registry.mjs";
+
+const RULES = join(ROOT, "scripts", "boundary-rules.mjs");
+const LINT = join(ROOT, "scripts", "migration-lint.mjs");
+
+/** Joins anchor lines, so no source string carries an embedded newline. */
+const lines = (...parts) => parts.join("\n");
+
+// A backtick and a dollar, spelled out. An anchor that quotes a template
+// literal from the source cannot itself be a template literal: String.raw
+// still interpolates ${...}, so the anchor would evaluate rather than match.
+const BT = String.fromCharCode(96);
+const DOLLAR = String.fromCharCode(36);
+
+const MUTATIONS = [
+  // ---- the dependency rules ----------------------------------------------
+  {
+    file: RULES,
+    name: "rule 1: protect no module's internals",
+    from: "      from: { pathNot: " + BT + "^modules/" + DOLLAR + "{rx(m.name)}/" + BT + " },",
+    to: `      from: { pathNot: "^modules/" },`,
+  },
+  {
+    file: RULES,
+    name: "rule 2: allow a cross-module import of any public file",
+    from: lines(
+      `        path: "^modules/(?!" + rx(m.name) + "/)[^/]+/src/",`,
+      String.raw`        pathNot: "^modules/[^/]+/src/public/index\\.ts$",`,
+    ),
+    to: lines(
+      `        path: "^modules/(?!" + rx(m.name) + "/)[^/]+/src/",`,
+      `        pathNot: "^modules/[^/]+/src/public/",`,
+    ),
+  },
+  {
+    file: RULES,
+    name: "rule 3: stop forbidding cycles",
+    from: `    to: { circular: true },`,
+    to: `    to: { circular: false },`,
+  },
+  {
+    file: RULES,
+    name: "rule 4: only the package named shared may not import a module",
+    from: `    from: { path: "^packages/" },`,
+    to: `    from: { path: "^packages/shared/" },`,
+  },
+  {
+    file: RULES,
+    name: "rule 5: allow an entry point to import any public file, not the contract",
+    from: lines(
+      `      path: "^modules/[^/]+/src/",`,
+      String.raw`      pathNot: "^modules/[^/]+/src/public/index\\.ts$",`,
+    ),
+    to: lines(
+      `      path: "^modules/[^/]+/src/",`,
+      `      pathNot: "^modules/[^/]+/src/public/",`,
+    ),
+  },
+  {
+    file: RULES,
+    name: "rule 5: forbid only internals, allowing every other module file",
+    from: lines(
+      `      path: "^modules/[^/]+/src/",`,
+      String.raw`      pathNot: "^modules/[^/]+/src/public/index\\.ts$",`,
+    ),
+    to: `      path: "^modules/[^/]+/src/internal/",`,
+  },
+  {
+    file: RULES,
+    name: "rule 5b: only a module may not import an entry point",
+    from: `    from: { pathNot: "^(services|apps)/" },`,
+    to: `    from: { path: "^modules/" },`,
+  },
+  {
+    file: RULES,
+    name: "rule 6: only a service may not import a test package",
+    from: `    from: { pathNot: "^tests/" },`,
+    to: `    from: { path: "^services/" },`,
+  },
+  {
+    file: RULES,
+    name: "rule 7: let the control plane call a module contract",
+    from: `    from: { path: "^apps/control-plane/" },`,
+    to: `    from: { path: "^apps/nothing-matches-this/" },`,
+  },
+
+  // ---- the migration lint -------------------------------------------------
+  {
+    file: LINT,
+    name: "scrub: stop unquoting double-quoted identifiers",
+    from: `    .replace(/"([^"]+)"/g, (_match, inner) => inner.toLowerCase())`,
+    to: `    .replace(/never-matches-anything/g, "")`,
+  },
+  {
+    file: LINT,
+    name: "M1: stop reporting an unqualified object name",
+    from: `      if (target.schema === null) {`,
+    to: `      if (false) {`,
+  },
+  {
+    file: LINT,
+    name: "M1: stop refusing search_path",
+    from: String.raw`    if (/\bSET\s+(?:LOCAL\s+|SESSION\s+)?search_path\b/i.test(statement)) {`,
+    to: `    if (false) {`,
+  },
+  {
+    file: LINT,
+    name: "M2: drop the unqualified-REFERENCES half",
+    from: `  for (const m of statement.matchAll(unqualified)) {`,
+    to: `  for (const m of []) {`,
+  },
+  {
+    file: LINT,
+    name: "M3: stop refusing DELETE and DROP on the audit schema",
+    from: `const AUDIT_FORBIDDEN = ["UPDATE", "DELETE", "TRUNCATE", "DROP"];`,
+    to: `const AUDIT_FORBIDDEN = ["UPDATE", "TRUNCATE"];`,
+  },
+  {
+    file: LINT,
+    name: "M4: revert to the plural-blind domain-word matcher",
+    from: `  { label: "policy", pattern: /^polic(y|ies)$/i },`,
+    to: `  { label: "policy", pattern: /^policys?$/i },`,
+  },
+  {
+    file: LINT,
+    name: "M5: stop requiring tenant_id",
+    from: String.raw`    if (created && !/\btenant_id\b/i.test(statement)) {`,
+    to: `    if (false) {`,
+  },
+  {
+    file: LINT,
+    name: "M6: stop rejecting an unregistered migration directory",
+    from: `    if (!schemaOf.has(entry)) {`,
+    to: `    if (false) {`,
+  },
+  {
+    file: LINT,
+    name: "walk: revert to a non-recursive directory read",
+    from: `    for (const path of sqlFilesUnder(dir)) {`,
+    to: `    for (const path of sqlFilesUnder(dir).filter((f) => !f.includes("nested"))) {`,
+  },
+];
+
+function runSuite() {
+  try {
+    execFileSync(process.execPath, ["--test", "tests/boundaries/*.test.mjs"], {
+      cwd: ROOT,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    return "GREEN";
+  } catch {
+    return "RED";
+  }
+}
+
+function main() {
+  if (runSuite() !== "GREEN") {
+    process.stderr.write(
+      "MUTATION_CHECK FAIL the baseline suite is not green, so this run proves " +
+        "nothing. Fix the suite first.\n",
+    );
+    return 2;
+  }
+  process.stdout.write(`MUTATION_CHECK baseline GREEN, ${MUTATIONS.length} mutations\n`);
+
+  const survived = [];
+  const missing = [];
+
+  for (const mutation of MUTATIONS) {
+    const original = readFileSync(mutation.file, "utf8");
+    if (!original.includes(mutation.from)) {
+      // An anchor that no longer exists means the rule was rewritten and this
+      // mutation silently stopped testing anything. That is a failure, not a
+      // skip: it is the same "passes whether or not it works" defect one level
+      // up.
+      missing.push(mutation.name);
+      continue;
+    }
+    writeFileSync(mutation.file, original.replace(mutation.from, mutation.to), "utf8");
+    let result;
+    try {
+      result = runSuite();
+    } finally {
+      writeFileSync(mutation.file, original, "utf8");
+    }
+    if (result === "RED") {
+      process.stdout.write(`  caught    ${mutation.name}\n`);
+    } else {
+      process.stdout.write(`  SURVIVED  ${mutation.name}\n`);
+      survived.push(mutation.name);
+    }
+  }
+
+  for (const name of missing) {
+    process.stderr.write(`MUTATION_CHECK ANCHOR LOST ${name}\n`);
+  }
+  for (const name of survived) {
+    process.stderr.write(`MUTATION_CHECK SURVIVED ${name}\n`);
+  }
+
+  if (survived.length > 0 || missing.length > 0) {
+    process.stderr.write(
+      `MUTATION_CHECK FAIL ${survived.length} mutation(s) survived, ` +
+        `${missing.length} anchor(s) lost. A surviving mutation is a rule no ` +
+        `fixture enforces; a lost anchor is a mutation that stopped testing.\n`,
+    );
+    return 1;
+  }
+
+  process.stdout.write(
+    `MUTATION_CHECK PASS ${MUTATIONS.length} mutations, every one caught\n`,
+  );
+  return 0;
+}
+
+try {
+  process.exitCode = main();
+} catch (error) {
+  process.stderr.write(`MUTATION_CHECK FAIL check defect: ${error?.stack ?? error}\n`);
+  process.exitCode = 2;
+}

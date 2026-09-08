@@ -11,9 +11,16 @@
  *
  * No research names a tool that checks the objects of a migration against a
  * schema list, so this is a deterministic script in the pattern of the
- * continuity validator of the guide repository (P0.2 open question 5). It is a
- * TEXT check over SQL, not a parser: it is deliberately conservative and will
- * refuse a statement it cannot read rather than pass it.
+ * continuity validator of the guide repository (P0.2 open question 5).
+ *
+ * It is a TEXT check over SQL, NOT a parser, and the difference is the honest
+ * limit of this instrument. It normalises comments, string literals and
+ * double-quoted identifiers first, refuses an unqualified object name, and
+ * refuses a statement that sets search_path - the three ways peer review F1
+ * found to walk past the earlier version. It still cannot see through a
+ * dollar-quoted function body, a DO block, dynamic SQL built at runtime, or an
+ * extension that creates objects as a side effect. Those are declared
+ * non-coverage, recorded in the checkpoint, not silently tolerated.
  *
  * Rules
  *   M1  a migration under db/migrations/<module>/ touches only that schema
@@ -33,18 +40,45 @@ import { readdirSync, readFileSync, statSync, existsSync } from "node:fs";
 import { join, relative } from "node:path";
 import { ROOT, loadRegistry, RegistryError } from "./registry.mjs";
 
-/** The four domain words P0 must not create a table for. */
-const P0_FORBIDDEN_TABLE_WORDS = ["policy", "client", "claim", "premium"];
+/**
+ * The domain words P0 must not create a table for, as STEMS.
+ *
+ * Matched against each underscore-separated part of an object name, so
+ * `policy`, `policies`, `policy_version` and `client_account` all hit. Peer
+ * review F1 found `policies` slipping past a `policy(s)?` matcher, which is
+ * the whole rule defeated by an English plural.
+ */
+const P0_FORBIDDEN_TABLE_STEMS = [
+  { label: "policy", pattern: /^polic(y|ies)$/i },
+  { label: "client", pattern: /^clients?$/i },
+  { label: "claim", pattern: /^claims?$/i },
+  { label: "premium", pattern: /^premiums?$/i },
+];
 
 /** Statements the audit schema refuses outright. */
 const AUDIT_FORBIDDEN = ["UPDATE", "DELETE", "TRUNCATE", "DROP"];
 
-/** Strips comments and string literals so a keyword in prose is not a match. */
+/** An identifier, bare or double-quoted. Both forms are legal PostgreSQL. */
+const ID = String.raw`(?:"[^"]+"|[A-Za-z_]\w*)`;
+
+/**
+ * Strips comments and string literals, and UNQUOTES double-quoted identifiers.
+ *
+ * The unquoting is not cosmetic. Peer review F1: every matcher here wanted a
+ * bare identifier, so `CREATE TABLE "audit"."evidence"` - ordinary, legal SQL -
+ * matched nothing at all and the file passed. The lint distinguished quoting
+ * style rather than intent. Normalising first means one matcher covers both
+ * spellings.
+ *
+ * Case folding is deliberate too: PostgreSQL folds an unquoted identifier to
+ * lower case, so `POLICY` and `policy` are the same table.
+ */
 function scrub(sql) {
   return sql
     .replace(/--[^\n]*/g, " ")
     .replace(/\/\*[\s\S]*?\*\//g, " ")
     .replace(/'(?:[^']|'')*'/g, " '' ")
+    .replace(/"([^"]+)"/g, (_match, inner) => inner.toLowerCase())
     .replace(/\s+/g, " ");
 }
 
@@ -55,39 +89,55 @@ function statements(sql) {
     .filter((s) => s !== "");
 }
 
-/** Qualified object names: schema.table. An unqualified name is a failure. */
-function qualifiedTargets(statement) {
+const TABLE_VERBS = [
+  { name: "CREATE TABLE", re: new RegExp(String.raw`\bCREATE\s+(?:UNLOGGED\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(${ID})(?:\.(${ID}))?`, "gi") },
+  { name: "ALTER TABLE", re: new RegExp(String.raw`\bALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?(${ID})(?:\.(${ID}))?`, "gi") },
+  { name: "DROP TABLE", re: new RegExp(String.raw`\bDROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?(${ID})(?:\.(${ID}))?`, "gi") },
+  { name: "CREATE INDEX", re: new RegExp(String.raw`\bCREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?\w*\s*ON\s+(${ID})(?:\.(${ID}))?`, "gi") },
+  { name: "DML", re: new RegExp(String.raw`\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|TRUNCATE(?:\s+TABLE)?)\s+(?:ONLY\s+)?(${ID})(?:\.(${ID}))?`, "gi") },
+];
+
+const CREATE_SCHEMA = new RegExp(
+  String.raw`\bCREATE\s+SCHEMA\s+(?:IF\s+NOT\s+EXISTS\s+)?(${ID})`,
+  "gi",
+);
+
+/**
+ * Every object a statement touches.
+ *
+ * `schema: null` means the name was UNQUALIFIED. That is a violation in its own
+ * right, not a thing to skip: without a qualifier the object lands in whatever
+ * `search_path` happens to be, which is exactly how a migration escapes its own
+ * schema. The previous version had a comment saying an unqualified name is a
+ * failure and no code that implemented it (peer review F1).
+ */
+function objectTargets(statement) {
   const targets = [];
-  const patterns = [
-    /\bCREATE\s+(?:UNLOGGED\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([A-Za-z_][\w]*)\.([A-Za-z_][\w]*)/gi,
-    /\bALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?([A-Za-z_][\w]*)\.([A-Za-z_][\w]*)/gi,
-    /\bDROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?([A-Za-z_][\w]*)\.([A-Za-z_][\w]*)/gi,
-    /\bCREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?\w*\s*ON\s+([A-Za-z_][\w]*)\.([A-Za-z_][\w]*)/gi,
-    /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|TRUNCATE(?:\s+TABLE)?)\s+(?:ONLY\s+)?([A-Za-z_][\w]*)\.([A-Za-z_][\w]*)/gi,
-    /\bCREATE\s+SCHEMA\s+(?:IF\s+NOT\s+EXISTS\s+)?()([A-Za-z_][\w]*)/gi,
-  ];
-  for (const pattern of patterns) {
-    for (const match of statement.matchAll(pattern)) {
-      const isSchemaStatement = /\bCREATE\s+SCHEMA\b/i.test(match[0]);
+  for (const { name, re } of TABLE_VERBS) {
+    for (const match of statement.matchAll(re)) {
+      const [text, first, second] = match;
       targets.push(
-        isSchemaStatement
-          ? { schema: match[2], object: null, text: match[0] }
-          : { schema: match[1], object: match[2], text: match[0] },
+        second === undefined
+          ? { schema: null, object: first, text, verb: name }
+          : { schema: first, object: second, text, verb: name },
       );
     }
+  }
+  for (const match of statement.matchAll(CREATE_SCHEMA)) {
+    targets.push({ schema: match[1], object: null, text: match[0], verb: "CREATE SCHEMA" });
   }
   return targets;
 }
 
 function foreignKeyTargets(statement) {
   const out = [];
-  for (const m of statement.matchAll(
-    /\bREFERENCES\s+([A-Za-z_][\w]*)\.([A-Za-z_][\w]*)/gi,
-  )) {
+  const qualified = new RegExp(String.raw`\bREFERENCES\s+(${ID})\.(${ID})`, "gi");
+  for (const m of statement.matchAll(qualified)) {
     out.push({ schema: m[1], object: m[2], text: m[0] });
   }
   // An unqualified REFERENCES cannot be proven same-schema by text alone.
-  for (const m of statement.matchAll(/\bREFERENCES\s+([A-Za-z_][\w]*)\s*\(/gi)) {
+  const unqualified = new RegExp(String.raw`\bREFERENCES\s+(${ID})\s*\(`, "gi");
+  for (const m of statement.matchAll(unqualified)) {
     if (!/\./.test(m[0])) out.push({ schema: null, object: m[1], text: m[0] });
   }
   return out;
@@ -99,15 +149,33 @@ function lintFile(path, moduleName, schema, errors) {
   const report = (rule, detail) => errors.push(`${rel}: ${rule}: ${detail}`);
 
   for (const statement of statements(sql)) {
-    // M1: every qualified target is this module's schema.
-    for (const target of qualifiedTargets(statement)) {
-      if (target.schema !== schema) {
+    // M1: every target is qualified, and names this module's schema.
+    for (const target of objectTargets(statement)) {
+      if (target.schema === null) {
+        report(
+          "M1",
+          `${target.verb} names "${target.object}" with no schema qualifier; an ` +
+            `unqualified name lands wherever search_path points, which is how a ` +
+            `migration escapes its own schema. Write "${schema}.${target.object}".`,
+        );
+      } else if (target.schema !== schema) {
         report(
           "M1",
           `touches schema "${target.schema}" but this directory owns "${schema}" ` +
             `(${target.text.trim()})`,
         );
       }
+    }
+
+    // M1, second form: search_path is the other way to dodge qualification.
+    // Setting it makes an unqualified name resolve somewhere this lint cannot
+    // predict, so the statement is refused rather than analysed.
+    if (/\bSET\s+(?:LOCAL\s+|SESSION\s+)?search_path\b/i.test(statement)) {
+      report(
+        "M1",
+        "sets search_path; every object in a migration is named with an explicit " +
+          "schema so that what it touches is readable without knowing the session state",
+      );
     }
 
     // M2: no foreign key crosses a schema boundary.
@@ -139,26 +207,30 @@ function lintFile(path, moduleName, schema, errors) {
       }
     }
 
-    // M4: no P0 table named for a domain word.
-    for (const target of qualifiedTargets(statement)) {
+    // M4: no P0 table named for a domain word. Matched per underscore-separated
+    // part against a STEM, so an English plural does not walk past the rule.
+    for (const target of objectTargets(statement)) {
       if (target.object === null) continue;
       if (!/\bCREATE\s+TABLE\b/i.test(statement)) continue;
-      for (const word of P0_FORBIDDEN_TABLE_WORDS) {
-        if (new RegExp(`(^|_)${word}(s)?(_|$)`, "i").test(target.object)) {
-          report(
-            "M4",
-            `table "${target.object}" is named for the domain word "${word}"; ` +
-              `P0 builds no domain table, and a table by this name means the phase ` +
-              `has been left`,
-          );
+      for (const part of target.object.split("_")) {
+        for (const { label, pattern } of P0_FORBIDDEN_TABLE_STEMS) {
+          if (pattern.test(part)) {
+            report(
+              "M4",
+              `table "${target.object}" is named for the domain word "${label}"; ` +
+                `P0 builds no domain table, and a table by this name means the phase ` +
+                `has been left`,
+            );
+          }
         }
       }
     }
 
     // M5: a created table carries tenant_id, unless it is registry metadata.
-    const created = /\bCREATE\s+(?:UNLOGGED\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[A-Za-z_][\w]*\.([A-Za-z_][\w]*)/i.exec(
-      statement,
-    );
+    const created = new RegExp(
+      String.raw`\bCREATE\s+(?:UNLOGGED\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:${ID}\.)?(${ID})`,
+      "i",
+    ).exec(statement);
     if (created && !/\btenant_id\b/i.test(statement)) {
       report(
         "M5",
@@ -169,6 +241,20 @@ function lintFile(path, moduleName, schema, errors) {
       );
     }
   }
+}
+
+/** Every *.sql under a directory, at any depth, in a stable order. */
+function sqlFilesUnder(dir) {
+  const found = [];
+  const walk = (current) => {
+    for (const entry of readdirSync(current).sort()) {
+      const full = join(current, entry);
+      if (statSync(full).isDirectory()) walk(full);
+      else if (entry.endsWith(".sql")) found.push(full);
+    }
+  };
+  walk(dir);
+  return found;
 }
 
 function main() {
@@ -203,16 +289,18 @@ function main() {
     // M6: a migration directory names a registered module.
     if (!schemaOf.has(entry)) {
       errors.push(
-        `db/migrations/${entry}: M6: no module named "${entry}" is registered in ` +
-          `modules/modules.yaml, so it cannot own a schema`,
+        `${relative(ROOT, dir).replace(/\\/g, "/")}: M6: no module named "${entry}" is ` +
+          `registered in modules/modules.yaml, so it cannot own a schema`,
       );
       continue;
     }
     const schema = schemaOf.get(entry);
-    for (const file of readdirSync(dir).sort()) {
-      if (!file.endsWith(".sql")) continue;
+    // Recursive. Peer review F2: a flat readdir skipped
+    // db/migrations/<module>/nested/*.sql entirely, reporting a lower file
+    // count and passing. Most migration runners glob recursively, so a file
+    // this lint never read would still be applied to the database.
+    for (const path of sqlFilesUnder(dir)) {
       files += 1;
-      const path = join(dir, file);
       // A file may declare that its table is platform-owned, not tenant-owned.
       const sql = readFileSync(path, "utf8");
       const exemptM5 = /^\s*--\s*not-tenant-owned:/m.test(sql);

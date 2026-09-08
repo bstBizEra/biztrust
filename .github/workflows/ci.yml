@@ -89,7 +89,14 @@ jobs:
       - name: Boundary and migration test suites
         run: pnpm test:boundaries
 
-      # 7. No module directory without a registry row, and no registry row
+      # 7. Mutation check: loosen each rule in turn and require the suite to
+      #    go red. A suite that passes whether or not the rule works is worth
+      #    nothing, and a green run cannot tell you which of the two it is.
+      #    Added after a peer review found four loosenings the suite ignored.
+      - name: Mutation check the rules
+        run: pnpm check:mutations
+
+      # 8. No module directory without a registry row, and no registry row
       #    claiming a package that is absent. The generation step of the
       #    P0.2 design's negative control 7.
       - name: Every module package is registered

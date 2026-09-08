@@ -97,8 +97,18 @@ export function parseRegistry(text) {
           inModules = true;
           continue;
         }
-        if (key === "version") version = scalar(rest, lineNo);
-        continue;
+        if (key === "version") {
+          version = scalar(rest, lineNo);
+          continue;
+        }
+        // An unknown top-level key used to be silently skipped, so a field
+        // could sit in the registry looking authoritative while nothing read
+        // it (peer review F12 found `generated_from` doing exactly that).
+        throw new RegistryError(
+          `line ${lineNo}: unknown top-level key "${key}"; this reader accepts ` +
+            `only "version" and "modules", and silently ignoring a key would ` +
+            `let it look authoritative while nothing reads it`,
+        );
       }
       throw new RegistryError(`line ${lineNo}: unrecognised top-level line`);
     }

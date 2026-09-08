@@ -303,23 +303,40 @@ def validate_registries(errors: list[str]) -> None:
 
 def validate_no_secrets(errors: list[str]) -> None:
     """AGENTS.md section 5: no secret, token or credential in this repository."""
+    # No leading \b. Scanning bytes means a token can sit next to a byte that
+    # Unicode considers a word character, and a word boundary there does not
+    # match: the credential is present and the scan says nothing. A secret does
+    # not stop being a secret because of the byte in front of it.
     patterns = [
-        (re.compile(r"\bghp_[A-Za-z0-9]{20,}"), "a GitHub personal access token"),
-        (re.compile(r"\bgho_[A-Za-z0-9]{20,}"), "a GitHub OAuth token"),
+        (re.compile(r"ghp_[A-Za-z0-9]{20,}"), "a GitHub personal access token"),
+        (re.compile(r"gho_[A-Za-z0-9]{20,}"), "a GitHub OAuth token"),
+        (re.compile(r"github_pat_[A-Za-z0-9_]{20,}"), "a GitHub fine-grained token"),
         (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"), "a private key"),
-        (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "an AWS access key id"),
+        (re.compile(r"AKIA[0-9A-Z]{16}"), "an AWS access key id"),
+        (re.compile(r"xox[baprs]-[A-Za-z0-9-]{10,}"), "a Slack token"),
     ]
+    # Build output and dependencies are not repository content. Everything else
+    # is scanned, binaries included.
+    skip_prefixes = (".git/", "node_modules/", "dist/", ".pnpm-store/")
+    skip_segments = ("__pycache__",)
     for path in ROOT.rglob("*"):
         if not path.is_file():
             continue
         relative = path.relative_to(ROOT).as_posix()
-        if relative.startswith((".git/", "node_modules/", "dist/")):
+        if relative.startswith(skip_prefixes):
+            continue
+        if any(segment in relative.split("/") for segment in skip_segments):
             continue
         if relative == "scripts/validate_continuity.py":
             continue  # this file names the patterns it searches for
+        # Read BYTES, not text. Skipping anything that is not valid UTF-8 made
+        # the scan blind to every binary in the tree, and a peer review found a
+        # tracked .pyc containing an assembled token literal that the source
+        # deliberately avoids spelling. latin-1 maps every byte to a character,
+        # so nothing is skipped and the patterns still apply.
         try:
-            text = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
+            text = path.read_bytes().decode("latin-1")
+        except OSError:
             continue
         for pattern, what in patterns:
             if pattern.search(text):

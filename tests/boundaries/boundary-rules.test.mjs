@@ -135,6 +135,47 @@ const CONTROLS = [
     file: "apps/control-plane/src/violates-rule-7.ts",
     rule: "rule-7-control-plane-sees-packages-only",
   },
+
+  // The controls below exist because a peer review mutated each rule and found
+  // four loosenings that the suite above did not notice. One fixture per rule
+  // only proves the most obvious violating shape; these prove the rule's EDGE.
+  // Each was confirmed to go red against its loosening before being kept.
+  {
+    control: 5,
+    threat: "an entry point imports a module's public file that is not the contract",
+    file: "services/api/src/violates-rule-5-public-not-contract.ts",
+    rule: "rule-5-entry-points-see-contracts-only",
+  },
+  {
+    control: 6,
+    threat: "a package imports an entry point",
+    file: "packages/shared/src/violates-rule-5b-from-a-package.ts",
+    rule: "rule-5-nothing-imports-an-entry-point",
+  },
+  {
+    control: 7,
+    threat: "a module reaches the test-only bypass package",
+    file: "modules/beta/src/public/violates-rule-6-from-a-module.ts",
+    rule: "rule-6-test-packages-stay-in-tests",
+  },
+  {
+    control: 7,
+    threat: "a package reaches the test-only bypass package",
+    file: "packages/shared/src/violates-rule-6-from-a-package.ts",
+    rule: "rule-6-test-packages-stay-in-tests",
+  },
+  {
+    control: 7,
+    threat: "the control plane reaches the test-only bypass package",
+    file: "apps/control-plane/src/violates-rule-6-from-the-control-plane.ts",
+    rule: "rule-6-test-packages-stay-in-tests",
+  },
+  {
+    control: 4,
+    threat: "a second, differently named package reaches for domain code",
+    file: "packages/second/src/violates-rule-4-second-package.ts",
+    rule: "rule-4-packages-import-no-module",
+  },
 ];
 
 for (const { control, threat, file, rule } of CONTROLS) {
@@ -150,6 +191,7 @@ for (const { control, threat, file, rule } of CONTROLS) {
 
 /** Each conforming import must be reported by nothing. */
 const CONFORMING = [
+  "packages/second/src/index.ts",
   "modules/alpha/src/public/index.ts",
   "modules/beta/src/public/index.ts",
   "packages/shared/src/index.ts",

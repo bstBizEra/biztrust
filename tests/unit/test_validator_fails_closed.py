@@ -51,8 +51,28 @@ STATE = {
         "baseline_kind": "main",
         "expected_remote": "https://github.com/bstBizEra/biztrust",
     },
-    "gates": {},
-    "authority": {},
+    "gates": {
+        "BT-G0": "UNRECORDED",
+        "BT-G1": "UNRECORDED",
+        "BT-G2": "UNRECORDED",
+        "BT-G3": "UNRECORDED",
+        "BT-G4": "UNRECORDED",
+        "boundary_check": "PASS",
+        "migration_lint": "PASS",
+        "record_validation": "PASS",
+        "typecheck": "PASS",
+        "mutation_check": "PASS",
+        "branch_protection": "NOT_RECORDED_REQUIRES_REPOSITORY_ADMIN",
+    },
+    "authority": {
+        "repository_scaffold": "GRANTED_BY_OPERATOR_INSTRUCTION_2026_09_08",
+        "architecture_contract_freeze": "NOT_GRANTED",
+        "p0_implementation": "NOT_GRANTED",
+        "adr_acceptance": "NOT_GRANTED",
+        "production_deployment": "NOT_GRANTED",
+        "main_branch_protection": "NOT_RECORDED_REQUIRES_REPOSITORY_ADMIN",
+        "wp_001_acceptance": "NOT_GRANTED_AWAITING_INDEPENDENT_VERIFIER",
+    },
     "latest_checkpoint": "sessions/checkpoints/fixture.json",
     "latest_handoff": None,
     "primary_next_action_id": "NS-001",
@@ -304,11 +324,81 @@ class ValidatorFailsClosed(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("version", result.stderr)
 
+    # ---- the forgery a peer review used to get exit 0 ----------------------
+    #
+    # These six are the regression tests for the one hole found in the
+    # fail-closed suite: `gates` and `authority` were declared as bare
+    # `{"type": "object"}`, so the two most governance-relevant blocks in the
+    # repository were unconstrained. Every gate could be erased and a grant
+    # forged, and the validator said PASS.
+
+    def test_a_forged_implementation_grant_is_reported(self):
+        state = copy.deepcopy(STATE)
+        state["authority"]["p0_implementation"] = "GRANTED"
+        result = self._broken(state=state)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("p0_implementation", result.stderr)
+
+    def test_a_forged_self_acceptance_is_reported(self):
+        state = copy.deepcopy(STATE)
+        state["authority"]["wp_001_acceptance"] = "ACCEPTED_BY_SELF"
+        self._broken(state=state)
+
+    def test_a_forged_production_grant_is_reported(self):
+        state = copy.deepcopy(STATE)
+        state["authority"]["production_deployment"] = "GRANTED"
+        self._broken(state=state)
+
+    def test_an_invented_authority_key_is_reported(self):
+        state = copy.deepcopy(STATE)
+        state["authority"]["arbitrary_junk"] = [1, 2, 3]
+        result = self._broken(state=state)
+        self.assertIn("arbitrary_junk", result.stderr)
+
+    def test_erasing_every_gate_is_reported(self):
+        state = copy.deepcopy(STATE)
+        state["gates"] = {}
+        result = self._broken(state=state)
+        self.assertIn("BT-G0", result.stderr)
+
+    def test_recording_a_delivery_gate_from_a_data_file_is_reported(self):
+        """A gate is a human decision, so it cannot be a one-word data edit."""
+        state = copy.deepcopy(STATE)
+        state["gates"]["BT-G0"] = "PASSED"
+        result = self._broken(state=state)
+        self.assertIn("BT-G0", result.stderr)
+
+    def test_a_latest_checkpoint_that_is_not_a_checkpoint_is_reported(self):
+        """Existence alone accepted README.md as the latest checkpoint."""
+        state = copy.deepcopy(STATE)
+        state["latest_checkpoint"] = "README.md"
+        self._broken(state=state)
+
     def test_a_credential_in_the_tree_is_reported(self):
         result = self._broken(
             extra_files={"docs/leak.md": "token: ghp_" + "A" * 36 + "\n"}
         )
         self.assertIn("leak.md", result.stderr)
+
+    def test_a_credential_inside_a_binary_file_is_reported(self):
+        """The scan skipped anything that was not valid UTF-8.
+
+        A peer review found a tracked .pyc holding an assembled token literal,
+        which proved the blind spot. A secret does not stop being a secret
+        because the file around it does not decode.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = build(Path(directory))
+            blob = tmp / "docs" / "blob.bin"
+            blob.parent.mkdir(parents=True, exist_ok=True)
+            payload = b"\x00\x01\xff\xfe" + b"ghp_" + b"B" * 36 + b"\x00\xff"
+            blob.write_bytes(payload)
+            result = run(tmp)
+        self.assertEqual(
+            result.returncode, 1,
+            f"a credential in a binary must be reported:\n{result.stdout}{result.stderr}",
+        )
+        self.assertIn("blob.bin", result.stderr)
 
     # ---- a schema defect must be exit 2, not a quiet pass ------------------
 

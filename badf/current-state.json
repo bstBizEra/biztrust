@@ -55,7 +55,8 @@
     "migration_lint": "PASS",
     "record_validation": "PASS",
     "typecheck": "PASS",
-    "branch_protection": "NOT_RECORDED_REQUIRES_REPOSITORY_ADMIN"
+    "branch_protection": "NOT_RECORDED_REQUIRES_REPOSITORY_ADMIN",
+    "mutation_check": "PASS"
   },
   "authority": {
     "repository_scaffold": "GRANTED_BY_OPERATOR_INSTRUCTION_2026_09_08",
@@ -64,12 +65,12 @@
     "adr_acceptance": "NOT_GRANTED",
     "production_deployment": "NOT_GRANTED",
     "main_branch_protection": "NOT_RECORDED_REQUIRES_REPOSITORY_ADMIN",
-    "wp_001_acceptance": "NOT_GRANTED_AWAITING_INDEPENDENT_VERIFIER"
+    "wp_001_acceptance": "REVISION_REQUIRED_BY_INDEPENDENT_VERIFIER"
   },
   "latest_checkpoint": "sessions/checkpoints/BIZTRUST-WP-001-engineering-ready.json",
   "latest_handoff": null,
   "primary_next_action_id": "NS-001",
   "resume_decision": "WAIT_FOR_AUTHORITY",
-  "stop_reason": "The skeleton is complete on this branch and every check passes, but WP-001 cannot advance past ENGINEERING_READY. Two things are missing and neither is an agent's to supply. First, acceptance: the P0.2 design names a verifier who is not the implementer, and no independent review has happened. Second, and larger, BT-G0 is unrecorded: ARCH-001 is a draft, every ADR this repository depends on is DRAFT_REQUIRED, and FOUNDATION_SEQUENCE.md slice S01 needs five human review seats that are unfilled. Nothing beyond the skeleton may be built until an architecture authority records BT-G0 and a business authority records an expiring implementation grant. The primary action is NS-001, filling the repository administrator seat, because negative control 6 cannot be observed at all until branch protection exists.",
-  "known_divergence": "The boundary rules in this repository are the PROPOSAL of a design at IN_REVIEW, not an accepted decision. P0.2 version 0.2 is IN_REVIEW in the guide repository and depends on five ADRs that are all DRAFT_REQUIRED; if ADR-001 narrows or widens the seven rules, the generator and the registry change with it and the boundary suite is re-run. Two negative controls of the P0.2 design are not observed here and are declared non-coverage rather than passed: control 6, a push straight to main and a merge with a failing check, which needs a human to record branch protection first; and the runtime half of every control, because nothing runs. Controls 1, 2, 3, 4, 5, 7, 9, 10, 11 and 12 are observed firing on deliberate fixtures under tests/boundaries/. The four module packages exist because the P0.2 design names them as the modules P0 builds; their contracts throw, which is the honest state, not a placeholder to be quietly filled."
+  "stop_reason": "An independent peer review of this branch returned REVISION_REQUIRED with four blockers, and all four are addressed here. F1 and F2: the migration lint failed OPEN, passing double-quoted identifiers, unqualified names, plural domain words and whole nested directories, which defeated four of the design's negative controls with ordinary legal SQL. F3: the gates and authority blocks were unconstrained, so the review erased every gate and forged three grants and still got exit 0. F4: four rule loosenings left the boundary suite fully green. F5 and F6 are fixed too: the checkpoint recorded an output that did not reproduce at the commit it named, and the non-coverage list omitted six real gaps. WP-001 stays at ENGINEERING_READY. The reviewer, not the implementer, decides whether the revision closes the findings, and no re-review of this head has happened. The primary action is still NS-001, because negative control 6 remains unobservable until a human records branch protection.",
+  "known_divergence": "The boundary rules here are the PROPOSAL of a design at IN_REVIEW that depends on five ADRs, all DRAFT_REQUIRED; if ADR-001 narrows or widens the seven rules, the registry and the generator change with it and the suite is re-run. Two lessons from the review are recorded rather than smoothed over. First, the suite was green while four rules were unenforced, which is why scripts/mutation-check.mjs is now a required check: a suite that passes whether or not the rule works cannot tell you which it is. Second, two of those mutations survived even after fixtures were added, because a fixture carrying two violations of one rule proves neither; the migration controls now assert on the message, not the rule name. Declared non-coverage grew from seven items to twelve as a result, and the growth is the point: the earlier list was honest in tone and incomplete in fact. One earlier claim was affirmatively wrong and is withdrawn, not softened: the migration lint was described as conservative by design when it was the opposite."
 }

@@ -28,7 +28,7 @@ guide, as far as it can be built without implementation authority.
 | Seven dependency rules, generated from the registry | [`scripts/boundary-rules.mjs`](scripts/boundary-rules.mjs) → `.dependency-cruiser.cjs` |
 | The migration lint: one schema per module, audit append-only, no P0 domain table | [`scripts/migration-lint.mjs`](scripts/migration-lint.mjs) |
 | A fail-closed record validator | [`scripts/validate_continuity.py`](scripts/validate_continuity.py) |
-| Fixtures proving every rule fires | [`tests/boundaries/`](tests/boundaries/) |
+| Fixtures proving every rule fires, and a mutation check proving the fixtures do | [`tests/boundaries/`](tests/boundaries/), [`scripts/mutation-check.mjs`](scripts/mutation-check.mjs) |
 | The charter, the registries and the continuity records | [`AGENTS.md`](AGENTS.md), [`badf/`](badf/) |
 | The CI job skeleton | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) |
 
@@ -65,16 +65,14 @@ firing on a deliberate violation under `tests/boundaries/`.
 
 ```bash
 pnpm install
-pnpm typecheck
-pnpm boundaries:check
-pnpm lint:migrations
-node --test "tests/boundaries/*.test.mjs"
-python3 scripts/validate_continuity.py       # py on Windows
-python3 -m unittest discover -s tests/unit   # py on Windows
+pnpm verify
 ```
 
-All seven pass on `main`. There is nothing to run, because nothing is
-implemented.
+`verify` runs all eight checks in order: the record validator, its own
+fail-closed suite, the typecheck, the boundary check, the migration lint, the
+module-package check, the boundary and migration suites, and the mutation
+check. All eight pass on this branch. There is nothing to run afterwards,
+because nothing is implemented.
 
 To add or change a module, edit [`modules/modules.yaml`](modules/modules.yaml)
 and regenerate:
@@ -93,8 +91,8 @@ Never hand-edit `.dependency-cruiser.cjs` or `tsconfig.paths.json`.
 | `boundaries:check` | Either a generated file drifted from the registry, or one named rule was broken by one named file. There is no override label; a rule that must be relaxed is changed in the registry by a pull request that says why. |
 | `lint:migrations` | A migration touched a schema it does not own, crossed a schema with a foreign key, mutated the audit schema, created a P0 domain table, omitted `tenant_id`, or sat in a directory naming no registered module. |
 | `validate_continuity.py` | A record under `badf/` or `sessions/` drifted from its schema, or broke a rule the schema cannot express: exactly one primary action named by the state file, priorities 1 to n, one Work Package id across both records, decision ids unique and ascending. |
-| `tests/unit` | The validator itself. 23 tests break one thing at a time and require each to be reported, because an instrument never observed failing is indistinguishable from one that passed. |
-| `tests/boundaries` | The rules and the lint. 25 tests: 8 boundary controls and 7 migration controls each observed firing on its fixture, and 5 conforming imports reported by nothing. A fixture that passes is itself a failure. |
+| `tests/unit` | The validator itself. 31 tests break one thing at a time and require each to be reported, because an instrument never observed failing is indistinguishable from one that passed. Seven of them are regressions for a forged-authority hole an independent review found. |
+| `tests/boundaries` | The rules, the lint and the module-package check. 46 tests, each control observed firing on its fixture and each conforming case reported by nothing. A fixture that passes the checker is itself a failure. |
 
 The validator's exit codes carry meaning: **0** pass · **1** a data defect, the
 records are wrong · **2** a validator defect, the script is broken · **130**
@@ -104,19 +102,52 @@ reader knows which artifact to debug.
 ## What is not covered
 
 Recorded because a gap that reads as an omission is worse than one that reads
-as a decision.
+as a decision. This list grew from seven items to twelve after an independent
+review, and the growth is the point: the earlier list was honest in tone and
+incomplete in fact.
 
-- **Negative control 6 of the P0.2 design** — a push straight to `main`, and a
-  merge with a failing check — cannot be observed. `main` is unprotected, and
-  protecting it is a human record no agent can write. This is the primary next
-  action.
+- **Negative control 6 of the P0.2 design** cannot be observed. `main` is
+  unprotected, and protecting it is a human record no agent can write. This is
+  the primary next action.
 - **Every runtime control.** Nothing runs.
-- **The contract lint** over `openapi/` and `events/`. Both are reserved and
-  empty; the rules are epics P0.8 and P0.9.
-- **The observability tests.** The baseline is epic P0.11.
-- **The security proof suite.** The `BT-G1` matrix needs `BT-G0` first.
+- **The migration lint is a text check over SQL, not a parser.** It handles
+  double-quoted identifiers, unqualified names, `search_path` and plurals. It
+  cannot see through a dollar-quoted function body, a `DO` block, dynamic SQL,
+  or an extension that creates objects as a side effect.
+- **Rule 7's outbound host allow-list does not exist.** The design makes it a
+  check of its own; `apps/` holds only a README, so rule 7 binds nothing
+  outside the fixture.
+- **The contract lint** over `openapi/` and `events/`, the **observability
+  tests**, and the **security proof suite**. All three check work that does not
+  exist yet.
 - No fixture proves the typecheck fails, so the compiler is an unwitnessed
   instrument.
+- **The mutation check covers the dependency rules and the migration lint
+  only.** The record validator, the registry reader and the module-package
+  check have their own suites but are not mutation-tested.
+- **CI is one job with sequential steps**, not the nine independently required
+  checks the design names, and there is no build job. Merge-blocking effect is
+  equivalent; the divergence is recorded rather than hidden.
+- The design says the boundary check's **generation step** catches a package
+  with no registry row. It does not; a separate script does.
+
+## How the rules are kept honest
+
+Fixtures prove a rule fires on a violation. They do not prove the rule is doing
+the work, because a fixture stays green if the rule is quietly widened. An
+independent review found four rules in exactly that state: loosened by one
+line, suite still fully green.
+
+So `pnpm check:mutations` loosens each rule in turn and **requires the suite to
+go red**. Eighteen mutations, every one caught, and a mutation whose anchor no
+longer matches the source is a failure too, because it has silently stopped
+testing anything.
+
+Two mutations survived even after the missing fixtures were added. That was a
+test defect rather than a rule defect: a fixture carrying two violations of one
+rule proves neither, since disabling the shape under test leaves the file still
+reported under the same rule name. Each migration fixture now carries one
+violation shape, and each control asserts on the message.
 
 ## Governance
 
