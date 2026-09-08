@@ -36,6 +36,15 @@
  * first time it was written with a fixed filename, caught by stress-testing
  * with several concurrent full-suite runs.)
  *
+ * Both tests also run under `withRealRootLock` (see real-root-lock.mjs):
+ * without it, a DIFFERENT test file's own spawned `mutation-check.mjs` -
+ * mutation-check-worktree-lifecycle.test.mjs's, specifically, since it also
+ * depends on the real tree being clean when ITS spawn's start check runs -
+ * can observe the witness file below mid-flight and take the wrong code
+ * path, for a reason that has nothing to do with what either test is
+ * actually proving. See that file's docstring for the full story; this was
+ * also caught by stress-testing, not reasoned out in advance.
+ *
  * The EXIT half cannot be witnessed the same way. By design, nothing in
  * `mutation-check.mjs` ever dirties the real tree - that is the entire
  * point of running against a worktree - so there is no external moment at
@@ -63,6 +72,7 @@ import { writeFileSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
+import { withRealRootLock } from "./real-root-lock.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..", "..");
@@ -90,90 +100,94 @@ const skip =
     : false;
 
 test("mutation-check aborts before doing anything if the working tree is dirty", { skip }, () => {
-  writeFileSync(WITNESS, "witness file for the mutation-check dirty-tree guard test\n", "utf8");
-  try {
-    let result;
+  withRealRootLock(() => {
+    writeFileSync(WITNESS, "witness file for the mutation-check dirty-tree guard test\n", "utf8");
     try {
-      const stdout = execFileSync(process.execPath, [SCRIPT], {
-        cwd: ROOT,
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-      result = { code: 0, out: stdout };
-    } catch (error) {
-      result = { code: error.status ?? -1, out: `${error.stdout ?? ""}${error.stderr ?? ""}` };
+      let result;
+      try {
+        const stdout = execFileSync(process.execPath, [SCRIPT], {
+          cwd: ROOT,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        result = { code: 0, out: stdout };
+      } catch (error) {
+        result = { code: error.status ?? -1, out: `${error.stdout ?? ""}${error.stderr ?? ""}` };
+      }
+      assert.equal(
+        result.code,
+        2,
+        `expected the dirty-tree guard to abort with exit code 2; got ${result.code}:\n${result.out}`,
+      );
+      assert.match(result.out, /working tree is not clean/i);
+      const witnessName = WITNESS.replace(/\\/g, "/").split("/").pop();
+      assert.ok(
+        result.out.includes(witnessName),
+        `expected the guard's own git-status output to name the file that dirtied ` +
+          `the tree (${witnessName}):\n${result.out}`,
+      );
+    } finally {
+      rmSync(WITNESS, { force: true });
     }
-    assert.equal(
-      result.code,
-      2,
-      `expected the dirty-tree guard to abort with exit code 2; got ${result.code}:\n${result.out}`,
-    );
-    assert.match(result.out, /working tree is not clean/i);
-    const witnessName = WITNESS.replace(/\\/g, "/").split("/").pop();
-    assert.ok(
-      result.out.includes(witnessName),
-      `expected the guard's own git-status output to name the file that dirtied ` +
-        `the tree (${witnessName}):\n${result.out}`,
-    );
-  } finally {
-    rmSync(WITNESS, { force: true });
-  }
+  });
 });
 
 test(
   "mutation-check fails the run if the working tree is dirty at exit, even though the sweep itself was clean",
   { skip },
   () => {
-    const exitWitnessName = `.mutation-check-exit-guard-witness.${process.pid}-${randomBytes(4).toString("hex")}.tmp`;
-    let result;
-    try {
-      const stdout = execFileSync(process.execPath, [SCRIPT], {
-        cwd: ROOT,
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "pipe"],
-        env: {
-          ...process.env,
-          // Baseline suite only - the exit-time check runs regardless of how
-          // many mutations were swept, so there is nothing to gain from
-          // paying for all 63 in a test whose subject is the check that
-          // runs AFTER the sweep, not the sweep itself.
-          MUTATION_CHECK_TEST_LIMIT: "0",
-          // Tells the script to dirty its OWN real tree with this one file,
-          // deterministically, immediately before its exit-time check runs
-          // (see the top-of-file comment for why this can't be done from
-          // out here without racing the script's own timing).
-          MUTATION_CHECK_TEST_DIRTY_AT_EXIT: exitWitnessName,
-        },
-      });
-      result = { code: 0, out: stdout };
-    } catch (error) {
-      result = { code: error.status ?? -1, out: `${error.stdout ?? ""}${error.stderr ?? ""}` };
-    }
-    // Defensive: the script removes its own witness file once it has decided
-    // the exit code. This test's entire subject is "does that decision
-    // actually happen," so it does not take that on faith for its own
-    // cleanup - if the script left the file behind for any reason, this
-    // still leaves the real tree exactly as clean as it found it.
-    rmSync(join(ROOT, exitWitnessName), { force: true });
+    withRealRootLock(() => {
+      const exitWitnessName = `.mutation-check-exit-guard-witness.${process.pid}-${randomBytes(4).toString("hex")}.tmp`;
+      let result;
+      try {
+        const stdout = execFileSync(process.execPath, [SCRIPT], {
+          cwd: ROOT,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+          env: {
+            ...process.env,
+            // Baseline suite only - the exit-time check runs regardless of how
+            // many mutations were swept, so there is nothing to gain from
+            // paying for all 63 in a test whose subject is the check that
+            // runs AFTER the sweep, not the sweep itself.
+            MUTATION_CHECK_TEST_LIMIT: "0",
+            // Tells the script to dirty its OWN real tree with this one file,
+            // deterministically, immediately before its exit-time check runs
+            // (see the top-of-file comment for why this can't be done from
+            // out here without racing the script's own timing).
+            MUTATION_CHECK_TEST_DIRTY_AT_EXIT: exitWitnessName,
+          },
+        });
+        result = { code: 0, out: stdout };
+      } catch (error) {
+        result = { code: error.status ?? -1, out: `${error.stdout ?? ""}${error.stderr ?? ""}` };
+      }
+      // Defensive: the script removes its own witness file once it has decided
+      // the exit code. This test's entire subject is "does that decision
+      // actually happen," so it does not take that on faith for its own
+      // cleanup - if the script left the file behind for any reason, this
+      // still leaves the real tree exactly as clean as it found it.
+      rmSync(join(ROOT, exitWitnessName), { force: true });
 
-    assert.equal(
-      result.code,
-      2,
-      `expected exit code 2 because the real tree was dirty when the exit ` +
-        `check ran, even though the (limited) mutation sweep itself was ` +
-        `clean; got ${result.code}:\n${result.out}`,
-    );
-    assert.match(
-      result.out,
-      /not clean at exit/i,
-      `expected the EXIT-time half of the dirty-tree guard's own message; got:\n${result.out}`,
-    );
-    assert.match(
-      result.out,
-      /MUTATION_CHECK PASS|baseline GREEN/,
-      `expected the (limited) sweep itself to have gone fine on its own terms - ` +
-        `this test is about the exit guard overriding an otherwise-clean result, ` +
-        `not about a sweep failure; got:\n${result.out}`,
-    );
+      assert.equal(
+        result.code,
+        2,
+        `expected exit code 2 because the real tree was dirty when the exit ` +
+          `check ran, even though the (limited) mutation sweep itself was ` +
+          `clean; got ${result.code}:\n${result.out}`,
+      );
+      assert.match(
+        result.out,
+        /not clean at exit/i,
+        `expected the EXIT-time half of the dirty-tree guard's own message; got:\n${result.out}`,
+      );
+      assert.match(
+        result.out,
+        /MUTATION_CHECK PASS|baseline GREEN/,
+        `expected the (limited) sweep itself to have gone fine on its own terms - ` +
+          `this test is about the exit guard overriding an otherwise-clean result, ` +
+          `not about a sweep failure; got:\n${result.out}`,
+      );
+    });
   },
 );

@@ -42,6 +42,17 @@
  * this test fail non-deterministically depending on scheduling. Confirmed by
  * running the full `tests/boundaries/*.test.mjs` glob during development:
  * this exact race reproduced on the first attempt with a shared prefix.
+ *
+ * A second, narrower race showed up the same way, one layer down: every
+ * test here spawns a script instance that reads the REAL repository's `git
+ * status --porcelain` as ITS OWN start check, and
+ * mutation-check-guard.test.mjs's tests deliberately dirty that same real
+ * tree for a moment to witness that check. Running concurrently, a
+ * `finding 1`/`finding 2` spawn here can land its start check exactly inside
+ * that window and see a dirty tree that has nothing to do with either test.
+ * Both files now serialise the specific tests that touch this shared state
+ * through `withRealRootLock` (see real-root-lock.mjs) so this cannot happen,
+ * without slowing down or otherwise touching anything else in the suite.
  */
 
 import { test } from "node:test";
@@ -52,6 +63,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
+import { withRealRootLock } from "./real-root-lock.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..", "..");
@@ -112,32 +124,34 @@ test(
   "finding 1: a failure after `git worktree add` succeeds leaves no worktree behind",
   { skip },
   () => {
-    const tag = freshTag();
+    withRealRootLock(() => {
+      const tag = freshTag();
 
-    const result = runScript({
-      MUTATION_CHECK_TEST_FAIL_AFTER_ADD: "1",
-      MUTATION_CHECK_TEST_WORKTREE_TAG: tag,
+      const result = runScript({
+        MUTATION_CHECK_TEST_FAIL_AFTER_ADD: "1",
+        MUTATION_CHECK_TEST_WORKTREE_TAG: tag,
+      });
+
+      assert.equal(
+        result.code,
+        2,
+        `expected the script to fail closed (exit 2) when creation fails after ` +
+          `\`git worktree add\` succeeds; got ${result.code}:\n${result.out}`,
+      );
+      assert.match(
+        result.out,
+        /could not create an isolated worktree/i,
+        `expected the createWorktree failure message; got:\n${result.out}`,
+      );
+
+      const leaked = taggedWorktreePaths(tag);
+      assert.deepEqual(
+        leaked,
+        [],
+        `expected no worktree left registered under this test's own tag after a ` +
+          `forced failure post-\`git worktree add\`; found: ${JSON.stringify(leaked)}`,
+      );
     });
-
-    assert.equal(
-      result.code,
-      2,
-      `expected the script to fail closed (exit 2) when creation fails after ` +
-        `\`git worktree add\` succeeds; got ${result.code}:\n${result.out}`,
-    );
-    assert.match(
-      result.out,
-      /could not create an isolated worktree/i,
-      `expected the createWorktree failure message; got:\n${result.out}`,
-    );
-
-    const leaked = taggedWorktreePaths(tag);
-    assert.deepEqual(
-      leaked,
-      [],
-      `expected no worktree left registered under this test's own tag after a ` +
-        `forced failure post-\`git worktree add\`; found: ${JSON.stringify(leaked)}`,
-    );
   },
 );
 
@@ -145,68 +159,70 @@ test(
   "finding 2: a later run reclaims a worktree orphaned by an earlier killed run",
   { skip },
   () => {
-    const tag = freshTag();
+    withRealRootLock(() => {
+      const tag = freshTag();
 
-    // Simulate the kill: the worktree is fully formed (checked out, owner
-    // file written, node_modules linked) when the process exits without
-    // running any cleanup - see MUTATION_CHECK_TEST_KILL_AFTER_ADD in
-    // scripts/mutation-check.mjs for exactly where.
-    const killed = runScript({
-      MUTATION_CHECK_TEST_KILL_AFTER_ADD: "1",
-      MUTATION_CHECK_TEST_WORKTREE_TAG: tag,
+      // Simulate the kill: the worktree is fully formed (checked out, owner
+      // file written, node_modules linked) when the process exits without
+      // running any cleanup - see MUTATION_CHECK_TEST_KILL_AFTER_ADD in
+      // scripts/mutation-check.mjs for exactly where.
+      const killed = runScript({
+        MUTATION_CHECK_TEST_KILL_AFTER_ADD: "1",
+        MUTATION_CHECK_TEST_WORKTREE_TAG: tag,
+      });
+      assert.equal(
+        killed.code,
+        137,
+        `expected the simulated-kill run to exit with the code it set itself ` +
+          `right before exiting (137); got ${killed.code}:\n${killed.out}`,
+      );
+
+      const orphans = taggedWorktreePaths(tag);
+      assert.equal(
+        orphans.length,
+        1,
+        `expected exactly one worktree left behind under this test's own tag by ` +
+          `the simulated kill; found: ${JSON.stringify(orphans)}`,
+      );
+      const [orphan] = orphans;
+      assert.ok(
+        existsSync(orphan),
+        `the orphaned worktree's directory must still exist on disk after the ` +
+          `kill - that is the entire point of this test (a REAL kill skips every ` +
+          `\`finally\`, so nothing removed it): ${orphan}`,
+      );
+
+      // A later, ordinary run - tagged the SAME way, so it scans the same
+      // namespace this orphan lives in - must find and reclaim that orphan on
+      // its own, before creating its own worktree, and must otherwise succeed
+      // normally. MUTATION_CHECK_TEST_LIMIT keeps this fast: reclamation does
+      // not depend on how many mutations run afterward.
+      const reclaiming = runScript({
+        MUTATION_CHECK_TEST_LIMIT: "0",
+        MUTATION_CHECK_TEST_WORKTREE_TAG: tag,
+      });
+      assert.equal(
+        reclaiming.code,
+        0,
+        `expected the follow-up run to succeed cleanly; got ${reclaiming.code}:\n${reclaiming.out}`,
+      );
+      assert.ok(
+        reclaiming.out.includes("reclaiming an orphaned worktree") && reclaiming.out.includes(orphan),
+        `expected the follow-up run to report reclaiming exactly the orphaned ` +
+          `worktree left by the killed run (${orphan}); got:\n${reclaiming.out}`,
+      );
+      assert.ok(
+        !existsSync(orphan),
+        `expected the orphan's directory to be gone from disk after reclamation: ${orphan}`,
+      );
+
+      const remaining = taggedWorktreePaths(tag);
+      assert.deepEqual(
+        remaining,
+        [],
+        `expected no worktree left registered under this test's own tag once the ` +
+          `follow-up run has created and torn down its own; found: ${JSON.stringify(remaining)}`,
+      );
     });
-    assert.equal(
-      killed.code,
-      137,
-      `expected the simulated-kill run to exit with the code it set itself ` +
-        `right before exiting (137); got ${killed.code}:\n${killed.out}`,
-    );
-
-    const orphans = taggedWorktreePaths(tag);
-    assert.equal(
-      orphans.length,
-      1,
-      `expected exactly one worktree left behind under this test's own tag by ` +
-        `the simulated kill; found: ${JSON.stringify(orphans)}`,
-    );
-    const [orphan] = orphans;
-    assert.ok(
-      existsSync(orphan),
-      `the orphaned worktree's directory must still exist on disk after the ` +
-        `kill - that is the entire point of this test (a REAL kill skips every ` +
-        `\`finally\`, so nothing removed it): ${orphan}`,
-    );
-
-    // A later, ordinary run - tagged the SAME way, so it scans the same
-    // namespace this orphan lives in - must find and reclaim that orphan on
-    // its own, before creating its own worktree, and must otherwise succeed
-    // normally. MUTATION_CHECK_TEST_LIMIT keeps this fast: reclamation does
-    // not depend on how many mutations run afterward.
-    const reclaiming = runScript({
-      MUTATION_CHECK_TEST_LIMIT: "0",
-      MUTATION_CHECK_TEST_WORKTREE_TAG: tag,
-    });
-    assert.equal(
-      reclaiming.code,
-      0,
-      `expected the follow-up run to succeed cleanly; got ${reclaiming.code}:\n${reclaiming.out}`,
-    );
-    assert.ok(
-      reclaiming.out.includes("reclaiming an orphaned worktree") && reclaiming.out.includes(orphan),
-      `expected the follow-up run to report reclaiming exactly the orphaned ` +
-        `worktree left by the killed run (${orphan}); got:\n${reclaiming.out}`,
-    );
-    assert.ok(
-      !existsSync(orphan),
-      `expected the orphan's directory to be gone from disk after reclamation: ${orphan}`,
-    );
-
-    const remaining = taggedWorktreePaths(tag);
-    assert.deepEqual(
-      remaining,
-      [],
-      `expected no worktree left registered under this test's own tag once the ` +
-        `follow-up run has created and torn down its own; found: ${JSON.stringify(remaining)}`,
-    );
   },
 );
