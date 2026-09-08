@@ -209,6 +209,7 @@ const CONFORMING = [
   "packages/shared/src/index.ts",
   "services/api/src/index.ts",
   "apps/control-plane/src/index.ts",
+  "apps/broker-portal/src/index.ts",
 ];
 
 for (const file of CONFORMING) {
