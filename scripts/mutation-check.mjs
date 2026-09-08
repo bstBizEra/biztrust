@@ -389,6 +389,80 @@ const MUTATIONS = [
     from: "      else others.push(full);",
     to: "      else if (false) others.push(full);",
   },
+
+  // ---- round three open findings 9 and 10: reads and structural coupling
+  // across a schema boundary -------------------------------------------------
+  //
+  // CROSS_SCHEMA_READ_KEYWORDS is one alternation of six independently
+  // deletable entries. Each mutation below drops exactly one, the same
+  // pattern TABLE_CREATING_VERBS' per-entry mutations above use, and each is
+  // caught by that one clause's own fixture (R3-31..R3-36) - not by any
+  // other, so a mutation that drops JOIN and survives because FROM's fixture
+  // still reports the file would be exactly the "message-shape coverage,
+  // not extractor coverage" defect three earlier review rounds found.
+  {
+    file: LINT,
+    name: "M1: stop treating FROM as a cross-schema read",
+    from: '  "FROM",\n',
+    to: "",
+  },
+  {
+    file: LINT,
+    name: "M1: stop treating JOIN as a cross-schema read",
+    from: '  "JOIN",\n',
+    to: "",
+  },
+  {
+    file: LINT,
+    name: "M1: stop treating USING as a cross-schema read",
+    from: '  "USING",\n',
+    to: "",
+  },
+  {
+    file: LINT,
+    name: "M1: stop treating PARTITION OF as a cross-schema structural coupling",
+    from: '  "PARTITION\\\\s+OF",\n',
+    to: "",
+  },
+  {
+    file: LINT,
+    name: "M1: stop treating INHERITS as a cross-schema structural coupling",
+    from: '  "INHERITS",\n',
+    to: "",
+  },
+  {
+    file: LINT,
+    name: "M1: stop treating LIKE as a cross-schema structural coupling",
+    from: '  "LIKE",\n',
+    to: "",
+  },
+  {
+    file: LINT,
+    // Round three open finding 10, first half: reverts exactly to the
+    // pre-task regex, which required a trailing "(" - an explicit
+    // referenced-column list - immediately after the referenced name, so
+    // `REFERENCES othertable` with no column list at all matched nothing.
+    // Caught by R3-37, not by the qualified branch above it (that branch
+    // only ever fires on a schema-qualified REFERENCES, a different shape).
+    name: "M2: require a column list again, so a bare REFERENCES escapes M2",
+    from: 'const unqualified = new RegExp(String.raw`\\bREFERENCES\\s+(${ID})(?![\\w.])`, "gi");',
+    to: 'const unqualified = new RegExp(String.raw`\\bREFERENCES\\s+(${ID})\\s*\\(`, "gi");',
+  },
+  {
+    file: LINT,
+    // A psql meta-command carries no SQL verb at all, so this is its own
+    // check rather than left to the deny-by-default refusal to catch by
+    // accident. Disabling it here still leaves the line refused by that
+    // other, unrelated path (no target resolves from a line starting `\`),
+    // but under the GENERIC "cannot resolve what schema the statement
+    // touches" message, not "a psql meta-command" - R3-38 asserts the
+    // specific message, not just that the file is refused at all, so this
+    // mutation is caught by the message assertion even though the file
+    // stays refused.
+    name: "M1: stop refusing a psql meta-command as its own check",
+    from: "      if (!/^[ \\t]*\\\\/.test(line)) return line;",
+    to: "      if (true) return line;",
+  },
 ];
 function runSuite() {
   try {

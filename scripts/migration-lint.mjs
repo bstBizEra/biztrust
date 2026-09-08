@@ -168,6 +168,42 @@ function relationKind(typeKeyword) {
  */
 const RENAMEABLE_TYPES = String.raw`(FOREIGN\s+TABLE|MATERIALIZED\s+VIEW|VIEW|TABLE)`;
 
+/**
+ * Clauses that name another relation to READ from or structurally couple to,
+ * as ONE list, not six separately maintained regexes.
+ *
+ * Round three open findings 9 and 10: `CREATE TABLE ... AS SELECT * FROM
+ * audit.x`, `CREATE TABLE ... PARTITION OF audit.x` and `CREATE TABLE ...
+ * INHERITS (audit.x)` all touch another module's schema exactly as
+ * AGENTS.md section 5 forbids - the first by reading every row of it, the
+ * other two by structurally coupling this table's own definition to it, a
+ * tighter coupling than a foreign key - yet `objectTargets` only ever
+ * resolved what a statement CREATES, ALTERS or DROPS. Nothing here read a
+ * FROM, JOIN, USING, PARTITION OF, INHERITS or LIKE clause at all, so all
+ * three linted clean, and so would a plain cross-schema JOIN in a report
+ * view.
+ *
+ * `USING` is the DELETE ... USING / UPDATE ... FROM-equivalent table
+ * reference, not the `JOIN t USING (col1, col2)` column-list form: the
+ * pattern below requires a schema-qualified NAME, `(${ID})\.(${ID})`,
+ * immediately after the keyword (through an optional `(` and `ONLY`), and a
+ * parenthesised column list opens with `(` and a bare column name, never a
+ * dot, so `USING (col1, col2)` never reaches the dot this pattern requires
+ * and is left alone.
+ *
+ * Six entries, six independently deletable shapes: dropping any one of them
+ * from this array is caught by that shape's own fixture, the same as
+ * TABLE_CREATING_VERBS above.
+ */
+const CROSS_SCHEMA_READ_KEYWORDS = [
+  "FROM",
+  "JOIN",
+  "USING",
+  "PARTITION\\s+OF",
+  "INHERITS",
+  "LIKE",
+];
+
 /** An identifier, bare or double-quoted. Both forms are legal PostgreSQL. */
 const ID = String.raw`(?:"[^"]+"|[A-Za-z_]\w*)`;
 
@@ -504,6 +540,26 @@ function objectTargets(statement) {
     },
   );
 
+  // FROM|JOIN|USING|PARTITION OF|INHERITS|LIKE [ONLY] [schema.]name - see
+  // CROSS_SCHEMA_READ_KEYWORDS above. Only the SCHEMA-QUALIFIED form is
+  // matched (the pattern requires the literal `.`), so an ordinary
+  // unqualified `FROM sometable` inside this module's own schema is left
+  // alone; it is not new coverage this task closes, and re-flagging it here
+  // would collide with the M1 "no schema qualifier" check above on the SAME
+  // name for a reason unrelated to round three open findings 9 and 10.
+  // Pushed through the same `push` every other scan here uses, with the
+  // clause keyword itself as `verb` - a value TABLE_CREATING_VERBS and the
+  // literal "RENAME TO" never contain, so M4 and M5 correctly never evaluate
+  // a table this statement only reads from or inherits structure from, only
+  // the ordinary M1 per-target "touches schema" check below does.
+  scan(
+    new RegExp(
+      String.raw`\b(${CROSS_SCHEMA_READ_KEYWORDS.join("|")})\s*\(?\s*(?:ONLY\s+)?(${ID})\.(${ID})`,
+      "gi",
+    ),
+    (m) => push(m[2], m[3], m[0], m[1].toUpperCase().replace(/\s+/g, " ")),
+  );
+
   // CREATE|ALTER|DROP <TYPE> [schema.]name
   scan(
     new RegExp(
@@ -653,7 +709,28 @@ function foreignKeyTargets(statement) {
     out.push({ schema: m[1], object: m[2], text: m[0] });
   }
   // An unqualified REFERENCES cannot be proven same-schema by text alone.
-  const unqualified = new RegExp(String.raw`\bREFERENCES\s+(${ID})\s*\(`, "gi");
+  //
+  // Round three open finding 10, second half: this branch used to require a
+  // trailing `\s*\(`, i.e. an explicit referenced-column list, so
+  // `REFERENCES othertable` with no column list at all - perfectly legal
+  // PostgreSQL, meaning "the referenced table's primary key" - matched
+  // nothing and escaped M2 entirely. The requirement is dropped; what stays
+  // is the negative lookahead `(?![\w.])`, which is not the same guard doing
+  // the same job by luck. It rules out two different things at once:
+  //   - a dot immediately after, which means this is really a schema-
+  //     qualified reference and belongs to the branch above, not this one
+  //     (`REFERENCES tenancy.tenant (...)` must not also be reported here
+  //     as unqualified "tenancy");
+  //   - a WORD character immediately after, which rules out the bare `ID`
+  //     alternative's `\w*` backtracking to a SHORTER match than the whole
+  //     identifier so it can dodge the first bullet. `(?!\s*\.)` alone
+  //     invites exactly that: faced with "tenancy.tenant", the engine
+  //     happily matched only "tenanc" - one letter short - because "tenanc"
+  //     is immediately followed by "y", not ".", so that narrower lookahead
+  //     was satisfied. `(?![\w.])` forbids stopping mid-identifier at all,
+  //     so the only length left that can satisfy it is the full identifier,
+  //     and that length is exactly where the dot check correctly fires.
+  const unqualified = new RegExp(String.raw`\bREFERENCES\s+(${ID})(?![\w.])`, "gi");
   for (const m of statement.matchAll(unqualified)) {
     if (!/\./.test(m[0])) out.push({ schema: null, object: m[1], text: m[0] });
   }
@@ -683,8 +760,39 @@ function exemptFromM5(sql) {
 
 function lintFile(path, moduleName, schema, errors) {
   const rel = relative(ROOT, path).replace(/\\/g, "/");
-  const sql = readFileSync(path, "utf8");
+  const rawSql = readFileSync(path, "utf8");
   const report = (rule, detail) => errors.push(`${rel}: ${rule}: ${detail}`);
+
+  // M1: a psql meta-command, a line whose first non-space character is `\`.
+  // `\i ../../../elsewhere/drop.sql`, `\ir`, `\include` and the rest are not
+  // SQL at all - they are executed directly by a psql-driven runner, and this
+  // lint has no way to follow what they do, up to and including running a
+  // second file this scan never reads. This is deliberately its OWN check
+  // rather than left to the deny-by-default `understood` refusal below to
+  // catch by accident: a `\i` line carries no SQL verb whatsoever, so relying
+  // on the generic unmodelled-statement path to happen to also refuse it
+  // would be an accident of that other rule's shape, not a rule of its own -
+  // and a future change to that path's matching could stop catching it with
+  // nothing here to notice. Each such line is stripped to blank before the
+  // text reaches `statements()` below, so it is reported exactly once, by
+  // this check, and not a second time as a generic unresolved statement.
+  const metaCommandLines = [];
+  const sql = rawSql
+    .split(/\r?\n/)
+    .map((line) => {
+      if (!/^[ \t]*\\/.test(line)) return line;
+      metaCommandLines.push(line.trim());
+      return "";
+    })
+    .join(String.fromCharCode(10));
+  for (const line of metaCommandLines) {
+    report(
+      "M1",
+      `a psql meta-command ("${line}") is refused; a psql-driven runner executes ` +
+        `this line directly, and this lint cannot see - let alone check - what it does`,
+    );
+  }
+
   const exemptStatements = exemptFromM5(sql);
 
   const { list, oddIdentifiers, nonAscii, dollarQuoted } = statements(sql);

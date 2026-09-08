@@ -457,6 +457,81 @@ const CONTROLS = [
     rule: "M5",
     match: 'table "aggregate" has no tenant_id column',
   },
+
+  // Round three open findings 9 and 10: a module that READS or structurally
+  // COUPLES to another module's schema, rather than creating, altering or
+  // dropping something in it, walked past this lint entirely - nothing here
+  // ever looked at a FROM, JOIN, USING, PARTITION OF, INHERITS or LIKE
+  // clause. CROSS_SCHEMA_READ_KEYWORDS is one alternation of six
+  // independently deletable entries; each below proves one, with its own
+  // fixture carrying exactly that one shape.
+  {
+    control: "R3-31",
+    threat: "CREATE TABLE ... AS SELECT ... FROM reads another module's schema",
+    file: "r3_from_reads_audit.sql",
+    rule: "M1",
+    match: 'touches schema "audit" but this directory owns "tenancy" (FROM audit.decision)',
+  },
+  {
+    control: "R3-32",
+    threat: "a JOIN reads another module's schema",
+    file: "r3_join_reads_audit.sql",
+    rule: "M1",
+    match: 'touches schema "audit" but this directory owns "tenancy" (JOIN audit.decision)',
+  },
+  {
+    control: "R3-33",
+    threat: "DELETE ... USING reads another module's schema",
+    file: "r3_using_reads_audit.sql",
+    rule: "M1",
+    match: 'touches schema "audit" but this directory owns "tenancy" (USING audit.decision)',
+  },
+  {
+    control: "R3-34",
+    threat: "PARTITION OF structurally couples to another module's schema",
+    file: "r3_partition_of_audit.sql",
+    rule: "M1",
+    match: 'touches schema "audit" but this directory owns "tenancy" (PARTITION OF audit.decision)',
+  },
+  {
+    control: "R3-35",
+    threat: "INHERITS structurally couples to another module's schema",
+    file: "r3_inherits_audit.sql",
+    rule: "M1",
+    match: 'touches schema "audit" but this directory owns "tenancy" (INHERITS (audit.decision)',
+  },
+  {
+    control: "R3-36",
+    threat: "LIKE copies column definitions from another module's schema",
+    file: "r3_like_audit.sql",
+    rule: "M1",
+    match: 'touches schema "audit" but this directory owns "tenancy" (LIKE audit.decision)',
+  },
+
+  // Round three open finding 10, first half: the unqualified REFERENCES
+  // branch of M2 required a trailing "(", so a foreign key with no column
+  // list at all - legal PostgreSQL, meaning "the referenced table's primary
+  // key" - matched nothing. ml3_unqualified_fk.sql always writes the column
+  // list, so this is its own fixture.
+  {
+    control: "R3-37",
+    threat: "an unqualified REFERENCES with no column list",
+    file: "r3_unqualified_fk_no_column_list.sql",
+    rule: "M2",
+    match: 'unqualified REFERENCES "tenant"',
+  },
+
+  // A psql meta-command carries no SQL verb at all, so relying on the
+  // deny-by-default unmodelled-statement refusal to catch it by accident
+  // would be a different rule doing this one's job. This is its own check
+  // and its own message.
+  {
+    control: "R3-38",
+    threat: "a psql meta-command is refused outright",
+    file: "r3_psql_meta_command.sql",
+    rule: "M1",
+    match: "a psql meta-command",
+  },
 ];
 
 // Control R3-6 is the inverse of the others: the fixture must be READ, not
