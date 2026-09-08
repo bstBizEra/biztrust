@@ -532,6 +532,31 @@ const CONTROLS = [
     rule: "M1",
     match: "a psql meta-command",
   },
+
+  // Task 3 review, Important finding 1: a cross-schema reference in
+  // EXPRESSION position - a schema-qualified function call inside a column
+  // DEFAULT or CHECK - was invisible, because objectTargets only ever
+  // inspected clause-introducing keywords, and DEFAULT/CHECK carry none of
+  // their own. Two shapes, both fed by the SAME generalised scan (a
+  // schema-qualified name immediately followed by "(", found anywhere in
+  // the statement, not anchored to either keyword) - see the fix report for
+  // why that is one rule, not two, and why it therefore has one mutation
+  // witnessed by both fixtures below rather than two mutations pointed at
+  // identical code.
+  {
+    control: "R3-39",
+    threat: "a column DEFAULT calls a function in another module's schema",
+    file: "r3_default_calls_audit_function.sql",
+    rule: "M1",
+    match: 'touches schema "audit" but this directory owns "tenancy" (audit.gen_uuid()',
+  },
+  {
+    control: "R3-40",
+    threat: "a CHECK constraint calls a function in another module's schema",
+    file: "r3_check_calls_audit_function.sql",
+    rule: "M1",
+    match: 'touches schema "audit" but this directory owns "tenancy" (audit.is_valid_code()',
+  },
 ];
 
 // Control R3-6 is the inverse of the others: the fixture must be READ, not

@@ -463,6 +463,27 @@ const MUTATIONS = [
     from: "      if (!/^[ \\t]*\\\\/.test(line)) return line;",
     to: "      if (true) return line;",
   },
+
+  // ---- task 3 review, Important finding 1: a schema-qualified CALL in
+  // expression position (a column DEFAULT or CHECK) --------------------------
+  //
+  // One rule, not two: DEFAULT and CHECK carry no clause-introducing keyword
+  // of their own, so the fix is ONE scan for the shape "schema-qualified
+  // name immediately followed by (" anywhere in the statement, not two
+  // keyword-anchored branches the way CROSS_SCHEMA_READ_KEYWORDS' entries
+  // are. There is therefore no way to disable "just the DEFAULT case" or
+  // "just the CHECK case" at the code level without disabling the other -
+  // that would require re-introducing the exact per-context anchor list
+  // constraint 10 rules out. This single mutation removes the scan
+  // entirely and is witnessed by BOTH R3-39 (DEFAULT) and R3-40 (CHECK)
+  // independently going red, which is the intended proof that the
+  // generalised fix actually covers both named shapes rather than one.
+  {
+    file: LINT,
+    name: "M1: stop scanning for a schema-qualified function call in expression position",
+    from: '  scan(new RegExp(String.raw`\\b(${ID})\\.(${ID})\\s*\\(`, "gi"), (m) => push(m[1], m[2], m[0], "EXPR CALL"));',
+    to: "  void 0;",
+  },
 ];
 function runSuite() {
   try {

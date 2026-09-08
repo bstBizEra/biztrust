@@ -560,6 +560,49 @@ function objectTargets(statement) {
     (m) => push(m[2], m[3], m[0], m[1].toUpperCase().replace(/\s+/g, " ")),
   );
 
+  // A schema-qualified CALL, anywhere in the statement - the review finding
+  // on this same task: `DEFAULT audit.gen_uuid()` runs on every insert and
+  // `CHECK (audit.is_valid_code(code))` runs on every insert and update,
+  // structural coupling to another module's schema exactly as AGENTS.md
+  // section 5 forbids, and nothing above ever looked INSIDE a column
+  // DEFAULT or CHECK expression at all.
+  //
+  // DEFAULT and CHECK carry no clause-introducing keyword of their own the
+  // way FROM or JOIN do - "DEFAULT" and "CHECK" are followed by an arbitrary
+  // expression, not a name - so this cannot be two more entries appended to
+  // CROSS_SCHEMA_READ_KEYWORDS above; there is no keyword there to anchor
+  // on, and hand-listing "DEFAULT" and "CHECK" as a second, parallel context
+  // list is exactly the one-shape-anchor constraint 10 warns against
+  // (today it would be those two contexts; a GENERATED ALWAYS AS expression
+  // or a trigger WHEN clause is the same shape and would need the same
+  // treatment tomorrow). The generalisation is the fix, not a shortcut:
+  // this scans for the SHAPE itself, `(${ID})\.(${ID})\s*\(` - a
+  // schema-qualified name immediately followed by an opening parenthesis,
+  // which is what a function or procedure CALL looks like in PostgreSQL
+  // regardless of which clause it sits inside - rather than for a keyword
+  // that precedes it.
+  //
+  // Pushed through the same `push()` and read by the same M1 per-target
+  // loop as every other scan here, so it is reported with the SAME "touches
+  // schema" wording this file already uses everywhere else, not a new
+  // "calls a function in" message that would need to be right about the
+  // difference between a call and a declaration - `CREATE FUNCTION
+  // audit.foo(...)` has exactly this textual shape and is not a call at
+  // all, but "touches schema" is true of both, so the shared wording does
+  // not need to tell them apart; a duplicate report on that exact statement
+  // (once from the CREATE FUNCTION scan below, once from this one) is the
+  // same accepted, harmless double-reporting already on record elsewhere in
+  // this file (e.g. `VACUUM ANALYZE`, both scans correct about the same
+  // schema and object).
+  //
+  // No exemption for an unregistered or built-in schema (pg_catalog,
+  // public, an installed extension's own schema): this file has never
+  // consulted the module registry to decide whether a FOREIGN schema
+  // matters, only whether it EQUALS this directory's own schema, and this
+  // scan follows that same rule rather than inventing a second one. See the
+  // task report for what was tried before settling on this.
+  scan(new RegExp(String.raw`\b(${ID})\.(${ID})\s*\(`, "gi"), (m) => push(m[1], m[2], m[0], "EXPR CALL"));
+
   // CREATE|ALTER|DROP <TYPE> [schema.]name
   scan(
     new RegExp(
