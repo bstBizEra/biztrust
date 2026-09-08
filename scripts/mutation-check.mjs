@@ -1112,6 +1112,130 @@ const MUTATIONS = [
     from: "      lines.push(`# ${path}: ${notes.join(\"; \")}`);",
     to: "      void 0;",
   },
+
+  // ---- round four findings I6, I7 and I8: the record validator ------------
+  //
+  // Every mutation below names `suite: "validator"`. scripts/validate_continuity.py
+  // is not exercised by the boundary suite at all - its witnesses live in
+  // tests/unit, run by `pnpm test:validator` - so a mutation to it checked
+  // against the boundary suite would survive every time and prove the
+  // opposite of what it looks like it proves.
+  {
+    file: RECORDS,
+    suite: "validator",
+    // I7: the routing block generates .github/CODEOWNERS, and was validated
+    // for PRESENCE only - so rerouting badf/authority.yaml to two seats an
+    // agent may occupy passed both validate:records and codeowners:check.
+    // This drops the whole pin.
+    name: "records: stop pinning the routing entries of the governance registries",
+    from: "    for path, (owner, verifier) in sorted(PINNED_ROUTING.items()):",
+    to: "    for path, (owner, verifier) in []:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // The narrower half: the pinned path is still required to EXIST, but may
+    // be routed anywhere. Caught by the reroute witness, not by the deletion
+    // witness - which is the point of having both.
+    name: "records: let a pinned governance path be routed to any seat",
+    from: lines("            if actual == expected:", "                continue"),
+    to: lines("            if True:", "                continue"),
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // A routing owner or verifier that names no declared role generates no
+    // CODEOWNERS line at all: the path is unreviewed while reading as though
+    // it were routed.
+    name: "records: stop requiring a routing owner or verifier to name a declared role",
+    from: lines("            if ROLE_SHAPED.fullmatch(value) is None:", "                continue"),
+    to: lines("            if True:", "                continue"),
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // I6: the routing presence loop. Witnessed by the UNPINNED "modules/**"
+    // entry losing its verifier - a pinned path would be caught by
+    // PINNED_ROUTING instead and this would survive.
+    name: "records: stop refusing a routing entry that records no path, owner or verifier",
+    from: '        for field in ("path", "owner", "verifier"):',
+    to: "        for field in ():",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // I8: the floor half of the skills roster - every pinned id recorded, at
+    // or above its pin. Drops the deletion refusal and the widening refusal
+    // together.
+    name: "records: stop checking the pinned skill roster at all",
+    from: "    for skill_id, pinned in sorted(PINNED_SKILL_STATUS.items()):",
+    to: "    for skill_id, pinned in []:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // Narrower: the pinned ids must still all be PRESENT, but any status is
+    // accepted. This is `write-a-migration: BLOCKED -> AVAILABLE`, exactly.
+    name: "records: accept any status on a pinned skill, so a BLOCKED skill can be made AVAILABLE",
+    from: "        if SKILL_STATUS_RANK.get(status, -1) < SKILL_STATUS_RANK[pinned]:",
+    to: "        if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // I8's superset half: without it the pin is a floor the data can outgrow
+    // - a new skill, at any status, is simply unprotected.
+    name: "records: stop requiring every recorded skill to be pinned in the validator",
+    from: lines("        if skill_id in PINNED_SKILL_STATUS:", "            continue"),
+    to: lines("        if True:", "            continue"),
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // I6: an empty registry is not a registry with nothing forbidden; it is
+    // one that says nothing, which a caller reads as permission.
+    name: "records: stop refusing a skills registry that records no skill",
+    from: lines(
+      "    if not entries:",
+      '        errors.append("badf/skills.yaml: no skill is recorded")',
+    ),
+    to: lines("    if False:", '        errors.append("badf/skills.yaml: no skill is recorded")'),
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: stop refusing a role registry that records no role",
+    from: lines(
+      "    if not roles:",
+      '        errors.append("badf/agents.yaml: no role is recorded")',
+    ),
+    to: lines("    if False:", '        errors.append("badf/agents.yaml: no role is recorded")'),
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // I6, the three unknown-field refusals. These are the load-bearing half
+    // of the "refuses every line it cannot classify" doctrine both readers
+    // state at length: a field the reader silently drops is a field a human
+    // reading the file still sees.
+    name: "records: silently skip an unknown field on a skill instead of refusing it",
+    from: "            if field not in SKILL_FIELDS:",
+    to: "            if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: silently skip an unknown field on a role instead of refusing it",
+    from: "                if field not in ROLE_FIELDS:",
+    to: "                if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: silently skip an unknown field on a routing entry instead of refusing it",
+    from: "                if field not in ROUTING_FIELDS:",
+    to: "                if False:",
+  },
 ];
 
 // TEST-ONLY seam, read by tests/boundaries/mutation-check-guard.test.mjs.

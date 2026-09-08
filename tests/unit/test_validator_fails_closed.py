@@ -207,12 +207,15 @@ forbidden:
   - "Any transition into ACCEPTED made by the implementing agent"
 """
 
-#: A minimal but STRUCTURALLY REAL capability registry. Task 6: badf/skills.yaml
-#: used to be checked for a version: line and nothing else, so record-a-gate,
-#: grant-authority or deploy could be set to AVAILABLE with nothing objecting.
-#: This carries all three, pinned FORBIDDEN_TO_AGENTS, matching the complete
-#: FORBIDDEN_TO_AGENTS_SKILLS floor in scripts/validate_continuity.py - not
-#: just the two that review round one happened to name.
+#: A capability registry carrying the COMPLETE roster PINNED_SKILL_STATUS
+#: pins in scripts/validate_continuity.py, at the status each is pinned at.
+#:
+#: It carries every id, not a representative sample, because round four
+#: finding I8 made the check two-way: every pinned id must be recorded at or
+#: above its pin, AND every recorded id must be pinned. A fixture missing an
+#: id would fail the first half; one carrying an extra would fail the second -
+#: which is exactly the property under test, and the reason the roster and
+#: this fixture move together in one reviewed change.
 SKILLS_YAML = """version: "0.1.0"
 
 skills:
@@ -220,6 +223,41 @@ skills:
     what: "fixture"
     authority_required: none
     status: AVAILABLE
+
+  - id: run-validators
+    what: "fixture"
+    authority_required: none
+    status: AVAILABLE
+
+  - id: write-a-checkpoint
+    what: "fixture"
+    authority_required: none
+    status: AVAILABLE
+
+  - id: append-a-decision
+    what: "fixture"
+    authority_required: none
+    status: AVAILABLE
+
+  - id: register-a-module
+    what: "fixture"
+    authority_required: "architecture-authority, through a Work Package"
+    status: BLOCKED
+
+  - id: create-a-module-package
+    what: "fixture"
+    authority_required: "an expiring implementation grant"
+    status: BLOCKED
+
+  - id: write-a-migration
+    what: "fixture"
+    authority_required: "an expiring implementation grant, plus ADR-004 ACCEPTED"
+    status: BLOCKED
+
+  - id: implement-a-contract
+    what: "fixture"
+    authority_required: "an expiring implementation grant for that epic"
+    status: BLOCKED
 
   - id: record-a-gate
     what: "fixture"
@@ -241,12 +279,20 @@ skills:
 #: no field capable of recording who holds a seat, and may_be_an_agent could be
 #: flipped to true on all four human-only seats with nothing objecting. This
 #: carries all four, each false with held_by: null (pinned to the literal
-#: null, not merely present), plus one agent-eligible role and one routing
-#: entry, so every pin has something to bind to.
+#: null, not merely present), plus the agent-eligible roles the routing block
+#: names and every routing entry PINNED_ROUTING pins, so every pin has
+#: something to bind to. The "modules/**" owner is prose on purpose: it is the
+#: one routing value that names no fixed seat, and round four finding I7's
+#: role-shape check must leave it alone.
 AGENTS_YAML = """version: "0.1.0"
 
 roles:
   - id: platform-engineer
+    owns: ["fixture"]
+    may_be_an_agent: true
+    held_by: null
+
+  - id: peer-reviewer
     owns: ["fixture"]
     may_be_an_agent: true
     held_by: null
@@ -273,8 +319,20 @@ roles:
 
 routing:
   - path: "modules/**"
-    owner: platform-engineer
+    owner: "the owner_role of the module in modules/modules.yaml"
     verifier: peer-reviewer
+  - path: "badf/authority.yaml"
+    owner: business-authority
+    verifier: repository-administrator
+  - path: "badf/gates.yaml"
+    owner: architecture-authority
+    verifier: repository-administrator
+  - path: "badf/agents.yaml"
+    owner: architecture-authority
+    verifier: repository-administrator
+  - path: "badf/skills.yaml"
+    owner: architecture-authority
+    verifier: repository-administrator
 """
 
 
@@ -885,8 +943,8 @@ class SkillsAndAgentsRegistriesClosed(unittest.TestCase):
 
     def test_a_skill_status_outside_the_closed_set_is_reported(self):
         text = SKILLS_YAML.replace(
-            "    status: AVAILABLE\n\n  - id: record-a-gate",
-            "    status: PROBABLY_FINE\n\n  - id: record-a-gate",
+            "    status: AVAILABLE\n\n  - id: run-validators",
+            "    status: PROBABLY_FINE\n\n  - id: run-validators",
         )
         self.assertNotEqual(text, SKILLS_YAML, "the replace target did not match")
         self._refused("PROBABLY_FINE", skills=text)
@@ -1009,6 +1067,221 @@ class SkillsAndAgentsRegistriesClosed(unittest.TestCase):
         self.assertNotEqual(text, AGENTS_YAML, "the replace target did not match")
         result = self._run(agents=text)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    # ---- round four finding I8: the skills registry could still be widened
+
+    def test_making_a_blocked_skill_available_is_reported(self):
+        """The floor was three FORBIDDEN_TO_AGENTS ids and nothing else, so
+        `write-a-migration: BLOCKED -> AVAILABLE` passed - leaving the entry's
+        own `why:` text ("ADR-004 is DRAFT_REQUIRED and BT-G0 is unrecorded")
+        standing in flat contradiction of its own status.
+        """
+        text = SKILLS_YAML.replace(
+            "  - id: write-a-migration\n"
+            '    what: "fixture"\n'
+            '    authority_required: "an expiring implementation grant, plus '
+            'ADR-004 ACCEPTED"\n'
+            "    status: BLOCKED",
+            "  - id: write-a-migration\n"
+            '    what: "fixture"\n'
+            '    authority_required: "an expiring implementation grant, plus '
+            'ADR-004 ACCEPTED"\n'
+            "    status: AVAILABLE",
+        )
+        self.assertNotEqual(text, SKILLS_YAML, "the replace target did not match")
+        self._refused("write-a-migration", skills=text)
+
+    def test_appending_a_new_available_skill_is_reported(self):
+        """A capability registry an agent can grow by one entry is not a
+        governed one. Appending an AVAILABLE skill passed: the pin was a
+        floor over three named ids, and a new id was simply outside it.
+        """
+        text = SKILLS_YAML + (
+            "\n  - id: do-whatever-is-needed\n"
+            '    what: "fixture"\n'
+            "    authority_required: none\n"
+            "    status: AVAILABLE\n"
+        )
+        self._refused("do-whatever-is-needed", skills=text)
+
+    def test_a_forbidden_skill_the_validator_does_not_pin_is_reported(self):
+        """The superset half, and the reason this is not merely a floor.
+
+        A skill the FILE marks FORBIDDEN_TO_AGENTS but the validator pins
+        nowhere is unprotected: the next edit can widen it with nothing
+        objecting. Renaming an id is the cheapest way to produce exactly that
+        state, and it must be refused for the NEW id specifically, not only
+        because the old one went missing.
+        """
+        text = SKILLS_YAML.replace("  - id: deploy\n", "  - id: deploy-anywhere\n")
+        self.assertNotEqual(text, SKILLS_YAML, "the replace target did not match")
+        result = self._run(skills=text)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("deploy-anywhere", result.stderr)
+        self.assertIn("pinned nowhere", result.stderr)
+
+    def test_widening_a_forbidden_skill_to_blocked_is_reported(self):
+        """FORBIDDEN_TO_AGENTS -> BLOCKED is still a widening: BLOCKED says
+        "an agent may do this once the authority exists", and AGENTS.md
+        section 4 says an agent may never record a gate at all.
+        """
+        text = SKILLS_YAML.replace(
+            "  - id: record-a-gate\n"
+            '    what: "fixture"\n'
+            '    authority_required: "the human role the gate names"\n'
+            "    status: FORBIDDEN_TO_AGENTS",
+            "  - id: record-a-gate\n"
+            '    what: "fixture"\n'
+            '    authority_required: "the human role the gate names"\n'
+            "    status: BLOCKED",
+        )
+        self.assertNotEqual(text, SKILLS_YAML, "the replace target did not match")
+        self._refused("record-a-gate", skills=text)
+
+    # ---- round four finding I7: the routing block generates CODEOWNERS -----
+
+    def test_rerouting_a_governance_path_to_agent_occupiable_seats_is_reported(self):
+        """The finding verbatim, and the reason the pin exists.
+
+        badf/authority.yaml routed to platform-engineer / peer-reviewer - both
+        may_be_an_agent: true - passed BOTH `validate:records` and
+        `codeowners:check`, and generated a CODEOWNERS naming two seats an
+        agent may occupy as the reviewers of the file AGENTS.md section 4 says
+        an agent may read and may never widen.
+        """
+        text = AGENTS_YAML.replace(
+            '  - path: "badf/authority.yaml"\n'
+            "    owner: business-authority\n"
+            "    verifier: repository-administrator",
+            '  - path: "badf/authority.yaml"\n'
+            "    owner: platform-engineer\n"
+            "    verifier: peer-reviewer",
+        )
+        self.assertNotEqual(text, AGENTS_YAML, "the replace target did not match")
+        self._refused("badf/authority.yaml", agents=text)
+
+    def test_deleting_a_governance_routing_entry_is_reported(self):
+        """Deleting the entry is the other way to stop a path having a
+        required reviewer: CODEOWNERS then names nobody for it, and the
+        generated file is, correctly, current.
+        """
+        text = AGENTS_YAML.replace(
+            '  - path: "badf/authority.yaml"\n'
+            "    owner: business-authority\n"
+            "    verifier: repository-administrator\n",
+            "",
+        )
+        self.assertNotEqual(text, AGENTS_YAML, "the replace target did not match")
+        self._refused("badf/authority.yaml", agents=text)
+
+    def test_deleting_the_skills_registry_routing_entry_is_reported(self):
+        """badf/skills.yaml and badf/agents.yaml had no routing entry at all
+        before this round: the registry of what an agent may do, and the
+        registry of who may hold a seat, routed to nobody.
+        """
+        text = AGENTS_YAML.replace(
+            '  - path: "badf/skills.yaml"\n'
+            "    owner: architecture-authority\n"
+            "    verifier: repository-administrator\n",
+            "",
+        )
+        self.assertNotEqual(text, AGENTS_YAML, "the replace target did not match")
+        self._refused("badf/skills.yaml", agents=text)
+
+    def test_a_routing_verifier_naming_no_declared_role_is_reported(self):
+        """owner and verifier were checked for PRESENCE only, so a routing
+        entry could name a seat that does not exist. The generator emits a
+        CODEOWNERS line only for a value that IS a declared role, so such an
+        entry leaves the path unreviewed while reading as though it were
+        routed.
+        """
+        text = AGENTS_YAML.replace(
+            '  - path: "modules/**"\n'
+            '    owner: "the owner_role of the module in modules/modules.yaml"\n'
+            "    verifier: peer-reviewer",
+            '  - path: "modules/**"\n'
+            '    owner: "the owner_role of the module in modules/modules.yaml"\n'
+            "    verifier: peer-revewier",
+        )
+        self.assertNotEqual(text, AGENTS_YAML, "the replace target did not match")
+        self._refused("peer-revewier", agents=text)
+
+    def test_a_prose_owner_that_names_no_fixed_seat_is_accepted(self):
+        """The one routing value that genuinely names no seat - it varies per
+        module - must NOT be refused by the role-shape check above, or the
+        pins become the only thing standing and the check fails the real
+        repository.
+        """
+        result = self._run(agents=AGENTS_YAML)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    # ---- round four finding I6: six refusals witnessed by nothing ---------
+    #
+    # Each of the six below could be neutered - the loop emptied, the guard
+    # turned off - and `pnpm test:validator` stayed green at 64 tests. They are
+    # the load-bearing half of the "refuses every line it cannot classify"
+    # doctrine both readers of these registries state at length: a parser that
+    # silently SKIPS a line it does not recognise is how a forged grant walked
+    # past three registries that checked for a version: line and nothing else.
+
+    def test_a_routing_entry_with_no_verifier_is_reported(self):
+        """The routing presence loop. An entry with no verifier generates a
+        CODEOWNERS line naming one seat where the design names two, and the
+        path is half-reviewed with nothing saying so. Uses the UNPINNED
+        "modules/**" entry on purpose: a pinned governance path would be
+        refused by PINNED_ROUTING instead, and this test would then pass
+        without the loop it exists to witness.
+        """
+        text = AGENTS_YAML.replace(
+            '  - path: "modules/**"\n'
+            '    owner: "the owner_role of the module in modules/modules.yaml"\n'
+            "    verifier: peer-reviewer\n",
+            '  - path: "modules/**"\n'
+            '    owner: "the owner_role of the module in modules/modules.yaml"\n',
+        )
+        self.assertNotEqual(text, AGENTS_YAML, "the replace target did not match")
+        self._refused("records no verifier", agents=text)
+
+    def test_a_skills_registry_with_no_skill_is_reported(self):
+        """An empty registry is not a registry with nothing forbidden; it is a
+        registry that says nothing, which a caller reads as permission.
+        """
+        self._refused("no skill is recorded", skills='version: "0.1.0"\n\nskills:\n')
+
+    def test_an_agents_registry_with_no_role_is_reported(self):
+        """Same shape, the other file: no seats recorded at all."""
+        text = AGENTS_YAML[: AGENTS_YAML.index("  - id: platform-engineer")]
+        text += AGENTS_YAML[AGENTS_YAML.index("routing:") :]
+        self._refused("no role is recorded", agents=text)
+
+    def test_an_unknown_field_on_a_skill_is_reported(self):
+        """parse_skills refuses every line it cannot classify. Without this,
+        a field the reader does not model is silently dropped - which is how
+        `status:` itself could be renamed to something the reader ignores
+        while a human reading the file sees a status.
+        """
+        text = SKILLS_YAML.replace(
+            "  - id: read-records\n",
+            "  - id: read-records\n    granted: yes\n",
+        )
+        self.assertNotEqual(text, SKILLS_YAML, "the replace target did not match")
+        self._refused("unknown field 'granted'", skills=text)
+
+    def test_an_unknown_field_on_a_role_is_reported(self):
+        text = AGENTS_YAML.replace(
+            "  - id: platform-engineer\n",
+            "  - id: platform-engineer\n    occupied_by: someone\n",
+        )
+        self.assertNotEqual(text, AGENTS_YAML, "the replace target did not match")
+        self._refused("unknown field 'occupied_by'", agents=text)
+
+    def test_an_unknown_field_on_a_routing_entry_is_reported(self):
+        text = AGENTS_YAML.replace(
+            '  - path: "badf/gates.yaml"\n',
+            '  - path: "badf/gates.yaml"\n    approver: platform-engineer\n',
+        )
+        self.assertNotEqual(text, AGENTS_YAML, "the replace target did not match")
+        self._refused("unknown field 'approver'", agents=text)
 
     def test_a_non_boolean_may_be_an_agent_is_reported(self):
         text = AGENTS_YAML.replace(

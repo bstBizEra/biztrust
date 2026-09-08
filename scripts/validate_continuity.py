@@ -616,26 +616,54 @@ def validate_authority_registry(state, errors: list[str]) -> None:
 #: The closed set of statuses a skill entry in badf/skills.yaml may declare.
 SKILL_STATUSES = {"AVAILABLE", "BLOCKED", "FORBIDDEN_TO_AGENTS"}
 
-#: The FORBIDDEN_TO_AGENTS floor: every skill badf/skills.yaml records
-#: FORBIDDEN_TO_AGENTS as of the commit that added this check, enumerated
-#: exhaustively by reading the whole file rather than by naming the two
-#: skills that happened to look authority-shaped. Task 6 review flipped
-#: `deploy` - "repository-administrator and business-authority", the same
-#: severity as the two named below - to AVAILABLE and got exit 0, because
-#: the original two-item version of this set was populated by pattern, not
-#: by reading badf/skills.yaml end to end.
+#: How restrictive each status is. A skill may be recorded at or ABOVE its
+#: pinned status (a BLOCKED skill later recorded FORBIDDEN_TO_AGENTS is a
+#: tightening, and nothing here objects); it may never be recorded below it.
+SKILL_STATUS_RANK = {"AVAILABLE": 0, "BLOCKED": 1, "FORBIDDEN_TO_AGENTS": 2}
+
+#: The COMPLETE roster of badf/skills.yaml, id by id, with the status each is
+#: pinned at. Not a floor for the two or three authority-shaped entries: the
+#: whole file.
 #:
-#: Growing this set costs nothing: a skill badf/skills.yaml newly records
-#: FORBIDDEN_TO_AGENTS needs no change here, because nothing here forbids a
-#: skill from being MORE restricted than this floor. Shrinking it -
-#: removing an id, or letting one recorded here drop below
-#: FORBIDDEN_TO_AGENTS - is a reviewed change to this tuple, in the same
-#: pull request that changes badf/skills.yaml, under a Work Package that
-#: says why. That is the same cost DEC-007 gave widening a grant in
-#: badf/authority.yaml: a schema (here, this tuple) that must be edited
-#: under review, so the record can never be widened by a one-word data
-#: edit alone.
-FORBIDDEN_TO_AGENTS_SKILLS = ("record-a-gate", "grant-authority", "deploy")
+#: Round four finding I8. The previous version pinned three ids
+#: FORBIDDEN_TO_AGENTS and nothing else, so the registry could still be
+#: widened three ways, each verified passing:
+#:
+#:   - `write-a-migration: BLOCKED -> AVAILABLE` passed, leaving the entry's
+#:     own `why:` text ("ADR-004 is DRAFT_REQUIRED and BT-G0 is unrecorded")
+#:     standing in flat contradiction of its status;
+#:   - appending a NEW entry with `status: AVAILABLE` passed, which is how a
+#:     capability registry grows a capability nobody granted;
+#:   - a skill the file newly marked FORBIDDEN_TO_AGENTS was not protected at
+#:     all, because the pin was a list of three names and the data had
+#:     outgrown it.
+#:
+#: The last of those is why this is a two-way check rather than a floor (see
+#: validate_skills_registry): every pinned id must be recorded at or above
+#: its pin, AND every id the file records must be pinned here. The second
+#: half is what refuses a floor the data has outgrown, and it is the
+#: non-circular form of "derive the set from the file" - deriving it at
+#: validation time would let an agent editing badf/skills.yaml move the very
+#: set meant to constrain it.
+#:
+#: Changing a status therefore costs a reviewed edit to THIS mapping, in the
+#: same pull request as the data change, under a Work Package that says why -
+#: the cost DEC-007 already chose for widening a grant in
+#: badf/authority.yaml, and the cost validate_agents_registry already applies
+#: to who may occupy a seat.
+PINNED_SKILL_STATUS = {
+    "read-records": "AVAILABLE",
+    "run-validators": "AVAILABLE",
+    "write-a-checkpoint": "AVAILABLE",
+    "append-a-decision": "AVAILABLE",
+    "register-a-module": "BLOCKED",
+    "create-a-module-package": "BLOCKED",
+    "write-a-migration": "BLOCKED",
+    "implement-a-contract": "BLOCKED",
+    "record-a-gate": "FORBIDDEN_TO_AGENTS",
+    "grant-authority": "FORBIDDEN_TO_AGENTS",
+    "deploy": "FORBIDDEN_TO_AGENTS",
+}
 
 #: The fields a skill entry may carry. Unknown to this set is refused, not
 #: skipped, in the same doctrine parse_authority documents at length: a
@@ -762,15 +790,16 @@ def parse_skills(text: str) -> tuple[dict[str, dict[str, str]], list[str]]:
 
 
 def validate_skills_registry(errors: list[str]) -> None:
-    """The capability registry: statuses from a closed set, with the
-    FORBIDDEN_TO_AGENTS_SKILLS floor pinned FORBIDDEN_TO_AGENTS.
+    """The capability registry: statuses from a closed set, and the roster
+    pinned in PINNED_SKILL_STATUS in BOTH directions.
 
     badf/skills.yaml was validated for existence, non-emptiness and a
     version: line only (validate_registries above). Nothing stopped an agent
     setting record-a-gate, grant-authority or deploy to AVAILABLE: the
     registry lists what a skill claims to need, but the claim is prose an
     agent could edit to say anything at all, and nothing read the status
-    column.
+    column. Task 6 closed that for three ids; round four finding I8 found the
+    registry could still be widened around them - see PINNED_SKILL_STATUS.
     """
     try:
         text = (BADF / "skills.yaml").read_text(encoding="utf-8")
@@ -795,26 +824,48 @@ def validate_skills_registry(errors: list[str]) -> None:
                 f"not one of {sorted(SKILL_STATUSES)}"
             )
 
-    for skill_id in FORBIDDEN_TO_AGENTS_SKILLS:
+    # Direction one: every pinned id is recorded, at or above its pin. This
+    # refuses both a deletion (a skill that is not there is not forbidden) and
+    # a widening (BLOCKED -> AVAILABLE, FORBIDDEN_TO_AGENTS -> anything).
+    for skill_id, pinned in sorted(PINNED_SKILL_STATUS.items()):
         if skill_id not in entries:
             errors.append(
-                f"badf/skills.yaml: {skill_id!r} is missing, so its "
-                f"FORBIDDEN_TO_AGENTS floor entry cannot be checked. Deleting "
-                f"a skill is how a forbidden capability stops being "
+                f"badf/skills.yaml: {skill_id!r} is missing, so its pinned "
+                f"status {pinned} cannot be checked. Deleting a skill is how a "
+                f"blocked or forbidden capability stops being blocked or "
                 f"forbidden without anyone recording that"
             )
             continue
         status = entries[skill_id].get("status", "").strip().strip('"')
-        if status != "FORBIDDEN_TO_AGENTS":
+        if SKILL_STATUS_RANK.get(status, -1) < SKILL_STATUS_RANK[pinned]:
             errors.append(
-                f"badf/skills.yaml: {skill_id} has status {status!r}. It is "
-                f"on the FORBIDDEN_TO_AGENTS floor pinned in "
-                f"scripts/validate_continuity.py (FORBIDDEN_TO_AGENTS_SKILLS), "
-                f"and AGENTS.md section 4 makes this a human decision; it "
-                f"can leave that floor only through a reviewed change to "
-                f"this validator, under a Work Package that says why - "
-                f"never through a one-word edit to badf/skills.yaml alone"
+                f"badf/skills.yaml: {skill_id} has status {status!r}, which is "
+                f"less restrictive than the {pinned} it is pinned at in "
+                f"scripts/validate_continuity.py (PINNED_SKILL_STATUS). "
+                f"AGENTS.md section 4 makes this a human decision; a skill can "
+                f"be widened only through a reviewed change to this validator, "
+                f"under a Work Package that says why - never through a one-word "
+                f"edit to badf/skills.yaml alone"
             )
+
+    # Direction two: every id the file records is pinned here. Without this the
+    # pin is a floor the data can outgrow - a NEW skill, at any status, is
+    # simply unprotected, and one recorded AVAILABLE is a capability nobody
+    # reviewed. This is the non-circular form of "derive the set from the
+    # file": the file cannot move the set, it can only be refused by it.
+    for skill_id in sorted(entries):
+        if skill_id in PINNED_SKILL_STATUS:
+            continue
+        status = entries[skill_id].get("status", "").strip().strip('"')
+        errors.append(
+            f"badf/skills.yaml: {skill_id!r} (status {status!r}) is recorded in "
+            f"the registry but is pinned nowhere in "
+            f"scripts/validate_continuity.py (PINNED_SKILL_STATUS), so nothing "
+            f"holds its status where it is. A capability registry an agent can "
+            f"grow by one entry is a capability registry, not a governed one; "
+            f"add it to PINNED_SKILL_STATUS in the same pull request, under a "
+            f"Work Package that says why"
+        )
 
 
 #: The four seats badf/authority.yaml and AGENTS.md section 4 name as
@@ -830,6 +881,46 @@ AGENT_FORBIDDEN_ROLES = (
 ROLE_FIELDS = {"owns", "may_be_an_agent", "note", "held_by"}
 ROUTING_FIELDS = {"owner", "verifier", "note"}
 BOOLEAN_LITERALS = {"true", "false"}
+
+#: The governance records whose routing entry is PINNED: the path must be
+#: routed, and routed to exactly these two seats.
+#:
+#: Round four finding I7. The routing block is what
+#: scripts/generate-codeowners.mjs turns into .github/CODEOWNERS - who must
+#: review a change to what - and it was validated for PRESENCE only: owner and
+#: verifier had to be non-empty strings, and nothing else. Two edits were
+#: verified passing both `validate:records` AND `codeowners:check`:
+#:
+#:   - rerouting "badf/authority.yaml" from business-authority /
+#:     repository-administrator to platform-engineer / peer-reviewer, both of
+#:     which are may_be_an_agent: true. The file AGENTS.md section 4 says an
+#:     agent "may READ and may never widen" would then be reviewed by two
+#:     seats an agent may occupy;
+#:   - deleting the "badf/authority.yaml" and "badf/gates.yaml" routing
+#:     entries outright, after which CODEOWNERS names no reviewer for either
+#:     and the generated file is, correctly, current.
+#:
+#: badf/agents.yaml and badf/skills.yaml had no routing entry of their own at
+#: all - the registry of who may hold a seat, and the registry of what an
+#: agent may do, routed to nobody. Both are added here and to the data file.
+#:
+#: Every seat named below is may_be_an_agent: false. That is the point: these
+#: four files decide what agents may do, and an agent may not be the reviewer
+#: of a change to them.
+PINNED_ROUTING = {
+    "badf/authority.yaml": ("business-authority", "repository-administrator"),
+    "badf/gates.yaml": ("architecture-authority", "repository-administrator"),
+    "badf/agents.yaml": ("architecture-authority", "repository-administrator"),
+    "badf/skills.yaml": ("architecture-authority", "repository-administrator"),
+}
+
+#: A value that LOOKS like a role id: one bare token, no spaces. Anything
+#: matching this must name a role this file declares (see
+#: validate_agents_registry). Prose - "the owner_role of the module in
+#: modules/modules.yaml", the one routing entry whose owner genuinely varies
+#: per module - does not match, and is left to the pins above, which is where
+#: a governance path could otherwise hide behind prose.
+ROLE_SHAPED = re.compile(r"[A-Za-z0-9_.-]+")
 
 
 def parse_agents(
@@ -1080,6 +1171,7 @@ def validate_agents_registry(errors: list[str]) -> None:
                 f"record why"
             )
 
+    routed: dict[str, list[dict[str, str]]] = {}
     for index, route in enumerate(routing, start=1):
         for field in ("path", "owner", "verifier"):
             if field not in route or route[field].strip() == "":
@@ -1087,6 +1179,60 @@ def validate_agents_registry(errors: list[str]) -> None:
                     f"badf/agents.yaml: routing entry {index} records no "
                     f"{field}"
                 )
+        path = route.get("path", "").strip().strip('"')
+        routed.setdefault(path, []).append(route)
+
+        # A role-shaped owner or verifier must name a role this file
+        # declares. Presence was the only check, so a routing entry could
+        # name a seat that does not exist - which generates no CODEOWNERS
+        # line at all, silently leaving the path unreviewed, and reads to a
+        # human as though it were routed.
+        for field in ("owner", "verifier"):
+            value = route.get(field, "").strip().strip('"')
+            if value == "" or value in roles:
+                continue
+            if ROLE_SHAPED.fullmatch(value) is None:
+                continue
+            errors.append(
+                f"badf/agents.yaml: routing entry {index} ({path!r}) records "
+                f"{field} {value!r}, which names no role declared in this "
+                f"file's roles: block. scripts/generate-codeowners.mjs emits a "
+                f"CODEOWNERS line only for a value that IS a declared role, so "
+                f"a seat that does not exist leaves the path unreviewed while "
+                f"reading as though it were routed"
+            )
+
+    for path, (owner, verifier) in sorted(PINNED_ROUTING.items()):
+        entries = routed.get(path, [])
+        if not entries:
+            errors.append(
+                f"badf/agents.yaml: no routing entry records {path!r}, which "
+                f"is pinned in scripts/validate_continuity.py "
+                f"(PINNED_ROUTING) to {owner} / {verifier}. Deleting the "
+                f"routing entry for a governance record is how it stops "
+                f"having a required reviewer without anyone recording that"
+            )
+            continue
+        if len(entries) > 1:
+            errors.append(
+                f"badf/agents.yaml: {path!r} has {len(entries)} routing "
+                f"entries; a pinned governance path is routed exactly once, "
+                f"or which of them binds is a question about parse order"
+            )
+        for field, expected in (("owner", owner), ("verifier", verifier)):
+            actual = entries[0].get(field, "").strip().strip('"')
+            if actual == expected:
+                continue
+            errors.append(
+                f"badf/agents.yaml: {path!r} routes {field} to {actual!r}, "
+                f"not the {expected!r} it is pinned to in "
+                f"scripts/validate_continuity.py (PINNED_ROUTING). This path "
+                f"decides what agents may do, so its reviewer is a human-only "
+                f"seat; rerouting it to a seat an agent may occupy is the "
+                f"forgery this repository exists to refuse, and it can change "
+                f"only through a reviewed edit to that mapping, under a Work "
+                f"Package that says why"
+            )
 
 
 #: The delivery gates, and the states no agent may move a Work Package into

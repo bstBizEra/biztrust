@@ -97,6 +97,18 @@ routing:
   - path: "badf/gates.yaml"
     owner: architecture-authority
     verifier: repository-administrator
+  - path: "badf/agents.yaml"
+    owner: architecture-authority
+    verifier: repository-administrator
+    note: >-
+      This file decides which seats exist, which may be held by an agent, and
+      who reviews what. An agent may never be the verifier of a change to it.
+  - path: "badf/skills.yaml"
+    owner: architecture-authority
+    verifier: repository-administrator
+    note: >-
+      The capability registry. A change here changes what an agent may do, so
+      it is reviewed by the two seats no agent may occupy.
   - path: ".github/workflows/**"
     owner: repository-administrator
     verifier: peer-reviewer

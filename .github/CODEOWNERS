@@ -24,7 +24,7 @@
 #
 # Registry:         badf/agents.yaml
 # Registry version: "0.1.0"
-# Routing entries:  8
+# Routing entries:  10
 
 # modules/**: owner is "the owner_role of the module in modules/modules.yaml", not a fixed seat
 modules/** @bstBizEra/peer-reviewer
@@ -33,5 +33,7 @@ db/migrations/** @bstBizEra/platform-engineer @bstBizEra/data-reviewer
 scripts/** @bstBizEra/platform-engineer @bstBizEra/peer-reviewer
 badf/authority.yaml @bstBizEra/business-authority @bstBizEra/repository-administrator
 badf/gates.yaml @bstBizEra/architecture-authority @bstBizEra/repository-administrator
+badf/agents.yaml @bstBizEra/architecture-authority @bstBizEra/repository-administrator
+badf/skills.yaml @bstBizEra/architecture-authority @bstBizEra/repository-administrator
 .github/workflows/** @bstBizEra/repository-administrator @bstBizEra/peer-reviewer
 AGENTS.md @bstBizEra/repository-administrator @bstBizEra/architecture-authority
