@@ -43,16 +43,26 @@ import { ROOT, loadRegistry, RegistryError } from "./registry.mjs";
 /**
  * The domain words P0 must not create a table for, as STEMS.
  *
- * Matched against each underscore-separated part of an object name, so
- * `policy`, `policies`, `policy_version` and `client_account` all hit. Peer
- * review F1 found `policies` slipping past a `policy(s)?` matcher, which is
- * the whole rule defeated by an English plural.
+ * Matched as a PREFIX of each underscore-separated part of an object name, so
+ * `policy`, `policies`, `policy_version`, `client_account`, `policyholder` and
+ * `claimant` all hit.
+ *
+ * Two rounds of review shaped this. F1 found `policies` walking past a
+ * `policy(s)?` matcher: the whole rule defeated by an English plural. A later
+ * round found `policyholder` walking past the anchored stem, and asked for a
+ * deliberate decision rather than an accident. The decision is prefix matching,
+ * chosen knowing it also catches `clientele` and `claimant`.
+ *
+ * That breadth is correct here. P0 builds NO domain table at all, so a false
+ * positive costs one conversation and a rename, while a false negative means
+ * the phase boundary was crossed and nothing said so. The rule is scoped to P0
+ * and is expected to be retired, not loosened, when the phase ends.
  */
 const P0_FORBIDDEN_TABLE_STEMS = [
-  { label: "policy", pattern: /^polic(y|ies)$/i },
-  { label: "client", pattern: /^clients?$/i },
-  { label: "claim", pattern: /^claims?$/i },
-  { label: "premium", pattern: /^premiums?$/i },
+  { label: "policy", pattern: /^polic(y|ies)/i },
+  { label: "client", pattern: /^client/i },
+  { label: "claim", pattern: /^claim/i },
+  { label: "premium", pattern: /^premium/i },
 ];
 
 /** Statements the audit schema refuses outright. */
@@ -89,44 +99,94 @@ function statements(sql) {
     .filter((s) => s !== "");
 }
 
-const TABLE_VERBS = [
-  { name: "CREATE TABLE", re: new RegExp(String.raw`\bCREATE\s+(?:UNLOGGED\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(${ID})(?:\.(${ID}))?`, "gi") },
-  { name: "ALTER TABLE", re: new RegExp(String.raw`\bALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?(${ID})(?:\.(${ID}))?`, "gi") },
-  { name: "DROP TABLE", re: new RegExp(String.raw`\bDROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?(${ID})(?:\.(${ID}))?`, "gi") },
-  { name: "CREATE INDEX", re: new RegExp(String.raw`\bCREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?\w*\s*ON\s+(${ID})(?:\.(${ID}))?`, "gi") },
-  { name: "DML", re: new RegExp(String.raw`\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|TRUNCATE(?:\s+TABLE)?)\s+(?:ONLY\s+)?(${ID})(?:\.(${ID}))?`, "gi") },
-];
+/** Noise words between a DDL verb and the object type. */
+const MODIFIERS = String.raw`(?:(?:OR\s+REPLACE|GLOBAL|LOCAL|TEMP|TEMPORARY|UNLOGGED|MATERIALIZED|UNIQUE|RECURSIVE|CONSTRAINT)\s+)*`;
 
-const CREATE_SCHEMA = new RegExp(
-  String.raw`\bCREATE\s+SCHEMA\s+(?:IF\s+NOT\s+EXISTS\s+)?(${ID})`,
-  "gi",
-);
+/** Object types whose name follows the type directly, optionally schema-qualified. */
+const NAMED_TYPES = String.raw`(?:TABLE|VIEW|SEQUENCE|TYPE|DOMAIN|FUNCTION|PROCEDURE|ROUTINE|AGGREGATE|OPERATOR|COLLATION|CONVERSION|STATISTICS|FOREIGN\s+TABLE)`;
+
+/** Object types whose SCHEMA comes from a trailing ON clause, not their own name. */
+const ON_CLAUSE_TYPES = String.raw`(?:INDEX|TRIGGER|POLICY|RULE)`;
 
 /**
- * Every object a statement touches.
+ * Every object a statement touches, and whether the lint understood it at all.
+ *
+ * Returns `{ targets, understood }`. `understood` is false when a statement
+ * begins with a DDL verb and NOTHING here resolved a target from it.
  *
  * `schema: null` means the name was UNQUALIFIED. That is a violation in its own
- * right, not a thing to skip: without a qualifier the object lands in whatever
- * `search_path` happens to be, which is exactly how a migration escapes its own
- * schema. The previous version had a comment saying an unqualified name is a
- * failure and no code that implemented it (peer review F1).
+ * right: without a qualifier the object lands in whatever `search_path` happens
+ * to be, which is how a migration escapes its own schema.
+ *
+ * DENY BY DEFAULT. Peer review NEW-2: the earlier version modelled TABLE and
+ * SCHEMA and silently passed everything else, so `DROP SCHEMA audit CASCADE`,
+ * `ALTER TABLE ... SET SCHEMA audit`, and CREATE VIEW / POLICY / TRIGGER /
+ * SEQUENCE / TYPE / FUNCTION / MATERIALIZED VIEW against another module's
+ * schema all linted clean. An unmodelled statement is now a failure rather than
+ * a gap, which is what the docstring always should have meant by conservative.
  */
 function objectTargets(statement) {
   const targets = [];
-  for (const { name, re } of TABLE_VERBS) {
-    for (const match of statement.matchAll(re)) {
-      const [text, first, second] = match;
-      targets.push(
-        second === undefined
-          ? { schema: null, object: first, text, verb: name }
-          : { schema: first, object: second, text, verb: name },
-      );
-    }
-  }
-  for (const match of statement.matchAll(CREATE_SCHEMA)) {
-    targets.push({ schema: match[1], object: null, text: match[0], verb: "CREATE SCHEMA" });
-  }
-  return targets;
+  const push = (schema, object, text, verb) =>
+    targets.push({ schema: schema ?? null, object: object ?? null, text, verb });
+
+  const scan = (re, handler) => {
+    for (const match of statement.matchAll(re)) handler(match);
+  };
+
+  // CREATE SCHEMA x / DROP SCHEMA x. DROP was entirely unmodelled before.
+  scan(
+    new RegExp(String.raw`\b(CREATE|DROP)\s+SCHEMA\s+(?:IF\s+(?:NOT\s+)?EXISTS\s+)?(${ID})`, "gi"),
+    (m) => push(m[2], null, m[0], `${m[1].toUpperCase()} SCHEMA`),
+  );
+
+  // ALTER <anything> SET SCHEMA <destination>. The DESTINATION is what matters:
+  // it moves an object into another module's schema.
+  scan(
+    new RegExp(String.raw`\bSET\s+SCHEMA\s+(${ID})`, "gi"),
+    (m) => push(m[1], null, m[0], "SET SCHEMA"),
+  );
+
+  // CREATE|ALTER|DROP <TYPE> [schema.]name
+  scan(
+    new RegExp(
+      String.raw`\b(CREATE|ALTER|DROP)\s+${MODIFIERS}(${NAMED_TYPES})\s+(?:IF\s+(?:NOT\s+)?EXISTS\s+)?(${ID})(?:\.(${ID}))?`,
+      "gi",
+    ),
+    (m) => {
+      const verb = `${m[1].toUpperCase()} ${m[2].toUpperCase().replace(/\s+/g, " ")}`;
+      if (m[4] === undefined) push(null, m[3], m[0], verb);
+      else push(m[3], m[4], m[0], verb);
+    },
+  );
+
+  // CREATE|ALTER|DROP INDEX|TRIGGER|POLICY|RULE <name> ON [schema.]table
+  scan(
+    new RegExp(
+      String.raw`\b(CREATE|ALTER|DROP)\s+${MODIFIERS}(${ON_CLAUSE_TYPES})\s+(?:CONCURRENTLY\s+)?(?:IF\s+(?:NOT\s+)?EXISTS\s+)?${ID}?\s*ON\s+(?:ONLY\s+)?(${ID})(?:\.(${ID}))?`,
+      "gi",
+    ),
+    (m) => {
+      const verb = `${m[1].toUpperCase()} ${m[2].toUpperCase()}`;
+      if (m[4] === undefined) push(null, m[3], m[0], verb);
+      else push(m[3], m[4], m[0], verb);
+    },
+  );
+
+  // Data manipulation.
+  scan(
+    new RegExp(
+      String.raw`\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|TRUNCATE(?:\s+TABLE)?)\s+(?:ONLY\s+)?(${ID})(?:\.(${ID}))?`,
+      "gi",
+    ),
+    (m) => {
+      if (m[2] === undefined) push(null, m[1], m[0], "DML");
+      else push(m[1], m[2], m[0], "DML");
+    },
+  );
+
+  const isDDL = /^\s*(?:CREATE|ALTER|DROP)\b/i.test(statement);
+  return { targets, understood: !isDDL || targets.length > 0 };
 }
 
 function foreignKeyTargets(statement) {
@@ -143,14 +203,49 @@ function foreignKeyTargets(statement) {
   return out;
 }
 
+/**
+ * The statements a `-- not-tenant-owned:` comment exempts from M5.
+ *
+ * The marker exempts the ONE statement that follows it and no other. A
+ * file-wide marker let a legitimately platform-owned table at the top of a file
+ * carry every later table past M5, including one holding customer columns and
+ * no tenant_id.
+ */
+function exemptFromM5(sql) {
+  const exempt = new Set();
+  const lines = sql.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i += 1) {
+    if (!/^\s*--\s*not-tenant-owned:/.test(lines[i])) continue;
+    // The marker exempts whatever statement comes next, up to the first
+    // semicolon after it, and nothing beyond that.
+    const [first] = statements(lines.slice(i + 1).join(String.fromCharCode(10)));
+    if (first !== undefined) exempt.add(first);
+  }
+  return exempt;
+}
+
 function lintFile(path, moduleName, schema, errors) {
   const rel = relative(ROOT, path).replace(/\\/g, "/");
   const sql = readFileSync(path, "utf8");
   const report = (rule, detail) => errors.push(`${rel}: ${rule}: ${detail}`);
+  const exemptStatements = exemptFromM5(sql);
 
   for (const statement of statements(sql)) {
     // M1: every target is qualified, and names this module's schema.
-    for (const target of objectTargets(statement)) {
+    const { targets, understood } = objectTargets(statement);
+
+    // M1, deny by default. A DDL statement this lint cannot resolve to a target
+    // is refused rather than passed. Eight ordinary statement types used to
+    // sail through on silence, DROP SCHEMA among them.
+    if (!understood) {
+      report(
+        "M1",
+        `this lint cannot resolve what schema the statement touches, so it is ` +
+          `refused rather than passed: ${statement.slice(0, 120)}`,
+      );
+    }
+
+    for (const target of targets) {
       if (target.schema === null) {
         report(
           "M1",
@@ -209,9 +304,12 @@ function lintFile(path, moduleName, schema, errors) {
 
     // M4: no P0 table named for a domain word. Matched per underscore-separated
     // part against a STEM, so an English plural does not walk past the rule.
-    for (const target of objectTargets(statement)) {
+    for (const target of targets) {
       if (target.object === null) continue;
-      if (!/\bCREATE\s+TABLE\b/i.test(statement)) continue;
+      // Keyed on the RESOLVED verb, not on re-testing the statement text. A
+      // re-test for /CREATE\s+TABLE/ missed `CREATE TEMP TABLE policy`, because
+      // the modifier sits between the two words.
+      if (target.verb !== "CREATE TABLE") continue;
       for (const part of target.object.split("_")) {
         for (const { label, pattern } of P0_FORBIDDEN_TABLE_STEMS) {
           if (pattern.test(part)) {
@@ -226,19 +324,22 @@ function lintFile(path, moduleName, schema, errors) {
       }
     }
 
-    // M5: a created table carries tenant_id, unless it is registry metadata.
-    const created = new RegExp(
-      String.raw`\bCREATE\s+(?:UNLOGGED\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:${ID}\.)?(${ID})`,
-      "i",
-    ).exec(statement);
+    // M5: a created table carries tenant_id, unless the statement that follows
+    // the marker declares itself platform-owned.
+    const created = targets.find((t) => t.verb === "CREATE TABLE");
     if (created && !/\btenant_id\b/i.test(statement)) {
-      report(
-        "M5",
-        `table "${created[1]}" has no tenant_id column; every tenant-owned table ` +
-          `carries the baseline of DOMAIN_MODEL.md section 6, tenant_id first. ` +
-          `A platform-owned table that is genuinely not tenant-owned records that ` +
-          `with a "-- not-tenant-owned:" comment line, which this lint reads.`,
-      );
+      if (exemptStatements.has(statement)) {
+        // Declared platform-owned. Nothing to report.
+      } else {
+        report(
+          "M5",
+          `table "${created.object}" has no tenant_id column; every tenant-owned ` +
+            `table carries the baseline of DOMAIN_MODEL.md section 6, tenant_id ` +
+            `first. A platform-owned table that is genuinely not tenant-owned puts ` +
+            `a "-- not-tenant-owned:" comment immediately before its own CREATE ` +
+            `TABLE, which exempts that statement and no other.`,
+        );
+      }
     }
   }
 }
@@ -301,16 +402,11 @@ function main() {
     // this lint never read would still be applied to the database.
     for (const path of sqlFilesUnder(dir)) {
       files += 1;
-      // A file may declare that its table is platform-owned, not tenant-owned.
-      const sql = readFileSync(path, "utf8");
-      const exemptM5 = /^\s*--\s*not-tenant-owned:/m.test(sql);
-      const before = errors.length;
+      // The M5 exemption is per statement, resolved inside lintFile. It used
+      // to be file-wide: one legitimately platform-owned table at the top
+      // exempted every table below it in the same file, so a table with no
+      // tenant_id could ride in behind it (peer review, minor finding).
       lintFile(path, entry, schema, errors);
-      if (exemptM5) {
-        for (let i = errors.length - 1; i >= before; i -= 1) {
-          if (errors[i].includes(": M5: ")) errors.splice(i, 1);
-        }
-      }
     }
   }
 

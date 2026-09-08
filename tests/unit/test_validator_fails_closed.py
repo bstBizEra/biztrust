@@ -141,6 +141,35 @@ CHECKPOINT = {
 REGISTRY_STUB = 'version: "0.1.0"\nfixture: true\n'
 REGISTRIES = ("lifecycle.yaml", "authority.yaml", "gates.yaml", "agents.yaml", "skills.yaml")
 
+#: A minimal but STRUCTURALLY REAL authority registry.
+#:
+#: The other four registries can be stubs. This one cannot: it is the source of
+#: record for what is granted, and it is cross-checked against the state file,
+#: so it has to carry the same keys the state file asserts. Hardening only the
+#: state file left this one checked for nothing but a version line, and a
+#: review appended a forged section to it and got a pass.
+AUTHORITY_YAML = """version: "0.1.0"
+updated_at: "2026-01-01T00:00:00Z"
+
+not_granted:
+  architecture_contract_freeze:
+    status: NOT_GRANTED
+  p0_implementation:
+    status: NOT_GRANTED
+  adr_acceptance:
+    status: NOT_GRANTED
+  production_deployment:
+    status: NOT_GRANTED
+  main_branch_protection:
+    status: NOT_RECORDED
+  wp_001_acceptance:
+    status: NOT_GRANTED
+
+granted:
+  repository_scaffold:
+    status: GRANTED
+"""
+
 
 def build(tmp: Path, *, state=None, actions=None, decision_lines=None, checkpoint=None,
           registries=REGISTRIES, extra_files=None) -> Path:
@@ -160,7 +189,8 @@ def build(tmp: Path, *, state=None, actions=None, decision_lines=None, checkpoin
     lines = [json.dumps(DECISION)] if decision_lines is None else decision_lines
     (badf / "decision-log.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
     for name in registries:
-        (badf / name).write_text(REGISTRY_STUB, encoding="utf-8")
+        content = AUTHORITY_YAML if name == "authority.yaml" else REGISTRY_STUB
+        (badf / name).write_text(content, encoding="utf-8")
 
     checkpoints = tmp / "sessions" / "checkpoints"
     checkpoints.mkdir(parents=True, exist_ok=True)
@@ -373,6 +403,66 @@ class ValidatorFailsClosed(unittest.TestCase):
         state = copy.deepcopy(STATE)
         state["latest_checkpoint"] = "README.md"
         self._broken(state=state)
+
+    # ---- the authority REGISTRY, not just its mirror -----------------------
+    #
+    # The state file was hardened first, which left the source of record
+    # checked for nothing but a version line. A review appended a forged
+    # section to badf/authority.yaml and the validator passed.
+
+    def _with_authority(self, extra: str, mutate_state=None):
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = build(Path(directory), state=mutate_state)
+            authority = tmp / "badf" / "authority.yaml"
+            authority.write_text(AUTHORITY_YAML + extra, encoding="utf-8")
+            result = run(tmp)
+        return result
+
+    def test_the_authority_fixture_passes(self):
+        result = self._with_authority("")
+        self.assertEqual(
+            result.returncode, 0,
+            f"the authority baseline must pass:\n{result.stdout}{result.stderr}",
+        )
+
+    def test_a_forged_section_in_the_authority_registry_is_reported(self):
+        result = self._with_authority(
+            "\ngranted_extra:\n"
+            "  p0_implementation: GRANTED_BY_NOBODY\n"
+            "  production_deployment: GRANTED\n"
+        )
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("granted_extra", result.stderr)
+
+    def test_a_key_under_both_granted_and_not_granted_is_reported(self):
+        result = self._with_authority(
+            "\ngranted:\n  p0_implementation:\n    status: GRANTED\n"
+        )
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("p0_implementation", result.stderr)
+
+    def test_a_withheld_grant_that_does_not_read_as_withheld_is_reported(self):
+        text = AUTHORITY_YAML.replace(
+            "  p0_implementation:\n    status: NOT_GRANTED",
+            "  p0_implementation:\n    status: GRANTED",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = build(Path(directory))
+            (tmp / "badf" / "authority.yaml").write_text(text, encoding="utf-8")
+            result = run(tmp)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("not_granted", result.stderr)
+
+    def test_a_state_authority_key_the_registry_does_not_record_is_reported(self):
+        text = AUTHORITY_YAML.replace(
+            "  production_deployment:\n    status: NOT_GRANTED\n", ""
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = build(Path(directory))
+            (tmp / "badf" / "authority.yaml").write_text(text, encoding="utf-8")
+            result = run(tmp)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("production_deployment", result.stderr)
 
     def test_a_credential_in_the_tree_is_reported(self):
         result = self._broken(

@@ -1,0 +1,10 @@
+DROP SCHEMA audit CASCADE;
+ALTER TABLE tenancy.thing SET SCHEMA audit;
+CREATE VIEW audit.leaked AS SELECT 1;
+CREATE POLICY evil ON audit.decision USING (true);
+CREATE TRIGGER evil AFTER INSERT ON audit.decision EXECUTE FUNCTION f();
+CREATE SEQUENCE audit.evil_seq;
+CREATE TYPE audit.evil_type AS ENUM ('a');
+CREATE FUNCTION audit.evil_fn() RETURNS void AS 'x' LANGUAGE sql;
+CREATE MATERIALIZED VIEW audit.evil_mv AS SELECT 1;
+CREATE TEMP TABLE policy (id uuid);

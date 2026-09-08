@@ -285,6 +285,49 @@ def cross_record_rules(state, actions, decisions, errors: list[str]) -> None:
         errors.append("badf/decision-log.jsonl: decision ids are not ascending")
 
 
+#: The only top-level keys badf/authority.yaml may carry. Anything else is a
+#: section nothing validates, and a section nothing validates is where a forged
+#: grant lives. A peer review appended `granted_extra:` with two forged grants
+#: and the validator passed.
+AUTHORITY_SECTIONS = {"version", "updated_at", "not_granted", "granted", "tool_authority"}
+
+
+def parse_authority(text: str) -> tuple[dict[str, dict[str, str]], list[str]]:
+    """Reads badf/authority.yaml into {section: {key: status}}.
+
+    Deliberately small and strict, like the module registry reader. It
+    understands exactly the shape this file has: two-space keys under a
+    section, and a four-space ``status:`` under each of those.
+    """
+    sections: dict[str, dict[str, str]] = {}
+    problems: list[str] = []
+    section = None
+    key = None
+    for number, line in enumerate(text.splitlines(), start=1):
+        if line.strip() == "" or line.lstrip().startswith("#"):
+            continue
+        top = re.match(r"^([a-z0-9_]+):\s*(.*)$", line)
+        if top:
+            section, rest = top.group(1), top.group(2).strip()
+            if section not in AUTHORITY_SECTIONS:
+                problems.append(
+                    f"badf/authority.yaml line {number}: unknown top-level section "
+                    f"{section!r}; a section nothing validates is where a forged grant lives"
+                )
+            sections.setdefault(section, {})
+            key = None
+            continue
+        entry = re.match(r"^  ([a-z0-9_]+):\s*$", line)
+        if entry and section is not None:
+            key = entry.group(1)
+            sections.setdefault(section, {}).setdefault(key, "")
+            continue
+        status = re.match(r"^    status:\s*(\S+)\s*$", line)
+        if status and section is not None and key is not None:
+            sections[section][key] = status.group(1)
+    return sections, problems
+
+
 def validate_registries(errors: list[str]) -> None:
     """The five registries must exist, be non-empty and declare a version."""
     for name in REGISTRIES:
@@ -299,6 +342,74 @@ def validate_registries(errors: list[str]) -> None:
             continue
         if not re.search(r"^version:\s*\S+", text, re.MULTILINE):
             errors.append(f"badf/{name}: declares no version")
+
+
+def validate_authority_registry(state, errors: list[str]) -> None:
+    """The authority REGISTRY, and its agreement with the state file.
+
+    ``badf/authority.yaml`` is the source of record: the P0.2 design calls it
+    the place a Work Package's implementation grant, with its expiry, is
+    recorded before any code lands. Hardening only its mirror in
+    ``current-state.json`` left the source itself checked for nothing but a
+    ``version:`` line, so the two could disagree silently -- the JSON pinned to
+    NOT_GRANTED while the YAML claimed GRANTED.
+    """
+    try:
+        text = (BADF / "authority.yaml").read_text(encoding="utf-8")
+    except OSError as exc:
+        errors.append(f"badf/authority.yaml: cannot read: {exc}")
+        return
+
+    sections, problems = parse_authority(text)
+    errors.extend(problems)
+
+    not_granted = sections.get("not_granted", {})
+    granted = sections.get("granted", {})
+
+    if not not_granted:
+        errors.append("badf/authority.yaml: has no not_granted section")
+
+    overlap = set(not_granted) & set(granted)
+    for key in sorted(overlap):
+        errors.append(
+            f"badf/authority.yaml: {key!r} appears under both granted and "
+            f"not_granted; one of them is a lie"
+        )
+
+    for key, status in sorted(not_granted.items()):
+        if status and not status.startswith(("NOT_", "UNRECORDED")):
+            errors.append(
+                f"badf/authority.yaml: not_granted.{key} has status {status!r}, "
+                f"which does not read as withheld"
+            )
+
+    if not isinstance(state, dict):
+        return
+    authority = state.get("authority")
+    if not isinstance(authority, dict):
+        return
+
+    for key, value in sorted(authority.items()):
+        in_not_granted = key in not_granted
+        in_granted = key in granted
+        if not in_not_granted and not in_granted:
+            errors.append(
+                f"badf/current-state.json: authority.{key} has no entry in "
+                f"badf/authority.yaml, so the state file asserts something the "
+                f"registry does not record"
+            )
+            continue
+        withheld = isinstance(value, str) and value.startswith(("NOT_", "REVISION_REQUIRED"))
+        if in_not_granted and not withheld:
+            errors.append(
+                f"authority.{key}: badf/authority.yaml records it under not_granted "
+                f"but badf/current-state.json says {value!r}"
+            )
+        if in_granted and withheld:
+            errors.append(
+                f"authority.{key}: badf/authority.yaml records it under granted "
+                f"but badf/current-state.json says {value!r}"
+            )
 
 
 def validate_no_secrets(errors: list[str]) -> None:
@@ -347,6 +458,7 @@ def main() -> int:
     errors: list[str] = []
     validate_records(errors)
     validate_registries(errors)
+    validate_authority_registry(load_json("badf/current-state.json", []), errors)
     validate_no_secrets(errors)
 
     if errors:

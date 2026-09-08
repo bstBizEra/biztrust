@@ -54,6 +54,19 @@ not_granted:
       and no configuration. Validation success does not grant deployment
       authority (AGENTS.md section 8).
 
+  wp_001_acceptance:
+    what: "Acceptance of BIZTRUST-WP-001, the repository skeleton"
+    status: NOT_GRANTED
+    held_by: "peer reviewer, who is not the implementer"
+    why: >-
+      An independent review returned REVISION_REQUIRED twice: four blockers on
+      the first pass, three more on the second. All seven are addressed, but the
+      reviewer decides whether they close, not the implementer. AGENTS.md
+      section 5: work is never marked accepted on the assertion of the
+      implementing agent alone. This entry exists because the state file
+      asserted an acceptance status that this registry did not record, which a
+      cross-check found.
+
   main_branch_protection:
     what: "Protection of main with the required checks and force-push blocking"
     status: NOT_RECORDED
