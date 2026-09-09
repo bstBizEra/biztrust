@@ -26,7 +26,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -39,21 +39,27 @@ const SCRIPT = join(ROOT, "scripts", "check-signing.mjs");
 
 const POLICY = readFileSync(join(ROOT, "badf", "signing-policy.yaml"), "utf8");
 
+/**
+ * spawnSync, not execFileSync, and the reason is the behaviour under test.
+ *
+ * `execFileSync` hands back only stdout when the command SUCCEEDS - and the
+ * NOT_ENFORCED status is written to stderr on an exit-0 run, which is exactly
+ * the combination this file exists to assert. Written the other way, this
+ * control read an empty string, could not see the status at all, and would
+ * have gone green for a check that printed nothing: the defect class in the
+ * test for the defect class.
+ */
 function run() {
-  try {
-    const stdout = execFileSync(process.execPath, [SCRIPT], {
-      cwd: ROOT,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    return { code: 0, out: stdout, err: "" };
-  } catch (error) {
-    return {
-      code: error.status ?? -1,
-      out: String(error.stdout ?? ""),
-      err: String(error.stderr ?? ""),
-    };
-  }
+  const result = spawnSync(process.execPath, [SCRIPT], {
+    cwd: ROOT,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  return {
+    code: result.status ?? -1,
+    out: String(result.stdout ?? ""),
+    err: String(result.stderr ?? ""),
+  };
 }
 
 function refused(text, needle) {
