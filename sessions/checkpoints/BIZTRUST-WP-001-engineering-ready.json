@@ -2,8 +2,8 @@
   "schema_version": "1.0.0",
   "work_package": "BIZTRUST-WP-001",
   "state": "ENGINEERING_READY",
-  "created_at": "2026-09-08T19:00:00Z",
-  "objective": "Create the platform repository skeleton described by the P0.2 design of the guide repository: one workspace, the layout every later package lands in, the module registry, the seven dependency rules generated from it, the migration lint, a boundary suite that proves both fire, the charter, the continuity records and their schemas, and the CI skeleton. Revised four times after independent peer review. Round four closed the findings round three had recorded as open, and was itself reviewed as a whole.",
+  "created_at": "2026-09-09T23:10:00Z",
+  "objective": "Create the platform repository skeleton described by the P0.2 design of the guide repository. Revised five times after independent peer review. Round five closed the two things the previous four could not: mutation coverage was not measurable, and no record was bound to a human identity.",
   "completed_scope": [
     "One pnpm workspace with the top-level layout the P0.2 design draws, 30 modules registered, 4 with packages whose every exported function throws",
     "The seven dependency rules generated from modules/modules.yaml, stamped with the registry SHA-256 and compared by --check; both arms of rules 5 and 5b now witnessed, including the apps/ side that a review loosened with the suite staying green",
@@ -17,99 +17,105 @@
     "scripts/generate-codeowners.mjs generating .github/CODEOWNERS from the routing block, with a --check mode in pnpm verify and CI",
     "No test suite writes a tracked file. The boundary suite works on a copy; the mutation check runs against a disposable git worktree, aborts on a dirty tree and fails the run if it dirties one; orphaned worktrees are reclaimed by owner-pid. A recorded PASS is reproducible by construction (DEC-024)",
     "98 mutations, 74 violating migration fixtures, 127 boundary tests, 79 validator tests",
-    "evidence/security-proof/negative-control-6.md: branch protection applied and the control observed, both halves"
+    "scripts/mutation-attribution.mjs and the attribution gate: every mutation declares the control that must catch it, an anchor matching twice is refused, a mutation caught by anything other than its declared witness fails the run, and the mutation-to-control overlap is printed in both directions with the count of mutations no control kills alone (DEC-027)",
+    "badf/signing-policy.yaml, scripts/signing-policy.mjs and scripts/check-signing.mjs: commit-signature verification over eight governed paths, reporting SIGNING_CHECK NOT_ENFORCED while no key is enrolled, with PASS structurally unreachable in that state and a control asserting its absence (DEC-028)",
+    "Every git invocation in the signing check passes --no-replace-objects, and a shallow history is refused before any commit is resolved. Both were demonstrated false-PASS bypasses before they were closed (DEC-029)",
+    "175 boundary controls, 9 signing controls, 94 validator controls, 154 mutations, 16 coverage-gate protections; pnpm verify runs twelve checks",
+    "216 tracked files in total."
   ],
   "branch": "motor/p0.2/repository-and-boundaries",
   "baseline_commit": "062a0f7c1b350e4af695978b238b28e323b7d0e0",
   "files_changed": [
-    "Round four spans 22 commits, f8cbe92..341d9f1. The principal files:",
-    "scripts/migration-lint.mjs",
-    "scripts/validate_continuity.py",
+    "Round five spans 7 commits, 5256d3b..HEAD. The principal files:",
     "scripts/mutation-check.mjs",
-    "scripts/coverage-gate.mjs",
-    "scripts/generate-codeowners.mjs",
-    "scripts/agents-registry.mjs",
-    "tests/boundaries/migration-lint.test.mjs",
-    "tests/boundaries/boundary-rules.test.mjs",
-    "tests/boundaries/module-packages.test.mjs",
-    "tests/boundaries/coverage-gate.test.mjs",
-    "tests/boundaries/generate-codeowners.test.mjs",
-    "tests/boundaries/mutation-check-guard.test.mjs",
-    "tests/boundaries/mutation-check-worktree-lifecycle.test.mjs",
-    "tests/boundaries/real-root-lock.mjs",
-    "tests/boundaries/real-tree.mjs",
-    "tests/unit/test_validator_fails_closed.py",
-    "tests/boundaries/fixtures/migrations/violating/ (74 files)",
-    "tests/boundaries/fixtures/workspace/apps/broker-portal/",
+    "scripts/mutation-attribution.mjs",
+    "scripts/check-signing.mjs",
+    "scripts/signing-policy.mjs",
+    "scripts/validate_continuity.py",
+    "badf/signing-policy.yaml",
+    "badf/skills.yaml",
     "badf/agents.yaml",
+    "tests/boundaries/mutation-attribution.test.mjs",
+    "tests/boundaries/signing-check.test.mjs",
+    "tests/boundaries/migration-lint.test.mjs",
+    "tests/signing/enforcement.test.mjs",
+    "tests/unit/test_validator_fails_closed.py",
+    "tests/boundaries/fixtures/migrations/violating/ (R7-1..R7-9 added)",
+    ".github/workflows/ci.yml",
+    ".github/CODEOWNERS",
+    "package.json",
     "badf/current-state.json",
     "badf/decision-log.jsonl",
-    ".github/CODEOWNERS",
-    ".github/workflows/ci.yml",
-    "package.json",
     "sessions/checkpoints/BIZTRUST-WP-001-engineering-ready.json",
-    "204 tracked files in total."
+    "Earlier rounds are in commits 5e71470, 3f970e4, c3f704b, 655f7a2 and f8cbe92..341d9f1.",
+    "216 tracked files in total."
   ],
   "validation": [
     {
       "command": "pnpm validate:records",
       "exit_status": 0,
-      "observed_at": "2026-09-08T19:04:00Z",
+      "observed_at": "2026-09-09T23:07:39Z",
       "output_reference": "CONTINUITY_VALIDATION PASS. Environment for every row below: Node 24.12.0, pnpm 11.9.0, Python 3.13.12, dependency-cruiser 16.10.4, typescript 5.9.3, Windows 11 build 26200 under MINGW64. No database: nothing here connects to one."
     },
     {
       "command": "pnpm test:validator",
       "exit_status": 0,
-      "observed_at": "2026-09-08T19:04:05Z",
-      "output_reference": "Ran 79 tests, OK. 50 before this round; the new ones witness the skills and agents readers, the routing pins, the held_by pin and the six refusals a review found deletable with the suite green"
+      "observed_at": "2026-09-09T23:07:40Z",
+      "output_reference": "Ran 94 tests, OK. 79 before this round; the new ones witness the signing policy reader and the four accepted_keys coherence rules that previously shared one control between them"
+    },
+    {
+      "command": "pnpm check:signing",
+      "exit_status": 0,
+      "observed_at": "2026-09-09T23:07:52Z",
+      "output_reference": "SIGNING_CHECK NOT_ENFORCED. This is the honest state and not a pass; SIGNING_CHECK PASS is structurally unreachable while accepted_keys is NONE_ENROLLED, and a control asserts that string is absent"
     },
     {
       "command": "pnpm typecheck",
       "exit_status": 0,
-      "observed_at": "2026-09-08T19:04:08Z",
+      "observed_at": "2026-09-09T23:07:45Z",
       "output_reference": "tsc -p tsconfig.json, no diagnostic"
     },
     {
       "command": "pnpm boundaries:check",
       "exit_status": 0,
-      "observed_at": "2026-09-08T19:04:09Z",
-      "output_reference": "BOUNDARY_GENERATION PASS 30 modules, generated files are current; no dependency violations"
+      "observed_at": "2026-09-09T23:07:53Z",
+      "output_reference": "BOUNDARY_GENERATION PASS 30 modules, generated files are current"
     },
     {
       "command": "pnpm codeowners:check",
       "exit_status": 0,
-      "observed_at": "2026-09-08T19:04:10Z",
-      "output_reference": "CODEOWNERS_GENERATION PASS 10 routing entries, .github/CODEOWNERS is current"
+      "observed_at": "2026-09-09T23:07:54Z",
+      "output_reference": "CODEOWNERS_GENERATION PASS 11 routing entries, .github/CODEOWNERS is current"
     },
     {
       "command": "pnpm lint:migrations",
       "exit_status": 0,
-      "observed_at": "2026-09-08T19:04:11Z",
+      "observed_at": "2026-09-09T23:07:55Z",
       "output_reference": "MIGRATION_LINT PASS 2 file(s), no violation"
     },
     {
       "command": "pnpm check:modules",
       "exit_status": 0,
-      "observed_at": "2026-09-08T19:04:12Z",
+      "observed_at": "2026-09-09T23:07:56Z",
       "output_reference": "MODULE_PACKAGES PASS 30 registered, 4 with a package, every directory registered"
     },
     {
       "command": "pnpm check:coverage",
       "exit_status": 0,
-      "observed_at": "2026-09-08T19:04:13Z",
-      "output_reference": "COVERAGE_GATE PASS 16 named protections, every one witnessed by a control. Observed FAILING before it was trusted, and its seam re-verified after a review neutered it through the environment"
+      "observed_at": "2026-09-09T23:07:56Z",
+      "output_reference": "COVERAGE_GATE PASS 16 named protections, every one witnessed by a control"
     },
     {
       "command": "pnpm test:boundaries",
       "exit_status": 0,
-      "observed_at": "2026-09-08T19:04:14Z",
-      "output_reference": "127 tests, 127 pass, 0 fail, 0 skipped on a clean tree. 46 when this pattern was first recorded"
+      "observed_at": "2026-09-09T23:07:57Z",
+      "output_reference": "175 boundary controls and 9 signing controls, all pass, 0 skipped on a clean tree"
     },
     {
       "command": "pnpm check:mutations",
       "exit_status": 0,
-      "observed_at": "2026-09-08T19:04:16Z",
-      "output_reference": "MUTATION_CHECK PASS 98 mutations, every one caught. 24 at the end of round two. Runs against a disposable git worktree, so the tree is byte-identical afterwards"
+      "observed_at": "2026-09-09T23:07:58Z",
+      "output_reference": "MUTATION_CHECK PASS 154 mutations, every one caught BY ITS DECLARED WITNESS. 98 at the start of round four. OVERLAP prints the honest granularity: 42 of 154 are killed by no control alone"
     }
   ],
   "decisions": [
@@ -138,7 +144,10 @@
     "DEC-023 any statement that can change schema resolution is refused whatever its spelling, and an incidental target no longer makes a statement understood",
     "DEC-024 no test suite writes a tracked file; a recorded PASS is reproducible by construction",
     "DEC-025 the registry floors are pinned in validator source, not derived from the registry they constrain",
-    "DEC-026 a test seam must not be reachable from the ambient environment"
+    "DEC-026 a test seam must not be reachable from the ambient environment",
+    "DEC-027 every mutation declares the control that must catch it, and the overlap is measured in both directions",
+    "DEC-028 a signature no agent can produce binds a record to a human; unenforced, it reports rather than fails",
+    "DEC-029 the signing check reads the real history, and enrolling a key is gated on closing the grafts vector"
   ],
   "assumptions": [
     "ASSUMED: the modular monolith of ARCH-001 section 4.1, with the seven dependency rules and one schema per module. ADR-001 decides this and is DRAFT_REQUIRED.",
@@ -152,11 +161,11 @@
     "BT-G0 is unrecorded. ARCH-001 is a draft, and FOUNDATION_SEQUENCE.md slice S01 needs five human review seats that are unfilled. No P0 epic may be implemented until an architecture authority records it.",
     "ADR-001, ADR-004, ADR-005, ADR-010 and ADR-011 are all DRAFT_REQUIRED. The rules in this repository are the proposal of a design at IN_REVIEW.",
     "NS-001 is half done. Branch protection is applied and negative control 6 is observed, but the repository-administrator seat is unfilled. badf/agents.yaml now records held_by: null for every seat and refuses any other value, so filling one is a reviewed change to the validator under a Work Package - which is the cost a human decision should carry, and which no agent may pay on a human's behalf.",
-    "Peer review has returned REVISION_REQUIRED four times. Every reviewer so far has been an agent. None is the independent human verifier the P0.2 design names, and no re-review of this head has happened."
+    "Peer review has returned REVISION_REQUIRED five times. Every reviewer has been an agent. None is the independent human verifier the P0.2 design names, and no re-review of this head has happened."
   ],
   "authority_status": "The scaffold was built under a direct operator instruction, recorded in badf/authority.yaml under granted.repository_scaffold. That is an operator instruction recorded by an agent; it is NOT the expiring implementation grant from a business authority seat that the P0.2 design requires. Every other authority in that file is NOT_GRANTED, wp_001_acceptance included. Round four hardened the registries around it: the skills floor is pinned two ways, the four human seats cannot be made agent-occupiable, every seat's held_by must be null, and the governance paths route only to seats no agent may occupy. What none of this establishes is that any record here was written by a human. A forgery that edits all three records consistently still passes, and the only mechanism that addresses it is the approval requirement now enforced on main.",
   "next_action_id": "NS-001",
-  "next_action": "Fill the repository administrator seat with a named human in badf/agents.yaml, and have that person record the branch protection decision. The protection itself is applied and negative control 6 is observed; what is missing is the record and the name, which no agent may write - and the validator now refuses to let one.",
+  "next_action": "Fill the repository administrator seat with a named human in badf/agents.yaml, and have that person record the branch protection decision. Before that human enrols a signing key, close the .git/info/grafts vector recorded in DEC-029 - it is unreachable while no key is enrolled and becomes a false PASS on the day one is.",
   "recovery": "Read AGENTS.md, then badf/authority.yaml, then badf/current-state.json and badf/next-actions.json. The branch is motor/p0.2/repository-and-boundaries off 062a0f7c1b350e4af695978b238b28e323b7d0e0 on main, and pull request #1 tracks it. First safe command: pnpm install --frozen-lockfile, then pnpm verify, which runs the ten checks above in order. All ten were observed at this head with the exit statuses recorded. If any fails, the tree has diverged from this checkpoint and the answer is RECOVERY_REQUIRED, not a fix. The suites no longer write tracked files, so a run leaves the tree byte-identical; if it does not, that is itself the finding.",
   "declared_non_coverage": [
     "THE ONE THAT MATTERS MOST, unchanged by this round. A forgery that edits badf/authority.yaml, badf/current-state.json and the checkpoint CONSISTENTLY passes every check here. Nothing binds a record to a human identity, and no validator can close that. The mechanism that addresses it is the approval requirement on main, recorded under NS-001.",
@@ -164,7 +173,6 @@
     "CODEOWNERS is generated and checked for drift, but it is NOT a working control. It needs GitHub's require-review-from-code-owners setting enabled, and the named @bstBizEra/<role> teams to exist and be populated. Both are human acts. A reader must not mistake the file's presence for routing being enforced.",
     "The migration lint is a text check over SQL, not a parser. It refuses what it cannot read rather than passing it, but it cannot see dynamic SQL built at runtime, or an extension that creates objects as a side effect.",
     "No refusal has been confirmed against a running PostgreSQL server. The grammars refused - SET SCHEMA 'value' as a search_path alias, ALTER ... INHERIT, ATTACH PARTITION - are taken from documentation. There is no database here.",
-    "scripts/validate_continuity.py, scripts/registry.mjs, scripts/check-module-packages.mjs and scripts/generate-codeowners.mjs are not mutation-tested; the mutation harness runs the boundary and validator suites, and the validator's refusals are witnessed by their own tests rather than by mutation.",
     "The coverage gate enumerates 16 named protections: the four audit verbs, the four domain stems and the eight rule families. It does NOT enumerate TABLE_CREATING_VERBS, CROSS_SCHEMA_READ_KEYWORDS, FORBIDDEN_TO_AGENTS_SKILLS or AGENT_FORBIDDEN_ROLES. Those four lists are witnessed per entry by fixtures and mutations, but adding an entry to one of them without a fixture would not fail the gate.",
     "reclaimOrphanWorktrees is witnessed for reclaiming a dead run's worktree but not for leaving a LIVE sibling's alone; and a worktree orphaned under a test-only tag prefix is not reclaimed by any normal run.",
     "tests/boundaries/real-root-lock.mjs has stale-lock risk if a holder is killed, bounded by a 60s timeout and a self-diagnosing error. Test-only; it does not compound per interruption.",
@@ -179,6 +187,14 @@
     "The contract lint over openapi/ and events/ (P0.8, P0.9), the observability tests (P0.11), and the security proof suite over tests/security/ (needs BT-G0).",
     "No fixture proves the typecheck fails, so the compiler is an unwitnessed instrument.",
     "Rules 1 and 2 are generated per module; the fixture exercises one instance of each family, and the coverage gate deliberately asks for families rather than instances.",
-    "The design's control 7 says the boundary check's GENERATION step catches a package with no registry row. It does not; a separate script does."
+    "The design's control 7 says the boundary check's GENERATION step catches a package with no registry row. It does not; a separate script does.",
+    "OPEN AND GATED. Writing HEAD's sha into .git/info/grafts makes git report a history that is not the real one, exactly as `git replace --graft` did; --no-replace-objects closes the second and NOT the first, and git 2.53 honours the graft file with only a deprecation hint. It needs write access to .git/, which is less than the vector already closed. It cannot produce a false PASS while accepted_keys is NONE_ENROLLED, because the check returns from the empty-keys branch first. DEC-029 gates enrolling a key on closing it. core.useReplaceRefs and GIT_GRAFT_FILE close both together.",
+    "The signing check is DETECTION, not prevention, and nothing mechanically distinguishes a human enrolment from an agent one - any check the agent can edit is a check the agent can edit. Only required_signatures branch protection on main converts it into a binding, and that is a human act on GitHub, outside this repository.",
+    "42 of 154 mutations are killed by no control alone. The attribution gate refuses a mutation caught by a control OTHER than the one it declares, and refuses two mutations whose killer sets are identical, but it does not refuse a declared witness that is a strict SUPERSET of the control which actually discriminates. That population is reported rather than gated, deliberately: gating it would force a contrived fixture for every genuinely broad guard.",
+    "The NOT_ENFORCED message says two of the three human acts are 'named nowhere in this repository as forbidden to an agent'. badf/authority.yaml records main_branch_protection as held by a repository administrator, a human role, so the claim overreaches. The narrower claim it makes about badf/skills.yaml is exact.",
+    "The coverage gate enumerates 16 named protections and does not enumerate PINNED_PROTECTED_PATHS, ACCEPTED_KEY_RULES, SIGNING_KEY_KINDS, VERDICT_TERMS, TABLE_CREATING_VERBS or CROSS_SCHEMA_READ_KEYWORDS. Each entry in those six is witnessed per entry by a fixture and a mutation, but adding an entry to one without a fixture would not fail the gate.",
+    "scripts/validate_continuity.py now carries 23 mutations; scripts/registry.mjs, scripts/check-module-packages.mjs, scripts/generate-codeowners.mjs and the --overlap presentation flag carry none.",
+    "The real-signature PASS path - a commit whose %G? is G from an accepted identity - is witnessed by classifyCommit fixtures and was driven end to end by a reviewer with a throwaway SSH key, but no test in this repository creates key material, so it is not witnessed by the suite. %GS rendering for a GPG rather than SSH key is untested.",
+    "tests/boundaries/real-root-lock.mjs has no stale-lock recovery, unlike the worktree reclamation beside it. A killed suite run leaves a lock that costs the next run a 60s timeout on four controls."
   ]
 }
