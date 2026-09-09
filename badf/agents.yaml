@@ -103,6 +103,13 @@ routing:
     note: >-
       This file decides which seats exist, which may be held by an agent, and
       who reviews what. An agent may never be the verifier of a change to it.
+  - path: "badf/signing-policy.yaml"
+    owner: repository-administrator
+    verifier: architecture-authority
+    note: >-
+      Which paths require a human signature, and whose signature counts. An
+      agent that could review a change here could enrol itself, so both seats
+      are ones no agent may occupy.
   - path: "badf/skills.yaml"
     owner: architecture-authority
     verifier: repository-administrator

@@ -39,6 +39,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Full history. The signing check (step 2c) asks git which commits
+          # touched a governed path since the policy landed, and the default
+          # depth-1 clone has no history to ask about - it would report that it
+          # could not check rather than that nothing was wrong, which is
+          # correct behaviour and a useless CI run.
+          fetch-depth: 0
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -67,6 +74,15 @@ jobs:
 
       - name: Prove the validator fails closed
         run: pnpm test:validator
+
+      # 2c. Who WROTE the records, rather than what they say. This is the only
+      #     check here that no agent can make pass: badf/signing-policy.yaml
+      #     enrols no key, so it reports SIGNING_CHECK NOT_ENFORCED and exits 0.
+      #     That status is the point of the step - a control that binds nothing
+      #     and prints nothing is indistinguishable from one that is enforced.
+      #     It becomes a gate, with no change here, the day a human enrols a key.
+      - name: Who wrote the governance records
+        run: pnpm check:signing
 
       # 3. Typecheck.
       - name: Typecheck

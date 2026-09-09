@@ -74,3 +74,12 @@ skills:
     authority_required: "repository-administrator and business-authority"
     status: FORBIDDEN_TO_AGENTS
     why: "Nothing is implemented, and validation success is not deployment authority."
+  - id: enroll-a-signing-key
+    what: "Add an identity to accepted_keys in badf/signing-policy.yaml"
+    authority_required: "repository-administrator, holding the key material"
+    status: FORBIDDEN_TO_AGENTS
+    why: >-
+      The point of a signature is that the acting agent cannot produce it. An
+      agent that could enrol the identity its own commits are signed as would
+      have bound nothing to anybody, which is the defect badf/signing-policy.yaml
+      exists to close rather than to restate.

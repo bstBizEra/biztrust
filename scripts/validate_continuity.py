@@ -3,8 +3,9 @@
 
 Validates the three records under ``badf/`` and every session checkpoint
 against ``schemas/*.schema.json``, and enforces the cross-record rules a schema
-cannot express. Also confirms that the five ``badf/`` registries parse and
-declare a version.
+cannot express. Also confirms that the six ``badf/`` registries parse and
+declare a version, and that ``badf/signing-policy.yaml`` - the record that says
+which paths a human signature is required for - is intact.
 
 FAIL-CLOSED on malformed input. A wrong-typed field, an unreadable file or an
 unforeseen exception always produces exactly one ``CONTINUITY_VALIDATION`` line
@@ -42,7 +43,19 @@ RFC3339 = re.compile(
     r"^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(\.\d+)?([Zz]|[+-]\d{2}:\d{2})$"
 )
 
-REGISTRIES = ("lifecycle.yaml", "authority.yaml", "gates.yaml", "agents.yaml", "skills.yaml")
+#: The registries under badf/ that must exist, be non-empty and declare a
+#: version. signing-policy.yaml joined them in the task that added
+#: validate_signing_policy below: it is read by scripts/check-signing.mjs as
+#: well, and a policy that has silently vanished would make that check govern
+#: nothing while still printing a status line.
+REGISTRIES = (
+    "lifecycle.yaml",
+    "authority.yaml",
+    "gates.yaml",
+    "agents.yaml",
+    "skills.yaml",
+    "signing-policy.yaml",
+)
 
 # Every keyword this checker implements. A schema using anything else is a
 # validator defect, not a data defect.
@@ -663,6 +676,7 @@ PINNED_SKILL_STATUS = {
     "record-a-gate": "FORBIDDEN_TO_AGENTS",
     "grant-authority": "FORBIDDEN_TO_AGENTS",
     "deploy": "FORBIDDEN_TO_AGENTS",
+    "enroll-a-signing-key": "FORBIDDEN_TO_AGENTS",
 }
 
 #: The fields a skill entry may carry. Unknown to this set is refused, not
@@ -909,6 +923,7 @@ BOOLEAN_LITERALS = {"true", "false"}
 #: of a change to them.
 PINNED_ROUTING = {
     "badf/authority.yaml": ("business-authority", "repository-administrator"),
+    "badf/signing-policy.yaml": ("repository-administrator", "architecture-authority"),
     "badf/gates.yaml": ("architecture-authority", "repository-administrator"),
     "badf/agents.yaml": ("architecture-authority", "repository-administrator"),
     "badf/skills.yaml": ("architecture-authority", "repository-administrator"),
@@ -1235,6 +1250,312 @@ def validate_agents_registry(errors: list[str]) -> None:
             )
 
 
+# ---------------------------------------------------------------------------
+# badf/signing-policy.yaml: WHO wrote a record, not what it says.
+#
+# Every other check in this file constrains what a record may SAY. None of them
+# constrains who WROTE it, and a forgery that edits badf/authority.yaml,
+# badf/current-state.json and the checkpoint CONSISTENTLY passes all of them -
+# because this validator reads the same files the forger writes. No reader can
+# close that. The only thing that can is a signature the acting agent cannot
+# produce, which is why the policy exists and why this section validates its
+# shape rather than trusting it.
+#
+# What is here is the POLICY's integrity. The signature verification itself is
+# scripts/check-signing.mjs, which needs git and does not belong in a reader.
+# The two are deliberately in different languages over the same file, for the
+# reason scripts/agents-registry.mjs states: two readers that must
+# independently agree are harder to fool with one clever line than one.
+# ---------------------------------------------------------------------------
+
+#: The scalar keys of the policy. Each carries its value on its own line.
+SIGNING_SCALARS = ("version", "updated_at", "enforcement_point")
+
+#: The fields an accepted-key entry may carry. Unknown to this set is refused,
+#: not skipped - the doctrine parse_authority documents at length.
+SIGNING_KEY_FIELDS = {"identity", "kind", "enrolled_by", "note"}
+
+#: The signature kinds git can verify. A closed set, so a key recorded with a
+#: kind nothing implements cannot sit in the policy looking enrolled.
+SIGNING_KEY_KINDS = ("gpg", "ssh")
+
+#: The literal that says, in the file itself, that no human identity is bound
+#: to this repository. It is not a placeholder: it is the accurate statement of
+#: the current state, and `grep NONE_ENROLLED badf/signing-policy.yaml` is how
+#: a reader finds out in one command.
+NO_KEYS_ENROLLED = "NONE_ENROLLED"
+
+#: The enforcement point, when it is not an explicit sha: the commit that added
+#: the policy, resolved from git by scripts/check-signing.mjs. The sha cannot
+#: be written into the file it is the sha of, and no commit before the policy
+#: existed may be required to carry a signature - no commit on this branch is
+#: signed and rewriting history is not a repair.
+ENFORCEMENT_POINT_LITERAL = "FIRST_COMMIT_OF_THIS_POLICY"
+
+COMMIT_SHA = re.compile(r"^[0-9a-f]{40}$")
+
+#: A plain relative path: no wildcard, no leading dash, no leading slash,
+#: nothing a shell or `git log` could read as an option. The check hands these
+#: to git as pathspecs, so the shape is a security boundary and not a tidiness
+#: rule.
+PROTECTED_PATH = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._/-]*$")
+
+#: The paths whose protection is PINNED here, in the same doctrine as
+#: PINNED_SKILL_STATUS and PINNED_ROUTING: the data file is a FLOOR the records
+#: cannot shrink. Adding a path to badf/signing-policy.yaml widens protection
+#: and is allowed; removing one of these is a reviewed change to this validator,
+#: under a Work Package that says why.
+#:
+#: Deny by default rather than an extendable list: every governance record is
+#: named here, including the policy itself. A policy that does not protect the
+#: file naming which keys are accepted protects nothing at all.
+PINNED_PROTECTED_PATHS = (
+    "badf/authority.yaml",
+    "badf/gates.yaml",
+    "badf/current-state.json",
+    "badf/lifecycle.yaml",
+    "badf/agents.yaml",
+    "badf/skills.yaml",
+    "badf/signing-policy.yaml",
+    "sessions/checkpoints",
+)
+
+#: What an accepted-key entry must record, as one alternation rather than three
+#: hand-written conditions, for the reason VERDICT_TERMS in
+#: scripts/mutation-attribution.mjs is one: a rule written as a table entry is
+#: one deletable line, so it can carry a mutation and a control of its own,
+#: while three conditions inside one function share a single mutation and hide
+#: which of them is actually enforced.
+#:
+#: (field, allowed values or None for "any non-empty", what it must be)
+ACCEPTED_KEY_RULES = (
+    ("identity", None, "a non-empty signer identity, matched against git's own %GS and %GK"),
+    ("kind", SIGNING_KEY_KINDS, f"one of {list(SIGNING_KEY_KINDS)}, the kinds git can verify"),
+    (
+        "enrolled_by",
+        AGENT_FORBIDDEN_ROLES,
+        f"one of {list(AGENT_FORBIDDEN_ROLES)} - enrolling a key is a human act, "
+        f"and a key an agent-occupiable seat enrolled binds nobody",
+    ),
+)
+
+
+def parse_signing_policy(text: str) -> tuple[dict, list[str]]:
+    """Reads badf/signing-policy.yaml, refusing every line it cannot classify.
+
+    A sibling of parse_authority, parse_skills and parse_agents, and written
+    for the reason parse_authority documents at length: an earlier reader in
+    this repository SKIPPED what it did not recognise, and peer review round
+    three defeated it five ways with ordinary, legal YAML. So the default here
+    is an error. A line that is not blank, not a comment and not one of the
+    shapes below is a problem, whatever it happens to look like - a tab, a
+    three-space indent, a flow mapping, a list item under a scalar key.
+
+    The catch-all is deliberately ONE refusal covering all of those rather than
+    a branch per shape: what matters is that an unclassified line is refused
+    WITH ITS NUMBER, not that the reader has an opinion about which way it is
+    malformed.
+
+    Returns a policy of
+
+        {"scalars": {key: value}, "protected_paths": [(line, value)],
+         "accepted_keys": [{field: value}], "accepted_keys_inline": str | None}
+
+    where accepted_keys_inline is None when the file never names the key at
+    all, which is a different thing from naming it and enrolling nothing.
+    """
+    policy: dict = {
+        "scalars": {},
+        "protected_paths": [],
+        "accepted_keys": [],
+        "accepted_keys_inline": None,
+    }
+    problems: list[str] = []
+    section: str | None = None
+    entry: dict[str, str] | None = None
+    block_indent: int | None = None
+
+    for number, raw in enumerate(text.splitlines(), start=1):
+        if raw.strip() == "" or raw.lstrip().startswith("#"):
+            continue
+
+        indent = len(raw) - len(raw.lstrip(" "))
+
+        # A folded or literal scalar's body is prose, and is not read for
+        # meaning. Same treatment as every other reader in this file.
+        if block_indent is not None:
+            if indent >= block_indent:
+                continue
+            block_indent = None
+
+        # A tab is not "an indent this reader disagrees with". A tab-indented
+        # block made a whole section invisible to the reader parse_authority
+        # replaces, so a line containing one matches no rule below and lands on
+        # the catch-all, with its number.
+        tabless = "\t" not in raw
+
+        if tabless and indent == 0:
+            top = re.match(r"^(\S+):[ ]*(.*)$", raw)
+            if top is not None:
+                key, value = top.group(1), top.group(2).strip()
+                section = None
+                entry = None
+                if key in SIGNING_SCALARS:
+                    policy["scalars"][key] = value.strip('"')
+                    continue
+                if key == "protected_paths":
+                    section = "protected_paths"
+                    continue
+                if key == "accepted_keys":
+                    section = "accepted_keys"
+                    policy["accepted_keys_inline"] = value.strip('"')
+                    continue
+                problems.append(
+                    f"badf/signing-policy.yaml line {number}: unknown top-level key "
+                    f"{key!r}. A key nothing reads is a key a forger fills in while "
+                    f"the file still looks authoritative"
+                )
+                continue
+
+        if tabless and indent == 2 and section == "protected_paths":
+            item = re.match(r"^ {2}- (\S+)[ ]*$", raw)
+            if item is not None:
+                policy["protected_paths"].append((number, item.group(1).strip('"')))
+                continue
+
+        if tabless and indent == 2 and section == "accepted_keys":
+            opener = re.match(r"^ {2}- identity:[ ]*(\S.*)$", raw)
+            if opener is not None:
+                entry = {
+                    "identity": opener.group(1).strip().strip('"'),
+                    "__line__": str(number),
+                }
+                policy["accepted_keys"].append(entry)
+                continue
+
+        if tabless and indent == 4 and section == "accepted_keys" and entry is not None:
+            field_match = re.match(r"^ {4}(\S+):[ ]*(.*)$", raw)
+            if field_match is not None:
+                field, value = field_match.group(1), field_match.group(2).strip()
+                if field not in SIGNING_KEY_FIELDS:
+                    problems.append(
+                        f"badf/signing-policy.yaml line {number}: unknown field "
+                        f"{field!r} on an accepted key. A field this reader drops is "
+                        f"a field a human reading the file still sees, and believes"
+                    )
+                    continue
+                if value in (">", ">-", "|", "|-", ""):
+                    block_indent = 6
+                    value = ""
+                entry[field] = value.strip('"')
+                continue
+
+        problems.append(
+            f"badf/signing-policy.yaml line {number}: matches no rule of this "
+            f"policy's grammar, or names a field with no accepted key open: "
+            f"{raw.strip()!r}. This reader refuses what it cannot classify rather "
+            f"than skipping it"
+        )
+
+    return policy, problems
+
+
+def validate_signing_policy(errors: list[str]) -> None:
+    """The policy's shape, which is what the signature check stands on.
+
+    A malformed policy is worse than no policy: scripts/check-signing.mjs reads
+    the same file, and a path it cannot see is a path nothing verifies while
+    the file still lists it. Nothing here verifies a signature - that needs git
+    - and nothing here can be satisfied by an agent, which is the point:
+    ACCEPTED_KEY_RULES refuses any key an agent-occupiable seat enrolled, so an
+    agent that writes itself into the policy is refused by the policy's own
+    validator.
+    """
+    try:
+        text = (BADF / "signing-policy.yaml").read_text(encoding="utf-8")
+    except OSError as exc:
+        errors.append(f"badf/signing-policy.yaml: cannot read: {exc}")
+        return
+
+    policy, problems = parse_signing_policy(text)
+    errors.extend(problems)
+
+    # The enforcement point. An unreadable one is not "no enforcement point";
+    # it is a scope nothing can compute, and a scope nothing can compute is a
+    # check that silently governs nothing.
+    point = policy["scalars"].get("enforcement_point", "").strip()
+    if point != ENFORCEMENT_POINT_LITERAL and COMMIT_SHA.match(point) is None:
+        errors.append(
+            f"badf/signing-policy.yaml: enforcement_point is {point!r}, which is "
+            f"neither the literal {ENFORCEMENT_POINT_LITERAL} nor a 40-character "
+            f"commit sha. The enforcement point is where the policy starts "
+            f"applying, so a value nothing can resolve scopes the check to nothing "
+            f"at all"
+        )
+
+    # The protected paths, in both directions the skills roster is checked in.
+    # Direction one: the shape, because these are handed to git as pathspecs.
+    recorded = set()
+    for number, path in policy["protected_paths"]:
+        recorded.add(path)
+        if PROTECTED_PATH.match(path) is None or ".." in path.split("/"):
+            errors.append(
+                f"badf/signing-policy.yaml line {number}: protected path {path!r} is "
+                f"not a plain relative path. These are handed to git as pathspecs, so "
+                f"a leading dash, a wildcard or a .. segment is a path that resolves "
+                f"to something other than what it reads as"
+            )
+
+    # Direction two: the floor. A path that is not listed is a path no signature
+    # is ever required for, and deleting a line is how a governance record stops
+    # being protected without anyone recording that.
+    for pinned in PINNED_PROTECTED_PATHS:
+        if pinned in recorded:
+            continue
+        errors.append(
+            f"badf/signing-policy.yaml: {pinned!r} is pinned in "
+            f"scripts/validate_continuity.py (PINNED_PROTECTED_PATHS) and this policy "
+            f"does not protect it. A governance record no signature is ever required "
+            f"for is a record any agent may write; widening this policy is allowed, "
+            f"narrowing it is a reviewed change to the validator under a Work Package "
+            f"that says why"
+        )
+
+    # accepted_keys says exactly one thing: no key is enrolled, or these keys
+    # are. Not both, not neither, and not some third word.
+    inline = policy["accepted_keys_inline"]
+    keys = policy["accepted_keys"]
+    said = None
+    if inline is None:
+        said = "does not declare accepted_keys at all"
+    elif inline == NO_KEYS_ENROLLED and keys:
+        said = f"says {NO_KEYS_ENROLLED} and then lists {len(keys)} key(s)"
+    elif inline == "" and not keys:
+        said = "opens accepted_keys as a block and lists no key in it"
+    elif inline not in ("", NO_KEYS_ENROLLED):
+        said = f"records accepted_keys as {inline!r}"
+    if said is not None:
+        errors.append(
+            f"badf/signing-policy.yaml: {said}. accepted_keys must state either the "
+            f"literal {NO_KEYS_ENROLLED} - the honest current state, and what makes "
+            f"scripts/check-signing.mjs report NOT_ENFORCED - or a block of one or "
+            f"more entries. A policy that is ambiguous about whether anyone is "
+            f"enrolled is read as enrolled by whoever benefits"
+        )
+
+    # Every enrolled key, against the alternation above.
+    for position, key in enumerate(keys, start=1):
+        for field, allowed, expectation in ACCEPTED_KEY_RULES:
+            value = key.get(field, "").strip()
+            if value != "" and (allowed is None or value in allowed):
+                continue
+            errors.append(
+                f"badf/signing-policy.yaml: accepted key {position} (line "
+                f"{key.get('__line__', '?')}) records {field} as {value!r}, and it "
+                f"must be {expectation}"
+            )
+
+
 #: The delivery gates, and the states no agent may move a Work Package into
 #: without a recorded acceptance by someone who is not its implementer.
 DELIVERY_GATES = ("BT-G0", "BT-G1", "BT-G2", "BT-G3", "BT-G4")
@@ -1493,6 +1814,7 @@ def main() -> int:
     validate_gates_registry(state, errors)
     validate_skills_registry(errors)
     validate_agents_registry(errors)
+    validate_signing_policy(errors)
     validate_lifecycle_pins(errors)
     validate_acceptance_is_not_self_awarded(state, errors)
     validate_checkpoint_agrees(state, errors)

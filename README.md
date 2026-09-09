@@ -110,6 +110,19 @@ incomplete in fact.
   unprotected, and protecting it is a human record no agent can write. This is
   the primary next action.
 - **Every runtime control.** Nothing runs.
+- **Human-identity binding is NOT ENFORCED.** Nothing in this repository
+  distinguishes a record written by a human from one written by an agent, and a
+  forgery that edits `badf/authority.yaml`, `badf/current-state.json` and the
+  checkpoint consistently passes every check here. No validator can close that,
+  because every validator reads the same files the forger writes.
+  [`badf/signing-policy.yaml`](badf/signing-policy.yaml) names the paths a
+  signature would be required for and `pnpm check:signing` verifies them against
+  git's own `%G?`, but the policy enrols **no key**, so the check reports
+  `SIGNING_CHECK NOT_ENFORCED` and exits 0 rather than claiming a binding that
+  does not exist. Three acts close it and every one is reserved to a person:
+  enrol a key, decide which identities count, and enable `required_signatures`
+  branch protection on `main`. `badf/skills.yaml` records
+  `enroll-a-signing-key` as `FORBIDDEN_TO_AGENTS`.
 - **The migration lint is a text check over SQL, not a parser.** It handles
   double-quoted identifiers, unqualified names, `search_path` and plurals. It
   cannot see through a dollar-quoted function body, a `DO` block, dynamic SQL,

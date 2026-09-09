@@ -396,6 +396,8 @@ const GATE = join(WT_ROOT, "scripts", "coverage-gate.mjs");
 const CODEOWNERS = join(WT_ROOT, "scripts", "generate-codeowners.mjs");
 const RECORDS = join(WT_ROOT, "scripts", "validate_continuity.py");
 const ATTRIBUTION = join(WT_ROOT, "scripts", "mutation-attribution.mjs");
+const SIGNING_POLICY = join(WT_ROOT, "scripts", "signing-policy.mjs");
+const SIGNING_CHECK = join(WT_ROOT, "scripts", "check-signing.mjs");
 
 /** Joins anchor lines, so no source string carries an embedded newline. */
 const lines = (...parts) => parts.join("\n");
@@ -1739,6 +1741,176 @@ const MUTATIONS = [
     witness: "a bucket the verdict was not given is a defect, not an empty bucket",
     from: "    if (!Object.hasOwn(buckets, key)) {",
     to: "    if (false) {",
+  },
+  // ---- who wrote the record: the signing policy and its check -------------
+  //
+  // Everything above this point mutates a rule about what a record may SAY.
+  // These mutate the first rule in this repository about who WROTE one. The
+  // ten `RECORDS` entries loosen the policy's own reader and shape rules; the
+  // five below them loosen the second reader and the verification itself.
+  //
+  // The last one is the one worth reading twice. `SIGNING_CHECK NOT_ENFORCED`
+  // is a status, not a comment: it is what stops an unenforced control from
+  // being indistinguishable from an enforced one, which is the defect class
+  // this whole branch exists to close. Deleting the branch that prints it
+  // must go red, or the honesty of every future unenforced check in this
+  // repository rests on nothing.
+  {
+    file: RECORDS,
+    suite: "validator",
+    // The reader's default. `problems.append(` becomes an assignment, so the
+    // message is still computed and simply never reported - which is exactly
+    // what the reader parse_authority replaced used to do to a line it did
+    // not recognise.
+    name: "records: silently skip a signing-policy line the reader cannot classify",
+    witness: "test_a_line_the_signing_policy_grammar_cannot_classify_is_reported",
+    from: lines(
+      "        problems.append(",
+      '            f"badf/signing-policy.yaml line {number}: matches no rule of this "',
+    ),
+    to: lines(
+      "        _unclassified = (",
+      '            f"badf/signing-policy.yaml line {number}: matches no rule of this "',
+    ),
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: silently skip an unknown top-level key in the signing policy",
+    witness: "test_an_unknown_top_level_key_in_the_signing_policy_is_reported",
+    from: lines(
+      "                problems.append(",
+      '                    f"badf/signing-policy.yaml line {number}: unknown top-level key "',
+    ),
+    to: lines(
+      "                _unknown_key = (",
+      '                    f"badf/signing-policy.yaml line {number}: unknown top-level key "',
+    ),
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: silently skip an unknown field on an accepted signing key",
+    witness: "test_an_unknown_field_on_an_accepted_key_is_reported",
+    from: "                if field not in SIGNING_KEY_FIELDS:",
+    to: "                if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // The enforcement point is the whole scope of the check. A value nothing
+    // can resolve scopes it to nothing while the file still reads as a policy.
+    name: "records: accept a signing-policy enforcement point that resolves to nothing",
+    witness: "test_an_enforcement_point_that_is_neither_a_sha_nor_the_literal_is_reported",
+    from: "    if point != ENFORCEMENT_POINT_LITERAL and COMMIT_SHA.match(point) is None:",
+    to: "    if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // Every protected path becomes a `git log` pathspec, and git reads a
+    // leading dash as an OPTION.
+    name: "records: stop refusing a protected path git would read as an option",
+    witness: "test_a_protected_path_git_would_read_as_an_option_is_reported",
+    from: '        if PROTECTED_PATH.match(path) is None or ".." in path.split("/"):',
+    to: "        if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // The floor. Deleting one line of badf/signing-policy.yaml would otherwise
+    // stop badf/authority.yaml being a path any signature is ever required
+    // for, with every other check in this repository still green.
+    name: "records: stop pinning the protected-path floor of the signing policy",
+    witness: "test_dropping_a_pinned_protected_path_is_reported",
+    from: "        if pinned in recorded:",
+    to: "        if True:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: accept a signing policy that never says whether a key is enrolled",
+    witness: "test_a_policy_that_declares_no_accepted_keys_is_reported",
+    from: "    if said is not None:",
+    to: "    if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // ACCEPTED_KEY_RULES is one alternation for the reason VERDICT_TERMS in
+    // mutation-attribution.mjs is: each rule is one deletable line, so each
+    // can have a control of its own instead of three conditions sharing one.
+    name: "records: drop the rule that an accepted key must record an identity",
+    witness: "test_an_accepted_key_with_no_identity_is_reported",
+    from:
+      '    ("identity", None, "a non-empty signer identity, matched against git\'s own %GS and %GK"),\n',
+    to: "",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: drop the rule that an accepted key's kind is one git can verify",
+    witness: "test_an_accepted_key_whose_kind_git_cannot_verify_is_reported",
+    from:
+      '    ("kind", SIGNING_KEY_KINDS, f"one of {list(SIGNING_KEY_KINDS)}, the kinds git can verify"),\n',
+    to: "",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // The self-enrolment refusal, and the one rule here an agent would have a
+    // motive to delete: without it a seat an agent may occupy can enrol the
+    // identity that agent's own commits are signed as.
+    name: "records: let a seat an agent may occupy enrol a signing key",
+    witness: "test_a_key_enrolled_by_a_seat_an_agent_may_occupy_is_reported",
+    from: lines(
+      "    (",
+      '        "enrolled_by",',
+      "        AGENT_FORBIDDEN_ROLES,",
+      '        f"one of {list(AGENT_FORBIDDEN_ROLES)} - enrolling a key is a human act, "',
+      '        f"and a key an agent-occupiable seat enrolled binds nobody",',
+      "    ),\n",
+    ),
+    to: "",
+  },
+  {
+    file: SIGNING_POLICY,
+    name: "signing: read a policy line the second reader cannot classify as if it were fine",
+    witness: "a line the signing policy grammar does not classify is refused with its number",
+    from: "    throw unclassified(lineNo, raw);",
+    to: "    continue;",
+  },
+  {
+    file: SIGNING_POLICY,
+    name: "signing: accept a policy value git would read as an option rather than a path",
+    witness: "a value the policy hands to git that is not the shape it must be is refused",
+    from: '  if (!pattern.test(value) || value.split("/").includes("..")) {',
+    to: "  if (false) {",
+  },
+  {
+    file: SIGNING_CHECK,
+    // git answers %G? with eight codes. Four of them contain the word "good"
+    // and one of those is a signature made by a REVOKED key.
+    name: "signing: read any %G? code as a verified signature, not only G",
+    witness: "only a %G? of G is read as a verified signature",
+    from: "  if (record.code !== GOOD_SIGNATURE) {",
+    to: "  if (false) {",
+  },
+  {
+    file: SIGNING_CHECK,
+    name: "signing: accept a good signature from an identity the policy never enrolled",
+    witness: "a good signature by an identity the policy does not accept is not verified",
+    from: "  if (!named.some((value) => acceptedIdentities.includes(value))) {",
+    to: "  if (false) {",
+  },
+  {
+    file: SIGNING_CHECK,
+    // The honesty branch. Without it the check reports an ordinary FAIL for a
+    // state no agent can remedy - or, one edit further, nothing at all.
+    name: "signing: stop announcing NOT_ENFORCED when the policy enrols no key",
+    witness: "the signing check reports NOT_ENFORCED, and never PASS, while no key is enrolled",
+    from: "  if (accepted.length === 0) {",
+    to: "  if (false) {",
   },
 ];
 

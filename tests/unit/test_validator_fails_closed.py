@@ -27,6 +27,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 VALIDATOR = ROOT / "scripts" / "validate_continuity.py"
 
+#: A newline, named. The signing-policy fixtures below edit YAML by string
+#: replacement, and a literal escape inside those calls is one more thing that
+#: has to survive being read, copied and re-quoted correctly.
+NL = chr(10)
+
 WP = "BIZTRUST-WP-999"
 SHA = "0" * 40
 NOW = "2026-01-01T00:00:00Z"
@@ -139,7 +144,14 @@ CHECKPOINT = {
 }
 
 REGISTRY_STUB = 'version: "0.1.0"\nfixture: true\n'
-REGISTRIES = ("lifecycle.yaml", "authority.yaml", "gates.yaml", "agents.yaml", "skills.yaml")
+REGISTRIES = (
+    "lifecycle.yaml",
+    "authority.yaml",
+    "gates.yaml",
+    "agents.yaml",
+    "skills.yaml",
+    "signing-policy.yaml",
+)
 
 #: A minimal but STRUCTURALLY REAL authority registry.
 #:
@@ -273,6 +285,11 @@ skills:
     what: "fixture"
     authority_required: "repository-administrator and business-authority"
     status: FORBIDDEN_TO_AGENTS
+
+  - id: enroll-a-signing-key
+    what: "fixture"
+    authority_required: "repository-administrator, holding the key material"
+    status: FORBIDDEN_TO_AGENTS
 """
 
 #: A minimal but STRUCTURALLY REAL role registry. Task 6: badf/agents.yaml had
@@ -333,7 +350,51 @@ routing:
   - path: "badf/skills.yaml"
     owner: architecture-authority
     verifier: repository-administrator
+  - path: "badf/signing-policy.yaml"
+    owner: repository-administrator
+    verifier: architecture-authority
 """
+
+
+#: A minimal but STRUCTURALLY REAL signature policy.
+#:
+#: A stub would leave it checked for a version line only, which is exactly the
+#: state authority.yaml, gates.yaml, skills.yaml and agents.yaml were each
+#: found in by a later review. It has to carry every path pinned in
+#: PINNED_PROTECTED_PATHS, because that pin is a FLOOR: a policy missing one is
+#: a governance record no signature is ever required for.
+#:
+#: accepted_keys is NONE_ENROLLED here for the same reason it is in the real
+#: file - enrolling a key is a human act, and a fixture that enrolled one would
+#: be a fixture asserting something no agent may bring about.
+SIGNING_POLICY_YAML = """version: "0.1.0"
+updated_at: "2026-01-01T00:00:00Z"
+enforcement_point: FIRST_COMMIT_OF_THIS_POLICY
+
+protected_paths:
+  - badf/authority.yaml
+  - badf/gates.yaml
+  - badf/current-state.json
+  - badf/lifecycle.yaml
+  - badf/agents.yaml
+  - badf/skills.yaml
+  - badf/signing-policy.yaml
+  - sessions/checkpoints
+
+accepted_keys: NONE_ENROLLED
+"""
+
+#: The same policy with one key enrolled, for the three rules that can only be
+#: exercised once accepted_keys is a block. It is a FIXTURE, and the identity
+#: in it is not a key: no agent may enrol one, and this file materialises a
+#: temporary directory, never this repository.
+SIGNING_POLICY_WITH_KEY = SIGNING_POLICY_YAML.replace(
+    "accepted_keys: NONE_ENROLLED\n",
+    "accepted_keys:\n"
+    '  - identity: "A Human <human@example.invalid>"\n'
+    "    kind: gpg\n"
+    "    enrolled_by: repository-administrator\n",
+)
 
 
 def build(tmp: Path, *, state=None, actions=None, decision_lines=None, checkpoint=None,
@@ -360,6 +421,7 @@ def build(tmp: Path, *, state=None, actions=None, decision_lines=None, checkpoin
             "lifecycle.yaml": LIFECYCLE_YAML,
             "agents.yaml": AGENTS_YAML,
             "skills.yaml": SKILLS_YAML,
+            "signing-policy.yaml": SIGNING_POLICY_YAML,
         }.get(name, REGISTRY_STUB)
         (badf / name).write_text(content, encoding="utf-8")
 
@@ -1290,6 +1352,151 @@ class SkillsAndAgentsRegistriesClosed(unittest.TestCase):
         )
         self.assertNotEqual(text, AGENTS_YAML, "the replace target did not match")
         self._refused("PROBABLY", agents=text)
+
+
+class SigningPolicyClosed(unittest.TestCase):
+    """badf/signing-policy.yaml: the record that says WHO must have written a
+    governance record, rather than what it may say.
+
+    Every other class in this file breaks a record and requires the break to be
+    reported. This one breaks the record that decides which records need a
+    human signature at all - and it needs a class of its own because a defect
+    here is invisible in exactly the way the other classes exist to refuse. A
+    policy that quietly stops protecting badf/authority.yaml still parses,
+    still declares a version, and still makes scripts/check-signing.mjs print a
+    status line. It simply asks git about nothing.
+
+    NOTHING HERE ENROLS A KEY IN THIS REPOSITORY. Every fixture is written into
+    a temporary directory. The one that enrols an identity enrols a fictional
+    one, into a copy, to exercise three rules that cannot fire at all while
+    accepted_keys says NONE_ENROLLED.
+    """
+
+    def _run(self, policy):
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = build(Path(directory))
+            (tmp / "badf" / "signing-policy.yaml").write_text(policy, encoding="utf-8")
+            return run(tmp)
+
+    def _refused(self, needle, policy):
+        result = self._run(policy)
+        self.assertEqual(
+            result.returncode, 1,
+            f"this policy defect must be refused:{NL}{result.stdout}{result.stderr}",
+        )
+        self.assertIn(needle, result.stderr)
+
+    # ---- the baselines must pass, or every test below is meaningless -------
+
+    def test_the_signing_policy_fixture_passes(self):
+        result = self._run(SIGNING_POLICY_YAML)
+        self.assertEqual(
+            result.returncode, 0,
+            f"the signing policy baseline must pass:{NL}{result.stdout}{result.stderr}",
+        )
+
+    def test_the_signing_policy_fixture_with_an_enrolled_key_passes(self):
+        result = self._run(SIGNING_POLICY_WITH_KEY)
+        self.assertEqual(
+            result.returncode, 0,
+            f"a well-formed enrolled key must pass, or the three rules below prove "
+            f"nothing:{NL}{result.stdout}{result.stderr}",
+        )
+
+    # ---- the reader: the default is an error -------------------------------
+
+    def test_a_line_the_signing_policy_grammar_cannot_classify_is_reported(self):
+        # Three spaces. Not a section, not an entry, not a field - and the
+        # reader this one is written after would have SKIPPED it, which is how
+        # a tab-indented block became invisible in badf/authority.yaml.
+        self._refused(
+            "matches no rule of this policy's grammar",
+            SIGNING_POLICY_YAML.replace("  - badf/gates.yaml", "   - badf/gates.yaml", 1),
+        )
+
+    def test_an_unknown_top_level_key_in_the_signing_policy_is_reported(self):
+        self._refused(
+            "unknown top-level key",
+            SIGNING_POLICY_YAML.replace(
+                "protected_paths:",
+                "signatures_required: false" + NL + NL + "protected_paths:",
+                1,
+            ),
+        )
+
+    def test_an_unknown_field_on_an_accepted_key_is_reported(self):
+        self._refused(
+            "unknown field",
+            SIGNING_POLICY_WITH_KEY.replace(
+                "    kind: gpg", "    kind: gpg" + NL + "    trusted: true", 1
+            ),
+        )
+
+    # ---- the policy's shape ------------------------------------------------
+
+    def test_an_enforcement_point_that_is_neither_a_sha_nor_the_literal_is_reported(self):
+        self._refused(
+            "neither the literal FIRST_COMMIT_OF_THIS_POLICY",
+            SIGNING_POLICY_YAML.replace(
+                "enforcement_point: FIRST_COMMIT_OF_THIS_POLICY",
+                "enforcement_point: HEAD",
+                1,
+            ),
+        )
+
+    def test_dropping_a_pinned_protected_path_is_reported(self):
+        # The forgery this task is about, in one deleted line:
+        # badf/authority.yaml stops being a path a signature is ever required
+        # for, and every other check in this repository stays green.
+        self._refused(
+            "is pinned in scripts/validate_continuity.py (PINNED_PROTECTED_PATHS)",
+            SIGNING_POLICY_YAML.replace("  - badf/authority.yaml" + NL, "", 1),
+        )
+
+    def test_a_protected_path_git_would_read_as_an_option_is_reported(self):
+        self._refused(
+            "is not a plain relative path",
+            SIGNING_POLICY_YAML.replace(
+                "  - sessions/checkpoints", "  - sessions/checkpoints" + NL + "  - --all", 1
+            ),
+        )
+
+    def test_a_policy_that_declares_no_accepted_keys_is_reported(self):
+        # Not "no key is enrolled", which is the honest current state and
+        # passes. This is the file never saying either way, and an unstated
+        # answer is read as the convenient one.
+        self._refused(
+            "does not declare accepted_keys at all",
+            SIGNING_POLICY_YAML.replace("accepted_keys: NONE_ENROLLED" + NL, "", 1),
+        )
+
+    # ---- the rules on an enrolled key, one per ACCEPTED_KEY_RULES entry -----
+
+    def test_an_accepted_key_with_no_identity_is_reported(self):
+        self._refused(
+            "records identity as ''",
+            SIGNING_POLICY_WITH_KEY.replace(
+                '  - identity: "A Human <human@example.invalid>"', '  - identity: ""', 1
+            ),
+        )
+
+    def test_an_accepted_key_whose_kind_git_cannot_verify_is_reported(self):
+        self._refused(
+            "records kind as 'x509'",
+            SIGNING_POLICY_WITH_KEY.replace("    kind: gpg", "    kind: x509", 1),
+        )
+
+    def test_a_key_enrolled_by_a_seat_an_agent_may_occupy_is_reported(self):
+        # The self-enrolment forgery. platform-engineer is may_be_an_agent:
+        # true, so a key that seat enrolled is a key the signer could also be.
+        self._refused(
+            "records enrolled_by as 'platform-engineer'",
+            SIGNING_POLICY_WITH_KEY.replace(
+                "    enrolled_by: repository-administrator",
+                "    enrolled_by: platform-engineer",
+                1,
+            ),
+        )
 
 
 class ValidatorRunsAgainstThisRepository(unittest.TestCase):
