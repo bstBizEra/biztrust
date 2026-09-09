@@ -47,6 +47,21 @@
  * ever asked for a signature: no commit on this branch is signed, no signing
  * key is configured, and rewriting history is not a repair.
  *
+ * A SHALLOW CLONE IS REFUSED OUTRIGHT, and that refusal is load-bearing
+ * rather than defensive. In a shallow clone the grafted root commit has no
+ * parent, so EVERY file reads as added there and
+ * `git log --diff-filter=A -- badf/signing-policy.yaml` returns exactly one
+ * sha: the root. Neither the no-adds nor the ambiguous-adds refusal below
+ * fires, the enforcement point silently becomes HEAD, and the check reports
+ * PASS having verified nothing at all. `--depth N` is worse than `--depth 1`,
+ * because it narrows the governed range to the last N commits instead of
+ * collapsing visibly to zero. Review of this task demonstrated the whole
+ * bypass in a real `git clone --depth 1`, against a version of this file whose
+ * comment claimed it could not happen - the claim rested on one line of CI
+ * YAML (`fetch-depth: 0`) that nothing tested, so deleting that line made
+ * nothing go red. `git rev-parse --is-shallow-repository` is now asked first,
+ * and the answer `true` is exit 2.
+ *
  * Exit codes: 0 every governed commit verified, or the policy enrols no key
  * and said so; 1 a governed commit is not verified, or the policy is
  * unreadable; 2 this check could not ask git the question at all (a shallow
@@ -65,10 +80,12 @@ import { loadSigningPolicy, SigningPolicyError, ENFORCEMENT_POINT_LITERAL } from
  *
  * An allow-set of exactly one code, not a deny-list of the bad ones, and the
  * difference is the whole doctrine of this branch. `%G?` also answers U (good,
- * but the key is untrusted), X (good, expired signature), Y (good, made by an
- * expired key), R (good, made by a REVOKED key), B (bad), E (cannot be
- * checked) and N (no signature at all). Four of those eight contain the word
- * "good" and none of them is a human identity this repository has bound
+ * unknown validity), X (good, expired signature), Y (good, made by an expired
+ * key), R (good, made by a REVOKED key), B (bad), E (cannot be checked) and N
+ * (no signature at all). git documents FIVE of those eight with the word
+ * "good" - G, U, X, Y and R - so four codes that are NOT this one are
+ * nonetheless "good signatures", and one of those four is a signature by a
+ * revoked key. None of them is a human identity this repository has bound
  * anything to. A deny-list would have to name each one, and a code git adds
  * later would arrive as an accept.
  */
@@ -81,7 +98,7 @@ const UNIT_SEPARATOR = "\u001f";
 const CODE_MEANING = {
   G: "a good signature",
   B: "a BAD signature",
-  U: "a good signature by an untrusted key",
+  U: "a good signature with unknown validity",
   X: "a good signature that has expired",
   Y: "a good signature made by an expired key",
   R: "a good signature made by a REVOKED key",
@@ -132,6 +149,27 @@ function git(args) {
 }
 
 /**
+ * Refuses a repository whose history has been truncated.
+ *
+ * Everything below reads history to decide what is governed, and a truncated
+ * history does not report itself as truncated - it reports fewer commits, and
+ * a grafted root that every file appears to have been added in. Asking git
+ * directly is the only honest way to tell the difference between "no governed
+ * commit is unverified" and "no governed commit is visible from here".
+ */
+function refuseShallowHistory() {
+  if (git(["rev-parse", "--is-shallow-repository"]).trim() === "true") {
+    throw new GitUnavailable(
+      "this is a SHALLOW repository, so its history is truncated and the " +
+        "enforcement point cannot be resolved against it. In a shallow clone " +
+        "every file reads as added in the grafted root commit, which would " +
+        "silently anchor this check at HEAD and report that nothing needs " +
+        "verifying. Clone with full history (fetch-depth: 0 in CI)",
+    );
+  }
+}
+
+/**
  * The commit the policy starts applying AFTER.
  *
  * The literal resolves to the commit that ADDED the policy, because the sha of
@@ -165,17 +203,19 @@ function resolveEnforcementPoint(declared) {
   return adds[0];
 }
 
-/** Every commit after `point` that touched one of the protected paths. */
-function governedCommits(point, protectedPaths) {
-  const output = git([
-    "log",
-    "--format=%H%x1f%G?%x1f%GS%x1f%GK",
-    `${point}..HEAD`,
-    "--",
-    ...protectedPaths,
-  ]);
+/**
+ * Reads `git log`'s four-field records, refusing any line that is not four
+ * fields.
+ *
+ * Exported and pure so the refusal has a fixture: a record this reader cannot
+ * parse must not be silently dropped, because a DROPPED record is a governed
+ * commit that never gets classified - it would leave the check reporting that
+ * every commit it managed to read was fine, which is the same sentence as
+ * "every commit was fine" and does not mean it.
+ */
+export function parseLogRecords(output) {
   const records = [];
-  for (const line of output.split(/\r?\n/)) {
+  for (const line of String(output).split(/\r?\n/)) {
     if (line.trim() === "") continue;
     const fields = line.split(UNIT_SEPARATOR);
     if (fields.length !== 4) {
@@ -186,6 +226,26 @@ function governedCommits(point, protectedPaths) {
     records.push({ sha: fields[0], code: fields[1], signer: fields[2], key: fields[3] });
   }
   return records;
+}
+
+/**
+ * Every commit after `point` that touched one of the protected paths.
+ *
+ * The range is EXCLUSIVE of the enforcement point. `${point}^..HEAD` would
+ * retroactively govern the commit that added the policy - the one commit that
+ * could not possibly have been signed under a policy it is introducing - and
+ * nothing else in this file would notice.
+ */
+function governedCommits(point, protectedPaths) {
+  return parseLogRecords(
+    git([
+      "log",
+      "--format=%H%x1f%G?%x1f%GS%x1f%GK",
+      `${point}..HEAD`,
+      "--",
+      ...protectedPaths,
+    ]),
+  );
 }
 
 function main() {
@@ -205,6 +265,7 @@ function main() {
   let point;
   let commits;
   try {
+    refuseShallowHistory();
     point = resolveEnforcementPoint(policy.enforcementPoint);
     commits = governedCommits(point, policy.protectedPaths);
   } catch (error) {

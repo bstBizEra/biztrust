@@ -1912,6 +1912,99 @@ const MUTATIONS = [
     from: "  if (accepted.length === 0) {",
     to: "  if (false) {",
   },
+  // ---- the git plumbing, which the first version of this task left
+  // ---- unwitnessed and a review then broke six ways ------------------------
+  //
+  // Every one below names `suite: "signing"`: tests/signing/enforcement.test.mjs
+  // builds real repositories and takes ~4.5s, so running it for each of the
+  // hundred-odd boundary mutations would add minutes to `pnpm verify` for
+  // controls none of them can move. Same reasoning, and the same shape, as the
+  // `validator` suite above.
+  //
+  // The first is the CRITICAL one. A shallow clone grafts its root, every file
+  // reads as ADDED there, `--diff-filter=A` returns exactly one sha - HEAD -
+  // and the check reported PASS having verified nothing. Before this control
+  // the only thing refusing that was `fetch-depth: 0` in one CI file, which no
+  // test named: deleting that line made nothing go red.
+  {
+    file: SIGNING_CHECK,
+    suite: "signing",
+    name: "signing: let a shallow clone anchor the enforcement point at its own root",
+    witness: "a shallow clone is refused, not silently anchored at its own grafted root",
+    from: '  if (git(["rev-parse", "--is-shallow-repository"]).trim() === "true") {',
+    to: "  if (false) {",
+  },
+  {
+    file: SIGNING_CHECK,
+    suite: "signing",
+    name: "signing: resolve an enforcement point no commit in the history establishes",
+    witness: "a policy no commit has added is refused rather than resolved to something",
+    from: "  if (adds.length === 0) {",
+    to: "  if (false) {",
+  },
+  {
+    file: SIGNING_CHECK,
+    suite: "signing",
+    // The anti-forgery refusal: without it an agent moves the enforcement
+    // point past its own forgery by deleting the policy and restoring it.
+    name: "signing: resolve an ambiguous enforcement point to the most recent add",
+    witness: "an enforcement point two commits both claim is refused as ambiguous",
+    from: "  if (adds.length > 1) {",
+    to: "  if (false) {",
+  },
+  {
+    file: SIGNING_CHECK,
+    suite: "signing",
+    // Exclusive, and it has to be: the commit that ADDS the policy is the one
+    // commit that could not have been signed under it.
+    name: "signing: govern the commit that introduced the policy, retroactively",
+    witness: "the enforcement point is exclusive: the commit that added the policy is not governed",
+    from: "      `${point}..HEAD`,",
+    to: "      `${point}^..HEAD`,",
+  },
+  {
+    file: SIGNING_CHECK,
+    suite: "signing",
+    name: "signing: drop a git log record this check cannot parse instead of refusing it",
+    witness: "a git log record this check cannot parse is refused, never dropped",
+    from: "    if (fields.length !== 4) {",
+    to: "    if (false) {",
+  },
+  {
+    file: SIGNING_CHECK,
+    suite: "signing",
+    // "I could not ask git" and "the answer was fine" are different sentences.
+    // Throwing a plain Error makes main() rethrow it as a check defect rather
+    // than report which question went unasked.
+    name: "signing: report a failed git command as something other than an unasked question",
+    witness: "a git command that fails is reported as a check that could not run",
+    from: lines(
+      "    throw new GitUnavailable(",
+      '      `git ${args.join(" ")} failed: ${String(error?.stderr ?? error?.message ?? error).trim()}`,',
+    ),
+    to: lines(
+      "    throw new Error(",
+      '      `git ${args.join(" ")} failed: ${String(error?.stderr ?? error?.message ?? error).trim()}`,',
+    ),
+  },
+  {
+    file: SIGNING_CHECK,
+    suite: "signing",
+    name: "signing: stop reporting an unreadable policy as a failure of the check",
+    witness: "a policy the reader cannot read fails the check rather than passing it",
+    from: '    if (error instanceof SigningPolicyError || error?.code === "ENOENT") {',
+    to: "    if (false) {",
+  },
+  {
+    file: SIGNING_CHECK,
+    suite: "signing",
+    // The branch the whole check exists for. Without it an unverified governed
+    // commit is reported on the UNVERIFIED lines and then the run prints PASS.
+    name: "signing: print PASS even when a governed commit is unverified",
+    witness: "an unsigned commit touching a protected path fails once an identity is enrolled",
+    from: "  if (unverified.length > 0) {",
+    to: "  if (false) {",
+  },
 ];
 
 // TEST-ONLY seam, read by tests/boundaries/mutation-check-guard.test.mjs.
@@ -1954,6 +2047,17 @@ const SUITES = {
     label: "node scripts/python.mjs -m unittest discover -s tests/unit -v",
     argv: [join("scripts", "python.mjs"), "-m", "unittest", "discover", "-s", "tests/unit", "-v"],
     read: readUnittest,
+  },
+  // The signature check's git plumbing. Its controls build real repositories -
+  // git init, two or three commits, a shallow clone, a spawned check apiece -
+  // and take ~4.5s together, where the whole boundary suite takes ~2s. Adding
+  // them to that glob would have made every one of the hundred-odd boundary
+  // mutations pay for controls not one of them can move, which is minutes on
+  // every `pnpm verify`. Same split, same reason, as `validator` above.
+  signing: {
+    label: 'node --test --test-reporter=tap "tests/signing/*.test.mjs"',
+    argv: ["--test", "--test-reporter=tap", "tests/signing/*.test.mjs"],
+    read: readTap,
   },
 };
 

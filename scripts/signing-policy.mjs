@@ -83,16 +83,36 @@ function unclassified(lineNo, raw) {
  * OPTION. A policy able to name `--all` as a protected path would be a policy
  * able to rewrite the question this check asks.
  *
- * Everything else about the policy's meaning - the version, whether
- * accepted_keys is coherent, whether the pinned paths are all present - is
- * refused by parse_signing_policy/validate_signing_policy in
- * scripts/validate_continuity.py, which runs first in `pnpm verify` and owns
- * the diagnosis. Deliberately NOT duplicated here, because every ambiguity
- * this reader could face resolves toward MORE enforcement, never less: an
- * accepted_keys block it cannot make sense of yields keys (so the check
- * enforces), and a protected_paths list it cannot make sense of yields no
- * pathspec (so `git log` returns every commit). A second reader is worth
- * having where it can fail open. This one cannot.
+ * Everything else about the policy's MEANING - the version, whether
+ * accepted_keys is coherent, whether the pinned paths are all present, whether
+ * a key was enrolled by a seat an agent may occupy - is refused by
+ * parse_signing_policy/validate_signing_policy in
+ * scripts/validate_continuity.py, and is deliberately not duplicated here.
+ *
+ * BE PRECISE ABOUT WHAT THAT MAKES SAFE, because an earlier version of this
+ * comment was not, and review caught it. This reader does NOT fail closed on
+ * its own. Given
+ *
+ *     accepted_keys:
+ *       - identity: "agent-bot@biztrust.local"
+ *         kind: gpg
+ *         enrolled_by: platform-engineer     # may_be_an_agent: true
+ *
+ * the Python validator reports one error and this reader hands
+ * scripts/check-signing.mjs a perfectly usable accepted identity. Same for a
+ * file that says `accepted_keys: NONE_ENROLLED` and then lists a key. Both are
+ * self-enrolment, and neither is refused here.
+ *
+ * What is true is that this reader is safe IN COMPOSITION, and the composition
+ * is an ORDERING: `pnpm verify` runs `validate:records` before `check:signing`,
+ * and CI runs the same two steps in the same order. Every ambiguity this
+ * reader faces alone resolves toward MORE enforcement, never less - an
+ * accepted_keys block it cannot make sense of yields keys, so the check
+ * enforces; a protected_paths list it cannot make sense of yields no pathspec,
+ * so `git log` returns every commit - so it cannot make the check quieter than
+ * it should be. It can, alone, make the check trust an identity nobody
+ * legitimate enrolled. Reordering those two steps, or dropping the first, is
+ * what this comment exists to warn a future reader against.
  */
 function requireGitSafe(kind, value, lineNo, pattern) {
   if (!pattern.test(value) || value.split("/").includes("..")) {

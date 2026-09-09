@@ -90,7 +90,13 @@ test("a line the signing policy grammar does not classify is refused with its nu
   // Three spaces: not a section, not an entry, not a field. The reader this
   // one is written after SKIPPED lines like it, and a peer review defeated it
   // five ways with ordinary, legal YAML.
-  refused(POLICY.replace("  - badf/gates.yaml", "   - badf/gates.yaml"), "line ");
+  // Assert the SENTENCE, not the "line N:" prefix every SigningPolicyError
+  // carries: a needle that matches any refusal cannot tell the intended one
+  // from a different rule firing for a different reason.
+  refused(
+    POLICY.replace("  - badf/gates.yaml", "   - badf/gates.yaml"),
+    "matches no rule of this policy's grammar",
+  );
   refused(
     POLICY.replace("  - badf/gates.yaml", "\t- badf/gates.yaml"),
     "matches no rule of this policy's grammar",

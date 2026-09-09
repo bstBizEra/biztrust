@@ -41,10 +41,18 @@ jobs:
         uses: actions/checkout@v4
         with:
           # Full history. The signing check (step 2c) asks git which commits
-          # touched a governed path since the policy landed, and the default
-          # depth-1 clone has no history to ask about - it would report that it
-          # could not check rather than that nothing was wrong, which is
-          # correct behaviour and a useless CI run.
+          # touched a governed path since the policy landed, and a shallow
+          # clone cannot answer: its grafted root has no parent, so every file
+          # reads as ADDED there and the enforcement point would resolve to
+          # HEAD - a check that verifies nothing and says so in a pass line.
+          #
+          # This line is a CONVENIENCE, not the control. Review of the task
+          # that added it demonstrated the whole bypass in a real
+          # `git clone --depth 1` and showed that deleting this line made
+          # nothing go red. The check now refuses a shallow repository outright
+          # (`git rev-parse --is-shallow-repository`, exit 2), witnessed by
+          # tests/signing/enforcement.test.mjs and by a mutation. Without this
+          # line CI would fail honestly; with it, CI can answer the question.
           fetch-depth: 0
 
       - name: Set up Node
@@ -111,6 +119,14 @@ jobs:
       #    passes the checker is itself a failure.
       - name: Boundary and migration test suites
         run: pnpm test:boundaries
+
+      # 6b. The signature check's git plumbing, against real histories: a
+      #     shallow clone, an unresolvable anchor, a delete-and-re-add, an
+      #     unsigned commit under an enrolled key. Separate from step 6 because
+      #     each control builds a repository and the mutation sweep runs a
+      #     suite once per mutation.
+      - name: The signing check against real git histories
+        run: pnpm test:signing
 
       # 7. Mutation check: loosen each rule in turn and require the suite to
       #    go red. A suite that passes whether or not the rule works is worth
