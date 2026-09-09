@@ -237,9 +237,10 @@ function main() {
       `SIGNING_CHECK NOT_ENFORCED badf/signing-policy.yaml enrols no key, so ` +
         `nothing in this repository is bound to a human identity. ` +
         `${commits.length} commit(s) after ${point.slice(0, 12)} touched the ` +
-        `${policy.protectedPaths.length} protected path(s); ${unverified.length} of ` +
-        `them carry no signature this policy accepts, and none can, because there ` +
-        `is no accepted identity to carry. This is NOT a pass. Three human acts ` +
+        `${policy.protectedPaths.length} protected path(s), of which ` +
+        `${unverified.length} are bound to nobody - as every one of them must be, ` +
+        `and every later one will be, while there is no accepted identity to be ` +
+        `bound to. This is NOT a pass. Three human acts ` +
         `close it: enrol a key in accepted_keys, decide which identities count, ` +
         `and enable required_signatures branch protection on main. No agent may ` +
         `do any of the three - badf/skills.yaml records enroll-a-signing-key as ` +
