@@ -788,6 +788,47 @@ const CONTROLS = [
     rule: "M1",
     match: 'references type "audit.status_code" in declaration position',
   },
+
+  // The remaining three TYPE_POSITIONS entries. Round five's attribution made
+  // the gap measurable - deleting entry 3, 4 or 5 of that alternation left the
+  // whole suite green - and the ruling on this task's review closed it: one
+  // fixture, one control and one mutation each, the same shape R7-1 uses.
+  {
+    control: "R7-6",
+    threat: "a column RETYPED to a type in another module's schema",
+    file: "r7_alter_column_type_position.sql",
+    rule: "M1",
+    match: "(alter column code type audit.status_code)",
+  },
+  {
+    control: "R7-7",
+    threat: "a function RETURNS a type in another module's schema",
+    file: "r7_returns_type_position.sql",
+    rule: "M1",
+    match: "(returns audit.status_code)",
+  },
+  {
+    control: "R7-8",
+    threat: "a domain is built on a type in another module's schema",
+    file: "r7_create_domain_type_position.sql",
+    rule: "M1",
+    match: "(create domain tenancy.note_grade as audit.status_code)",
+  },
+
+  // Review finding 3: the name an object is renamed TO is a target, and the
+  // unqualified-name refusal reads it. This is what separates the RENAME TO
+  // scan from M4's reading of the verb it produces - the two were killed by
+  // exactly the same four controls before this, and the pair was recorded as
+  // declared non-coverage on a rationale that was reasoned rather than tested,
+  // and was wrong. The match names the RENAME TO half specifically: the
+  // fixture's unqualified SOURCE is reported for the same rule on its own line.
+  {
+    control: "R7-9",
+    threat: "an object is renamed to an unqualified name",
+    file: "r7_rename_to_unqualified_target.sql",
+    rule: "M1",
+    match: 'RENAME TO names "other_thing" with no schema qualifier',
+  },
 ];
 
 // Control R3-6 is the inverse of the others: the fixture must be READ, not

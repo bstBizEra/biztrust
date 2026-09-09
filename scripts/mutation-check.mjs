@@ -110,11 +110,23 @@ import {
   witnessesOf,
   witnessedBy,
   reasonOf,
+  rosterDefect,
   anchorDefect,
   declarationDefects,
   indistinguishable,
   overlaps,
+  verdict,
 } from "./mutation-attribution.mjs";
+
+/**
+ * Whether to print the overlap LISTING as well as its counts.
+ *
+ * An argument rather than an environment variable, for the reason round four
+ * residual 1 made the coverage gate's own seam one: `runSuite` forwards the
+ * ambient environment into every suite this sweep spawns, so a variable read
+ * here would also be read by everything below it.
+ */
+const LIST_OVERLAP = process.argv.slice(2).includes("--overlap");
 
 // Every worktree this script ever creates lives under this exact prefix (see
 // `createWorktree`). That is what makes an orphan from a killed run
@@ -736,16 +748,14 @@ const MUTATIONS = [
     // past M4 again, exactly as it did before this task. Catches R3-23,
     // R3-26, R3-27 and R3-28 together.
     name: "M4: stop modelling ALTER ... RENAME TO as a target of the name it renames an object to",
-    witness:
-      "control R3-23: ALTER TABLE ... RENAME TO renames a table to a domain word is reported as " +
-      "M4",
-    shared:
-      "declared non-coverage. This mutation removes the RENAME TO scan; the one below stops M4 " +
-      "accepting the verb the scan produces. They are killed by exactly the same four controls, " +
-      "and no fixture can separate them: the only consumer of a RENAME TO target is M4 itself, " +
-      "so a target that is never produced and a target that is produced and never read are the " +
-      "same report. Separating them would need a fixture asserting something no rule does, " +
-      "which is a contrivance, not a control.",
+    // The declared non-coverage that used to stand here was reasoned rather
+    // than tested, and was wrong: M4 is NOT the only consumer of a RENAME TO
+    // target. The unqualified-name refusal reads every target, so the name an
+    // object is renamed to is reported when it carries no schema qualifier -
+    // and that report exists only while this scan runs. R7-9 asserts it, and
+    // the mutation below (which leaves the scan running and stops M4 reading
+    // its verb) leaves it standing.
+    witness: "control R7-9: an object is renamed to an unqualified name is reported as M1",
     from: "  scan(\n    new RegExp(\n      String.raw`\\bALTER\\s+${RENAMEABLE_TYPES}\\s+(?:ONLY\\s+)?(?:IF\\s+EXISTS\\s+)?(${ID})(?:\\.(${ID}))?\\s+RENAME\\s+TO\\s+(${ID})`,\n      \"gi\",\n    ),\n    (m) => {\n      const kind = relationKind(m[1]);\n      if (m[3] === undefined) pushResolved(null, m[4], m[0], \"RENAME TO\", kind);\n      else pushResolved(m[2], m[4], m[0], \"RENAME TO\", kind);\n    },\n  );",
     to: "  void 0;",
   },
@@ -758,10 +768,6 @@ const MUTATIONS = [
     witness:
       "control R3-23: ALTER TABLE ... RENAME TO renames a table to a domain word is reported as " +
       "M4",
-    shared:
-      "declared non-coverage, the other half of the pair above: same four controls, same " +
-      "reason. Both are kept because they loosen two independently deletable sites, and a " +
-      "review that deleted either one alone would still be caught.",
     from: '      if (!TABLE_CREATING_VERBS.has(target.verb) && target.verb !== "RENAME TO") continue;',
     to: "      if (!TABLE_CREATING_VERBS.has(target.verb)) continue;",
   },
@@ -1172,6 +1178,35 @@ const MUTATIONS = [
     name: "M1: stop reading a relation's own column list as a type position",
     witness: "control R6-4: a column declared with a type in another module's schema is reported as M1",
     from: '  String.raw`[(,]\\s*${ID}\\s+`,\n',
+    to: "",
+  },
+  {
+    file: LINT,
+    // Round five ruling, closing what this task's own attribution measured:
+    // TYPE_POSITIONS is one alternation of five, and entries 3, 4 and 5 could
+    // each be deleted with the whole suite staying green. Three fixtures,
+    // three controls and these three mutations, in the shape R7-1 already
+    // uses for entry 2.
+    name: "M1: stop reading ALTER ... TYPE as a type position",
+    witness:
+      "control R7-6: a column RETYPED to a type in another module's schema is reported as M1",
+    from: '  String.raw`\\bALTER\\s+(?:COLUMN\\s+)?${ID}\\s+(?:SET\\s+DATA\\s+)?TYPE\\s+`,\n',
+    to: "",
+  },
+  {
+    file: LINT,
+    name: "M1: stop reading a function's RETURNS clause as a type position",
+    witness:
+      "control R7-7: a function RETURNS a type in another module's schema is reported as M1",
+    from: '  String.raw`\\bRETURNS\\s+(?:SETOF\\s+)?`,\n',
+    to: "",
+  },
+  {
+    file: LINT,
+    name: "M1: stop reading a domain's underlying type as a type position",
+    witness:
+      "control R7-8: a domain is built on a type in another module's schema is reported as M1",
+    from: '  String.raw`\\bCREATE\\s+DOMAIN\\s+(?:${ID}\\.)?${ID}\\s+AS\\s+`,\n',
     to: "",
   },
   {
@@ -1614,6 +1649,97 @@ const MUTATIONS = [
     from: "    multiplyKilling: [...kills].filter(([, victims]) => victims.length > 1),",
     to: "    multiplyKilling: [],",
   },
+  {
+    file: ATTRIBUTION,
+    name: "attribution: stop reporting the mutations no control kills alone",
+    witness: "the overlap report names the mutations no control kills alone",
+    from: "      .filter(([, killers]) => killers.every((killer) => kills.get(killer).length > 1))",
+    to: "      .filter(() => false)",
+  },
+  {
+    file: ATTRIBUTION,
+    name: "attribution: accept a baseline suite that named no test at all",
+    witness: "a baseline suite that named no test at all is refused",
+    from: "  if (names.length === 0) {",
+    to: "  if (false) {",
+  },
+  {
+    file: ATTRIBUTION,
+    name: "attribution: accept a baseline suite that named one control twice",
+    witness: "a baseline suite that named one control twice is refused",
+    from: "  if (duplicates.length > 0) {",
+    to: "  if (false) {",
+  },
+
+  // ---- the verdict's own terms ------------------------------------------
+  //
+  // Review of this task deleted `misattributed` from what was then a
+  // hand-written sum in main(), repointed a mutation at the wrong witness, and
+  // watched the sweep PRINT the misattribution and exit 0 - `pnpm verify`
+  // green with the whole attribution switched off. The sum is now one
+  // alternation, so dropping a term is one deletable entry, and every entry is
+  // a mutation with its own control. The controls are enumerated in the test
+  // file INDEPENDENTLY of the alternation: derived from it, deleting a term
+  // would delete its control too, and a control that no longer exists cannot
+  // go red.
+  {
+    file: ATTRIBUTION,
+    name: "verdict: a surviving mutation stops failing the run",
+    witness: "the run fails when survived is not empty",
+    from: '  ["survived", "survived"],\n',
+    to: "",
+  },
+  {
+    file: ATTRIBUTION,
+    name: "verdict: a defective anchor stops failing the run",
+    witness: "the run fails when anchorDefects is not empty",
+    from: '  ["anchorDefects", "anchor(s) defective"],\n',
+    to: "",
+  },
+  {
+    file: ATTRIBUTION,
+    name: "verdict: a mutation that declares no witness stops failing the run",
+    witness: "the run fails when undeclared is not empty",
+    from: '  ["undeclared", "declared no witness"],\n',
+    to: "",
+  },
+  {
+    file: ATTRIBUTION,
+    name: "verdict: a witness that names no test stops failing the run",
+    witness: "the run fails when unknownWitness is not empty",
+    from: '  ["unknownWitness", "declared a witness that names no test"],\n',
+    to: "",
+  },
+  {
+    file: ATTRIBUTION,
+    name: "verdict: an undeclared borrowed witness stops failing the run",
+    witness: "the run fails when undeclaredSharing is not empty",
+    from: '  ["undeclaredSharing", "borrowed a declared witness without saying so"],\n',
+    to: "",
+  },
+  {
+    file: ATTRIBUTION,
+    name: "verdict: an indistinguishable pair stops failing the run",
+    witness: "the run fails when undeclaredTwins is not empty",
+    from: '  ["undeclaredTwins", "indistinguishable from another mutation"],\n',
+    to: "",
+  },
+  {
+    file: ATTRIBUTION,
+    name: "verdict: a misattributed mutation stops failing the run",
+    witness: "the run fails when misattributed is not empty",
+    from: '  ["misattributed", "caught by something other than their witness"],\n',
+    to: "",
+  },
+  {
+    file: ATTRIBUTION,
+    // The other half of the same hole: a term that cannot be silenced by
+    // deleting its entry can still be silenced by not passing its bucket.
+    name: "verdict: count a bucket it was never given as empty",
+    witness: "a bucket the verdict was not given is a defect, not an empty bucket",
+    from: "    if (!Object.hasOwn(buckets, key)) {",
+    to: "    if (false) {",
+  },
 ];
 
 // TEST-ONLY seam, read by tests/boundaries/mutation-check-guard.test.mjs.
@@ -1621,7 +1747,7 @@ const MUTATIONS = [
 // normal `pnpm check:mutations` never sets it. It exists because witnessing
 // the EXIT-time half of the dirty-tree guard (below) needs a real,
 // end-to-end run of this script, and paying the full four-minute,
-// 111-mutation sweep for that would make every `pnpm verify` noticeably slower
+// 125-mutation sweep for that would make every `pnpm verify` noticeably slower
 // for a check that does not touch the sweep loop at all. Truncating the
 // array (not skipping it) means the truncated run still exercises the exact
 // same baseline-suite-then-loop-then-exit-check code path, just over fewer
@@ -1715,18 +1841,12 @@ function main() {
       );
       return 2;
     }
-    // A suite that names no test is green for the same reason an empty suite
-    // is: it asserted nothing. Every mutation checked against it would then
-    // SURVIVE and every witness declared against it would name nothing, so
-    // this is a defect in the harness's own reading of the suite, not a
-    // result. Deny by default rather than reporting a green baseline over a
-    // roster the reader never produced.
-    if (baseline.names.length === 0) {
-      process.stderr.write(
-        `MUTATION_CHECK FAIL the ${suite} baseline suite (${SUITES[suite].label}) ` +
-          `reported no test at all, so no mutation could be attributed to a ` +
-          `control and no declared witness could be checked for existence.\n`,
-      );
+    // A roster that names nothing, or names one control twice, is a defect in
+    // this harness's own reading of the suite rather than a result - see
+    // `rosterDefect`, where both halves are stated and witnessed.
+    const defect = rosterDefect(suite, SUITES[suite].label, baseline.names);
+    if (defect !== null) {
+      process.stderr.write(`MUTATION_CHECK FAIL ${defect}.\n`);
       return 2;
     }
     roster.set(suite, new Set(baseline.names));
@@ -1827,17 +1947,30 @@ function main() {
   //
   // Neither direction is automatically a defect. Both are places where the
   // count of mutations caught is larger than the number of independent things
-  // actually proved, and a reader cannot see that from a pass line.
-  const { multiplyKilled, multiplyKilling } = overlaps(killedBy);
+  // actually proved, and a reader cannot see that from a pass line. The third
+  // number is the granularity itself: how many mutations no control kills
+  // alone. The counts always print; the listing behind them is long, churns
+  // run to run, and is read once a defect is being chased, so it takes an
+  // argument - and an ARGUMENT, not an environment variable, for the reason
+  // the coverage gate's own seam is one: runSuite forwards the ambient
+  // environment into every suite this sweep spawns.
+  const { multiplyKilled, multiplyKilling, withoutExclusiveKiller } = overlaps(killedBy);
   process.stdout.write(
     `MUTATION_CHECK OVERLAP ${multiplyKilled.length} mutation(s) killed by more than ` +
-      `one control, ${multiplyKilling.length} control(s) killing more than one mutation\n`,
+      `one control, ${multiplyKilling.length} control(s) killing more than one ` +
+      `mutation, ${withoutExclusiveKiller.length} mutation(s) no control kills alone` +
+      `${LIST_OVERLAP ? "" : " (--overlap lists them)"}\n`,
   );
-  for (const [name, killers] of multiplyKilled) {
-    process.stdout.write(`  killed by ${killers.length} controls  ${name}\n${indent(killers)}`);
-  }
-  for (const [name, victims] of multiplyKilling) {
-    process.stdout.write(`  kills ${victims.length} mutations  ${name}\n${indent(victims)}`);
+  if (LIST_OVERLAP) {
+    for (const [name, killers] of multiplyKilled) {
+      process.stdout.write(`  killed by ${killers.length} controls  ${name}\n${indent(killers)}`);
+    }
+    for (const [name, victims] of multiplyKilling) {
+      process.stdout.write(`  kills ${victims.length} mutations  ${name}\n${indent(victims)}`);
+    }
+    if (withoutExclusiveKiller.length > 0) {
+      process.stdout.write(`  no control kills these alone:\n${indent(withoutExclusiveKiller)}`);
+    }
   }
 
   const declaredShared = MUTATIONS.filter((mutation) => reasonOf(mutation) !== null);
@@ -1873,29 +2006,24 @@ function main() {
     process.stderr.write(`MUTATION_CHECK MISATTRIBUTED ${entry}\n`);
   }
 
-  const failures =
-    survived.length +
-    anchorDefects.length +
-    undeclared.length +
-    unknownWitness.length +
-    undeclaredSharing.length +
-    undeclaredTwins.length +
-    misattributed.length;
-  if (failures > 0) {
-    process.stderr.write(
-      `MUTATION_CHECK FAIL ${survived.length} mutation(s) survived, ` +
-        `${anchorDefects.length} anchor(s) defective, ` +
-        `${undeclared.length} declared no witness, ` +
-        `${unknownWitness.length} declared a witness that names no test, ` +
-        `${undeclaredSharing.length} share a declared witness without saying so, ` +
-        `${undeclaredTwins.length} are indistinguishable from another mutation, ` +
-        `${misattributed.length} were caught by something other than their witness. ` +
-        `A surviving mutation is a rule no fixture enforces; a defective anchor is a ` +
-        `mutation that stopped testing, or one testing a rule other than the one it ` +
-        `names; a mutation caught by a sibling is a rule whose own control proves ` +
-        `nothing about it.\n`,
-    );
-    return 1;
+  // The exit code and the line that explains it are both derived from one
+  // alternation in mutation-attribution.mjs, and every term of it is
+  // witnessed. Summing these by hand here is what let review of this task
+  // delete a term and watch the sweep print every misattribution it found and
+  // exit 0 anyway - the suite green while the rule did nothing, inside the
+  // instrument built to measure exactly that.
+  const { code, summary } = verdict({
+    survived,
+    anchorDefects,
+    undeclared,
+    unknownWitness,
+    undeclaredSharing,
+    undeclaredTwins,
+    misattributed,
+  });
+  if (code !== 0) {
+    process.stderr.write(`${summary}\n`);
+    return code;
   }
 
   process.stdout.write(

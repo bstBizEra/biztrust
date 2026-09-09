@@ -23,10 +23,12 @@ import {
   readUnittest,
   witnessesOf,
   witnessedBy,
+  rosterDefect,
   anchorDefect,
   declarationDefects,
   indistinguishable,
   overlaps,
+  verdict,
 } from "../../scripts/mutation-attribution.mjs";
 
 const TAP = [
@@ -193,4 +195,83 @@ test("the overlap report names both directions of the relation", () => {
   const { multiplyKilled, multiplyKilling } = overlaps(killedBy);
   assert.deepEqual(multiplyKilled, [["m one", ["control 1", "control 2"]]]);
   assert.deepEqual(multiplyKilling, [["control 1", ["m one", "m two"]]]);
+});
+
+test("the overlap report names the mutations no control kills alone", () => {
+  // "m two" dies only under a control that also kills "m one", so nothing in
+  // the suite covers it by itself; "m one" has `control 2` to itself.
+  const killedBy = new Map([
+    ["m one", ["control 1", "control 2"]],
+    ["m two", ["control 1"]],
+  ]);
+  assert.deepEqual(overlaps(killedBy).withoutExclusiveKiller, ["m two"]);
+});
+
+test("a baseline suite that named no test at all is refused", () => {
+  assert.equal(
+    rosterDefect("validator", "python -m unittest", []),
+    "the validator baseline suite (python -m unittest) reported no test at all, so " +
+      "no mutation could be attributed to a control and no declared witness could be " +
+      "checked for existence",
+  );
+});
+
+test("a baseline suite that named one control twice is refused", () => {
+  assert.equal(
+    rosterDefect("boundaries", "node --test", ["control 1", "control 2", "control 1"]),
+    "the boundaries baseline suite (node --test) reported the same control name more " +
+      "than once, so two controls collapse into one and a witness could be credited " +
+      "to whichever of them went red: control 1",
+  );
+});
+
+test("a baseline suite whose control names are all distinct is accepted", () => {
+  assert.equal(rosterDefect("boundaries", "node --test", ["control 1", "control 2"]), null);
+});
+
+/**
+ * The verdict's terms, enumerated here INDEPENDENTLY of the alternation in
+ * `scripts/mutation-attribution.mjs`.
+ *
+ * Deriving this list from `VERDICT_TERMS` would be worse than useless:
+ * deleting a term from the module would delete its control too, and a control
+ * that no longer exists cannot go red. That is the whole failure this pair of
+ * lists exists to catch - review of this task deleted `misattributed` from the
+ * hand-rolled sum and watched the sweep print every misattribution it found
+ * and exit 0.
+ */
+const EMPTY_BUCKETS = {
+  survived: [],
+  anchorDefects: [],
+  undeclared: [],
+  unknownWitness: [],
+  undeclaredSharing: [],
+  undeclaredTwins: [],
+  misattributed: [],
+};
+
+for (const term of Object.keys(EMPTY_BUCKETS)) {
+  test(`the run fails when ${term} is not empty`, () => {
+    const { code, summary } = verdict({ ...EMPTY_BUCKETS, [term]: ["one entry"] });
+    assert.equal(code, 1, `a non-empty ${term} bucket must fail the run`);
+    assert.match(summary, /^MUTATION_CHECK FAIL /);
+  });
+}
+
+test("the run passes only when every term is empty", () => {
+  assert.deepEqual(verdict({ ...EMPTY_BUCKETS }), { code: 0, summary: null });
+});
+
+test("the verdict counts every term it was given, in its summary", () => {
+  const { summary } = verdict({ ...EMPTY_BUCKETS, survived: ["a"], misattributed: ["b", "c"] });
+  assert.match(summary, /1 survived/);
+  assert.match(summary, /2 caught by something other than their witness/);
+});
+
+test("a bucket the verdict was not given is a defect, not an empty bucket", () => {
+  const { misattributed, ...missing } = EMPTY_BUCKETS;
+  assert.throws(() => verdict(missing), {
+    message:
+      "verdict was not given the misattributed bucket, so that term could not be counted",
+  });
 });

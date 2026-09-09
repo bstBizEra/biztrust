@@ -1,0 +1,13 @@
+-- Round five, the attribution round, review finding 3: the name an object is
+-- renamed TO is a target like any other, so the unqualified-name refusal
+-- consumes it. That is what separates "the RENAME TO scan does not run" from
+-- "M4 does not read the verb the scan produces": the first loses this line,
+-- the second keeps it. Both mutations were previously killed by exactly the
+-- same four M4 controls and by nothing else.
+--
+-- The source name is unqualified too, and is reported separately for the same
+-- rule; the control asserts the RENAME TO half by its message, which is the
+-- only shape that tells the two reports apart. Qualifying the source is not an
+-- option: the target then inherits the source's schema and nothing is
+-- reported at all.
+ALTER TABLE neutral_thing RENAME TO other_thing;

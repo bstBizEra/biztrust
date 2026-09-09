@@ -86,6 +86,46 @@ export function readUnittest(output) {
   return { names, failed };
 }
 
+/**
+ * The defect in a baseline roster, or null.
+ *
+ * A suite that names NO test is green for the same reason an empty suite is:
+ * it asserted nothing. Every mutation checked against it would then survive
+ * and every witness declared against it would name nothing, so this is a
+ * defect in the harness's own reading of the suite rather than a result.
+ *
+ * A suite that names the same control TWICE is the subtler half, and the
+ * reason this refusal is not "there are no duplicates today": two controls
+ * collapsing into one roster entry is the anchor collision this task found in
+ * `scripts/boundary-rules.mjs`, one level up. A witness naming the collapsed
+ * name would be credited by whichever of the two went red, which is exactly
+ * the "caught by a sibling" reading the attribution exists to refuse.
+ */
+export function rosterDefect(suite, label, names) {
+  if (names.length === 0) {
+    return (
+      `the ${suite} baseline suite (${label}) reported no test at all, so no ` +
+      `mutation could be attributed to a control and no declared witness could ` +
+      `be checked for existence`
+    );
+  }
+  const seen = new Set();
+  const repeated = new Set();
+  for (const name of names) {
+    if (seen.has(name)) repeated.add(name);
+    seen.add(name);
+  }
+  const duplicates = [...repeated].sort();
+  if (duplicates.length > 0) {
+    return (
+      `the ${suite} baseline suite (${label}) reported the same control name more ` +
+      `than once, so two controls collapse into one and a witness could be ` +
+      `credited to whichever of them went red: ${duplicates.join(", ")}`
+    );
+  }
+  return null;
+}
+
 /** The controls a mutation declares as the ones that should catch it. */
 export function witnessesOf(mutation) {
   const declared = mutation.witness ?? [];
@@ -248,5 +288,66 @@ export function overlaps(killedBy) {
   return {
     multiplyKilled: [...killedBy].filter(([, killers]) => killers.length > 1),
     multiplyKilling: [...kills].filter(([, victims]) => victims.length > 1),
+    // The granularity number: a mutation every one of whose killers also kills
+    // something else is covered by no fixture of its own, whatever it declares.
+    // It is not by itself a defect - a broad mutation legitimately kills
+    // everything a narrow one does - but it is the count a reader needs to
+    // judge "N mutations caught" against, and it cannot be derived from either
+    // list above without doing the arithmetic by hand.
+    withoutExclusiveKiller: [...killedBy]
+      .filter(([, killers]) => killers.every((killer) => kills.get(killer).length > 1))
+      .map(([name]) => name),
+  };
+}
+
+/**
+ * The terms that make a run fail, as ONE alternation.
+ *
+ * The predicates above were extracted so they could be witnessed; this is the
+ * aggregation that turns them into an exit code, and it is the part a future
+ * edit touches. Review of this task demonstrated the hole it closes: with
+ * `misattributed` deleted from a hand-written sum, the sweep still PRINTED
+ * every misattribution, still exited 0, and `pnpm verify` stayed green with
+ * the whole attribution switched off. Deriving both the exit code and the
+ * summary line from one list means dropping a term is one deletable entry -
+ * one mutation, one control - rather than an invisible edit inside an
+ * expression.
+ */
+export const VERDICT_TERMS = [
+  ["survived", "survived"],
+  ["anchorDefects", "anchor(s) defective"],
+  ["undeclared", "declared no witness"],
+  ["unknownWitness", "declared a witness that names no test"],
+  ["undeclaredSharing", "borrowed a declared witness without saying so"],
+  ["undeclaredTwins", "indistinguishable from another mutation"],
+  ["misattributed", "caught by something other than their witness"],
+];
+
+/**
+ * The run's verdict: exit code and the line that explains it.
+ *
+ * A bucket this function does not receive is a defect in the caller, not an
+ * empty bucket - the whole point of the alternation above is defeated if a
+ * term can be silenced by simply not passing it - so a missing key throws
+ * rather than counting as zero.
+ */
+export function verdict(buckets) {
+  const counts = VERDICT_TERMS.map(([key, label]) => {
+    if (!Object.hasOwn(buckets, key)) {
+      throw new Error(`verdict was not given the ${key} bucket, so that term could not be counted`);
+    }
+    return [buckets[key].length, label];
+  });
+  const total = counts.reduce((sum, [count]) => sum + count, 0);
+  if (total === 0) return { code: 0, summary: null };
+  return {
+    code: 1,
+    summary:
+      `MUTATION_CHECK FAIL ` +
+      counts.map(([count, label]) => `${count} ${label}`).join(", ") +
+      `. A surviving mutation is a rule no fixture enforces; a defective anchor is ` +
+      `a mutation that stopped testing, or one testing a rule other than the one ` +
+      `it names; a mutation caught by a sibling is a rule whose own control proves ` +
+      `nothing about it.`,
   };
 }
