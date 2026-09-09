@@ -1523,6 +1523,26 @@ def validate_signing_policy(errors: list[str]) -> None:
 
     # accepted_keys says exactly one thing: no key is enrolled, or these keys
     # are. Not both, not neither, and not some third word.
+    #
+    # FOUR branches, and each one now carries a control of its own in
+    # tests/unit/test_validator_fails_closed.py and a mutation of its own in
+    # scripts/mutation-check.mjs. Until the final review of this branch they
+    # shared ONE of each: the mutation rewrote the aggregation below
+    # (`if said is not None:`), the one existing control caught it, and the
+    # sweep printed a full house while three of these four could be DELETED
+    # with the entire validator suite still green.
+    #
+    # The second branch is the one with a motive behind it. With it gone, a
+    # policy that says NONE_ENROLLED and then lists an identity PASSES here;
+    # scripts/signing-policy.mjs decides enrolment from whether an entry
+    # parsed and never from the word, and says so; so the signature check
+    # enforces against an identity nobody enrolled and stops printing
+    # NOT_ENFORCED, while a human greps NONE_ENROLLED - the method this policy
+    # file documents - and reads that nobody is bound to anything. The
+    # branches stay four separate lines rather than an alternation table for
+    # the same reason ACCEPTED_KEY_RULES below is a table: what matters is
+    # that each rule is ONE deletable thing with one control and one mutation
+    # against it, and these already are.
     inline = policy["accepted_keys_inline"]
     keys = policy["accepted_keys"]
     said = None

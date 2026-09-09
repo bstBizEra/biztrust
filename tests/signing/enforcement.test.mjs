@@ -65,6 +65,22 @@ const POLICY_WITH_KEY = POLICY.replace(
   ["accepted_keys:", '  - identity: "A Human <human@example.invalid>"', "    kind: ssh", "    enrolled_by: repository-administrator"].join("\n"),
 );
 
+// The needle above is a line of a file this fixture does not own, and it is
+// the ONE line a human enrolling a key will delete. `String.replace` on a
+// needle that is absent returns the string unchanged and says nothing, so on
+// that day POLICY_WITH_KEY would silently become POLICY, four controls below
+// would run against a policy that enrols nobody, and every one of them would
+// go green for the wrong reason - the fixture degrading exactly on the event
+// it was written to anticipate. tests/unit/test_validator_fails_closed.py
+// guards its own replaces this way; this is the same idiom.
+assert.notEqual(
+  POLICY_WITH_KEY,
+  POLICY,
+  "the replace target did not match: badf/signing-policy.yaml no longer contains " +
+    "the line 'accepted_keys: NONE_ENROLLED', so this fixture enrols nobody and " +
+    "the controls that need an enrolled identity would pass without exercising one",
+);
+
 function git(dir, args) {
   const result = spawnSync("git", args, { cwd: dir, encoding: "utf8" });
   assert.equal(
@@ -172,6 +188,55 @@ test("a shallow clone is refused, not silently anchored at its own grafted root"
     } finally {
       rmSync(clone, { recursive: true, force: true });
     }
+  });
+});
+
+test("a grafted history is read through to the real commits, not the replacement", () => {
+  // THE SAME BYPASS WITHOUT THE SHALLOW FLAG, and the one the shallow guard
+  // cannot see. `git replace --graft HEAD` writes a replacement HEAD with no
+  // parents; git then answers `false` to --is-shallow-repository and `1` to
+  // rev-list --count HEAD, every file reads as ADDED in HEAD, the enforcement
+  // point resolves to HEAD and the check printed PASS having verified
+  // nothing. Writing refs/replace needs ordinary git write access and nothing
+  // else, which is what the agent this check binds already has.
+  //
+  // The shape of the assertion is the shallow control's, with one difference
+  // that matters: a graft is NOT refused. The fix inverts git's default so the
+  // check reads the real history, so the correct answer here is the answer a
+  // repository with no graft in it gives - FAIL, naming the unsigned commit.
+  fixture((dir) => {
+    commitPolicy(dir, POLICY_WITH_KEY);
+    writeFileSync(join(dir, "badf", "authority.yaml"), "version: \"0.1.0\"\n", "utf8");
+    git(dir, ["add", "-A"]);
+    git(dir, ["commit", "-q", "-m", "a change to a protected path, unsigned"]);
+    git(dir, ["replace", "--graft", "HEAD"]);
+
+    assert.notEqual(
+      git(dir, ["for-each-ref", "refs/replace"]).trim(),
+      "",
+      "the fixture must actually carry a replacement ref, or this control proves nothing",
+    );
+    assert.equal(
+      git(dir, ["rev-parse", "--is-shallow-repository"]).trim(),
+      "false",
+      "the point of this control is that the shallow guard answers `false` here, " +
+        "so a fixture git called shallow would be testing the other refusal",
+    );
+    assert.equal(
+      git(dir, ["log", "--format=%H", "--diff-filter=A", "--", "badf/signing-policy.yaml"]).trim(),
+      git(dir, ["rev-parse", "HEAD"]).trim(),
+      "and the graft must actually move the anchor to HEAD when git honours it, " +
+        "or there is no bypass here to be closed",
+    );
+
+    const { code, output } = check(dir);
+    assert.equal(code, 1, `a grafted history must not turn an unsigned commit into a pass:\n${output}`);
+    assert.match(output, /SIGNING_CHECK FAIL 1 of 1 commit\(s\)/, output);
+    assert.ok(
+      !output.includes("SIGNING_CHECK PASS"),
+      `a replacement ref must not be able to buy a pass line - it is the shallow ` +
+        `bypass in a repository git reports as complete:\n${output}`,
+    );
   });
 });
 

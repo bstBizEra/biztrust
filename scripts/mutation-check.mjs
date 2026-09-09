@@ -398,6 +398,11 @@ const RECORDS = join(WT_ROOT, "scripts", "validate_continuity.py");
 const ATTRIBUTION = join(WT_ROOT, "scripts", "mutation-attribution.mjs");
 const SIGNING_POLICY = join(WT_ROOT, "scripts", "signing-policy.mjs");
 const SIGNING_CHECK = join(WT_ROOT, "scripts", "check-signing.mjs");
+// Not a script. The ORDER of the verify chain is a control - the JS signing
+// policy reader is fail-closed only because validate:records runs before
+// check:signing - and a control that lives in data rather than in code is
+// still a control, so it is mutated like one.
+const PACKAGE = join(WT_ROOT, "package.json");
 
 /** Joins anchor lines, so no source string carries an embedded newline. */
 const lines = (...parts) => parts.join("\n");
@@ -1647,9 +1652,20 @@ const MUTATIONS = [
   {
     file: ATTRIBUTION,
     name: "attribution: stop reporting the controls that kill more than one mutation",
-    witness: "the overlap report names both directions of the relation",
+    witness: "the overlap report names the controls that kill more than one mutation",
     from: "    multiplyKilling: [...kills].filter(([, victims]) => victims.length > 1),",
     to: "    multiplyKilling: [],",
+  },
+  {
+    file: ATTRIBUTION,
+    // The other direction, which had a control but no measurement: the
+    // control did go red if deleted, so the number was not unwitnessed - it
+    // was simply never MEASURED, and the shared fixture is why. Its half of
+    // the split fixture is above.
+    name: "attribution: stop reporting the mutations more than one control kills",
+    witness: "the overlap report names the mutations more than one control kills",
+    from: "    multiplyKilled: [...killedBy].filter(([, killers]) => killers.length > 1),",
+    to: "    multiplyKilled: [],",
   },
   {
     file: ATTRIBUTION,
@@ -1834,6 +1850,37 @@ const MUTATIONS = [
     from: "    if said is not None:",
     to: "    if False:",
   },
+  // The four accepted_keys coherence branches, one mutation each. They had one
+  // between them - the aggregation above - and one control, so three of the
+  // four would have passed the sweep with the branch DELETED. Round six of the
+  // same defect class, and this time inside the rule the comment on
+  // ACCEPTED_KEY_RULES was written about.
+  {
+    file: RECORDS,
+    suite: "validator",
+    // The self-enrolment path: the file says the word a human greps for and
+    // then hands the JS reader a live identity anyway.
+    name: "records: accept a signing policy that says NONE_ENROLLED and then lists a key",
+    witness: "test_a_policy_that_says_none_enrolled_and_then_lists_a_key_is_reported",
+    from: "    elif inline == NO_KEYS_ENROLLED and keys:",
+    to: "    elif False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: accept a signing policy that opens accepted_keys and lists nothing",
+    witness: "test_a_policy_that_opens_accepted_keys_and_lists_no_key_is_reported",
+    from: '    elif inline == "" and not keys:',
+    to: "    elif False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: accept a signing policy that records accepted_keys as a third word",
+    witness: "test_a_policy_that_records_accepted_keys_as_some_other_word_is_reported",
+    from: '    elif inline not in ("", NO_KEYS_ENROLLED):',
+    to: "    elif False:",
+  },
   {
     file: RECORDS,
     suite: "validator",
@@ -1937,6 +1984,18 @@ const MUTATIONS = [
   {
     file: SIGNING_CHECK,
     suite: "signing",
+    // The same bypass without the shallow flag, and the one the guard above
+    // cannot see: `git replace --graft HEAD` gives a repository git calls
+    // NOT shallow, with one commit, whose every file reads as added in HEAD.
+    // Dropping the flag hands the check back to refs/replace.
+    name: "signing: let refs/replace rewrite the history this check reads",
+    witness: "a grafted history is read through to the real commits, not the replacement",
+    from: "  const argv = [NO_REPLACEMENT, ...args];",
+    to: "  const argv = [...args];",
+  },
+  {
+    file: SIGNING_CHECK,
+    suite: "signing",
     name: "signing: resolve an enforcement point no commit in the history establishes",
     witness: "a policy no commit has added is refused rather than resolved to something",
     from: "  if (adds.length === 0) {",
@@ -1980,11 +2039,11 @@ const MUTATIONS = [
     witness: "a git command that fails is reported as a check that could not run",
     from: lines(
       "    throw new GitUnavailable(",
-      '      `git ${args.join(" ")} failed: ${String(error?.stderr ?? error?.message ?? error).trim()}`,',
+      '      `git ${argv.join(" ")} failed: ${String(error?.stderr ?? error?.message ?? error).trim()}`,',
     ),
     to: lines(
       "    throw new Error(",
-      '      `git ${args.join(" ")} failed: ${String(error?.stderr ?? error?.message ?? error).trim()}`,',
+      '      `git ${argv.join(" ")} failed: ${String(error?.stderr ?? error?.message ?? error).trim()}`,',
     ),
   },
   {
@@ -2004,6 +2063,18 @@ const MUTATIONS = [
     witness: "an unsigned commit touching a protected path fails once an identity is enrolled",
     from: "  if (unverified.length > 0) {",
     to: "  if (false) {",
+  },
+  {
+    file: PACKAGE,
+    // The composition scripts/signing-policy.mjs's docstring depends on, and
+    // which nothing guarded until the final review of this branch said so.
+    // That reader hands check-signing.mjs a self-enrolled identity the Python
+    // validator refuses; running the check FIRST is therefore a real
+    // loosening, and it used to turn nothing red.
+    name: "verify: run the signature check before the record validator its inputs depend on",
+    witness: "pnpm verify runs the signing check, and runs the record validator before it",
+    from: "pnpm validate:records && pnpm test:validator && pnpm check:signing",
+    to: "pnpm check:signing && pnpm validate:records && pnpm test:validator",
   },
 ];
 

@@ -1461,6 +1461,20 @@ class SigningPolicyClosed(unittest.TestCase):
             ),
         )
 
+    # ---- accepted_keys says exactly one thing: FOUR branches, four controls --
+    #
+    # One control used to cover all four, and the single mutation on the
+    # aggregation (`if said is not None:`) was caught by it, so the sweep
+    # printed a full house while three of the four branches were invisible.
+    # Deleting the NONE_ENROLLED-and-then-lists-a-key branch left the whole
+    # validator suite green - and a policy that says NONE_ENROLLED while
+    # listing a live identity then PASSES, so a human greps the word the file
+    # documents, reads "nobody is bound", and the signature check is enforcing
+    # against an identity nobody enrolled while no longer printing
+    # NOT_ENFORCED. That is the sixth instance of this branch's own defect
+    # class, and the comment on ACCEPTED_KEY_RULES had already named it twenty
+    # lines below the code carrying it.
+
     def test_a_policy_that_declares_no_accepted_keys_is_reported(self):
         # Not "no key is enrolled", which is the honest current state and
         # passes. This is the file never saying either way, and an unstated
@@ -1469,6 +1483,43 @@ class SigningPolicyClosed(unittest.TestCase):
             "does not declare accepted_keys at all",
             SIGNING_POLICY_YAML.replace("accepted_keys: NONE_ENROLLED" + NL, "", 1),
         )
+
+    def test_a_policy_that_says_none_enrolled_and_then_lists_a_key_is_reported(self):
+        # SELF-ENROLMENT BEHIND THE WORD THAT MEANS THE OPPOSITE. The JS
+        # reader decides enrolment from whether an entry parsed, never from
+        # this word, and says so - so with this branch gone the two readers
+        # disagree in the direction that matters: the file reads as unbound
+        # and the check enforces against whoever wrote it.
+        text = SIGNING_POLICY_YAML.replace(
+            "accepted_keys: NONE_ENROLLED" + NL,
+            "accepted_keys: NONE_ENROLLED" + NL
+            + '  - identity: "agent-bot@biztrust.local"' + NL
+            + "    kind: ssh" + NL
+            + "    enrolled_by: repository-administrator" + NL,
+            1,
+        )
+        self.assertNotEqual(text, SIGNING_POLICY_YAML, "the replace target did not match")
+        self._refused("says NONE_ENROLLED and then lists 1 key(s)", text)
+
+    def test_a_policy_that_opens_accepted_keys_and_lists_no_key_is_reported(self):
+        # The other half of the same contradiction: a block header with
+        # nothing under it. It is not NONE_ENROLLED - so nothing greps it as
+        # unenforced - and it enrols nobody, so the check would report
+        # NOT_ENFORCED under a file that does not say so.
+        text = SIGNING_POLICY_YAML.replace("accepted_keys: NONE_ENROLLED", "accepted_keys:", 1)
+        self.assertNotEqual(text, SIGNING_POLICY_YAML, "the replace target did not match")
+        self._refused("opens accepted_keys as a block and lists no key in it", text)
+
+    def test_a_policy_that_records_accepted_keys_as_some_other_word_is_reported(self):
+        # A third word is the worst of the three, because it reads as an
+        # answer. PENDING enrols nobody and announces nothing; the check would
+        # print NOT_ENFORCED and a reader of the file would not know whether
+        # that was the file's intent or the reader's guess.
+        text = SIGNING_POLICY_YAML.replace(
+            "accepted_keys: NONE_ENROLLED", "accepted_keys: PENDING", 1
+        )
+        self.assertNotEqual(text, SIGNING_POLICY_YAML, "the replace target did not match")
+        self._refused("records accepted_keys as 'PENDING'", text)
 
     # ---- the rules on an enrolled key, one per ACCEPTED_KEY_RULES entry -----
 

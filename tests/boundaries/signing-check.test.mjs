@@ -206,7 +206,7 @@ test("the signing check reports NOT_ENFORCED, and never PASS, while no key is en
   );
 });
 
-test("pnpm verify runs the signing check", () => {
+test("pnpm verify runs the signing check, and runs the record validator before it", () => {
   // A check that is not in the chain is a file. This is the one assertion that
   // keeps the whole of the above from becoming decorative in one edit.
   const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
@@ -214,5 +214,46 @@ test("pnpm verify runs the signing check", () => {
   assert.ok(
     pkg.scripts.verify.includes("pnpm check:signing"),
     `pnpm verify must run the signing check; got: ${pkg.scripts.verify}`,
+  );
+
+  // AND THE ORDER IS THE INVARIANT, not merely the presence.
+  //
+  // scripts/signing-policy.mjs is honest that it does not fail closed alone:
+  // given `accepted_keys: NONE_ENROLLED` followed by a listed identity, or a
+  // key enrolled by a seat an agent may occupy, it hands
+  // scripts/check-signing.mjs a perfectly usable accepted identity and the
+  // Python validator is what refuses it. Its docstring calls that "safe in
+  // composition, and the composition is an ORDERING". Until this assertion
+  // existed, that ordering was guarded by nothing at all: reordering the
+  // verify chain, or dropping validate:records from it, turned nothing red -
+  // the same shape as `fetch-depth: 0` being the only thing standing between
+  // this repository and the shallow-clone bypass, one level up.
+  const verify = pkg.scripts.verify;
+  const records = verify.indexOf("pnpm validate:records");
+  const signing = verify.indexOf("pnpm check:signing");
+  assert.notEqual(
+    records,
+    -1,
+    `pnpm verify must run the record validator; without it the signing policy's ` +
+      `only strict reader never runs: ${verify}`,
+  );
+  assert.ok(
+    records < signing,
+    `pnpm verify must run validate:records BEFORE check:signing. The JS policy ` +
+      `reader accepts a self-enrolled identity that the Python validator refuses, ` +
+      `so this order is what makes the signature check's inputs trustworthy: ${verify}`,
+  );
+
+  // The same ordering in CI, which is a separate chain that could drift from
+  // the local one without either file mentioning the other.
+  const ci = readFileSync(join(ROOT, ".github", "workflows", "ci.yml"), "utf8");
+  const ciRecords = ci.indexOf("run: pnpm validate:records");
+  const ciSigning = ci.indexOf("run: pnpm check:signing");
+  assert.notEqual(ciRecords, -1, "CI must run the record validator");
+  assert.notEqual(ciSigning, -1, "CI must run the signing check");
+  assert.ok(
+    ciRecords < ciSigning,
+    `.github/workflows/ci.yml must run validate:records before check:signing, ` +
+      `for the reason above: a step order is a control here, not a preference`,
   );
 });

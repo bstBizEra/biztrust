@@ -187,14 +187,31 @@ test("only the declared witnesses that actually went red are credited", () => {
   assert.deepEqual(witnessesOf({ witness: ["control 1", "  ", 7] }), ["control 1"]);
 });
 
-test("the overlap report names both directions of the relation", () => {
+// The two directions of the overlap relation, ONE CONTROL EACH.
+//
+// They were one control asserting both, and only one of the two directions
+// carried a mutation - so `multiplyKilled` was a computed number with no
+// measurement behind it at all. Merging the mutation into the shared control
+// would have made two mutations declare one witness (undeclaredSharing) and
+// die under exactly the same control (undeclaredTwins), which is this file's
+// own refusal telling the truth: a fixture that proves two things proves
+// neither of them separately. Splitting the fixture is the fix the refusal
+// was asking for.
+
+test("the overlap report names the mutations more than one control kills", () => {
   const killedBy = new Map([
     ["m one", ["control 1", "control 2"]],
     ["m two", ["control 1"]],
   ]);
-  const { multiplyKilled, multiplyKilling } = overlaps(killedBy);
-  assert.deepEqual(multiplyKilled, [["m one", ["control 1", "control 2"]]]);
-  assert.deepEqual(multiplyKilling, [["control 1", ["m one", "m two"]]]);
+  assert.deepEqual(overlaps(killedBy).multiplyKilled, [["m one", ["control 1", "control 2"]]]);
+});
+
+test("the overlap report names the controls that kill more than one mutation", () => {
+  const killedBy = new Map([
+    ["m one", ["control 1", "control 2"]],
+    ["m two", ["control 1"]],
+  ]);
+  assert.deepEqual(overlaps(killedBy).multiplyKilling, [["control 1", ["m one", "m two"]]]);
 });
 
 test("the overlap report names the mutations no control kills alone", () => {

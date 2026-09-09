@@ -59,8 +59,20 @@
  * bypass in a real `git clone --depth 1`, against a version of this file whose
  * comment claimed it could not happen - the claim rested on one line of CI
  * YAML (`fetch-depth: 0`) that nothing tested, so deleting that line made
- * nothing go red. `git rev-parse --is-shallow-repository` is now asked first,
- * and the answer `true` is exit 2.
+ * nothing go red. `git rev-parse --is-shallow-repository` is asked before any
+ * commit is resolved, and the answer `true` is exit 2. (It is asked after the
+ * POLICY is read, deliberately: an unreadable policy is exit 1 wherever it is
+ * read, because the file being wrong is a fact about the file and not about
+ * this repository's history. An earlier version of this sentence said "asked
+ * first", which was false in exactly that case, and a comment that is false
+ * about the order it is describing is the same defect as a check that is
+ * green about a rule it is not running.)
+ *
+ * A GRAFTED HISTORY IS THE SAME BYPASS WITHOUT THE SHALLOW FLAG, and it is
+ * closed a level lower down, in `git()` below: every git call this file makes
+ * passes `--no-replace-objects`, so `refs/replace` cannot rewrite the history
+ * the check reads. See the comment on that helper for why the default is
+ * inverted there rather than a `refs/replace` refusal being added here.
  *
  * Exit codes: 0 every governed commit verified, or the policy enrols no key
  * and said so; 1 a governed commit is not verified, or the policy is
@@ -138,12 +150,42 @@ export function classifyCommit(record, acceptedIdentities) {
 
 class GitUnavailable extends Error {}
 
+/**
+ * git's own supported way to rewrite history without rewriting a single
+ * commit, and therefore the first thing this check has to switch off.
+ *
+ * `refs/replace` substitutes one object for another in every read git does.
+ * `git replace --graft HEAD` writes a replacement HEAD with NO PARENTS, which
+ * is the shallow-clone bypass above reproduced in a repository
+ * `git rev-parse --is-shallow-repository` answers `false` for, with
+ * `git rev-list --count HEAD` answering 1. The final review of this branch
+ * drove it end to end: with a key enrolled and an unsigned commit touching
+ * badf/authority.yaml, `SIGNING_CHECK FAIL 1 of 1` before the graft and
+ * `SIGNING_CHECK PASS 0 commit(s)` after it - exit 0, having verified nothing,
+ * with the shallow guard sitting right there answering the wrong question.
+ * Writing a replacement ref needs nothing but ordinary git write access, which
+ * is precisely what the actor this whole check exists to bind already has.
+ *
+ * So the DEFAULT IS INVERTED for the entire check rather than one more thing
+ * being added to the list of things it refuses. `git for-each-ref refs/replace`
+ * being non-empty was the other one-line answer and it is the worse of the two
+ * three ways over: it is a list, so the next mechanism has to be remembered
+ * and added; it is a check of a moment rather than of the reads that matter,
+ * so a replacement written between it and the log call is not seen; and it
+ * turns a repository whose replacements are legitimate into exit 2 - a run
+ * that proves nothing - where this one still asks git the real question and
+ * gets the real answer. Every git call in this file goes through this helper,
+ * so there is no call site that can be added later and forget the flag.
+ */
+const NO_REPLACEMENT = "--no-replace-objects";
+
 function git(args) {
+  const argv = [NO_REPLACEMENT, ...args];
   try {
-    return execFileSync("git", args, { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    return execFileSync("git", argv, { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
   } catch (error) {
     throw new GitUnavailable(
-      `git ${args.join(" ")} failed: ${String(error?.stderr ?? error?.message ?? error).trim()}`,
+      `git ${argv.join(" ")} failed: ${String(error?.stderr ?? error?.message ?? error).trim()}`,
     );
   }
 }
@@ -303,10 +345,15 @@ function main() {
         `and every later one will be, while there is no accepted identity to be ` +
         `bound to. This is NOT a pass. Three human acts ` +
         `close it: enrol a key in accepted_keys, decide which identities count, ` +
-        `and enable required_signatures branch protection on main. No agent may ` +
-        `do any of the three - badf/skills.yaml records enroll-a-signing-key as ` +
-        `FORBIDDEN_TO_AGENTS - so this check reports rather than fails, and ` +
-        `becomes a gate with no code change the moment a key is enrolled.\n`,
+        `and enable required_signatures branch protection on main. Of those ` +
+        `three, badf/skills.yaml records exactly one - it records ` +
+        `enroll-a-signing-key as FORBIDDEN_TO_AGENTS. The other two are named ` +
+        `nowhere in this repository as forbidden to an agent, and this message ` +
+        `no longer claims they are: one is a judgement and one happens on ` +
+        `GitHub, so neither is a thing this check can observe. What it can say ` +
+        `is that no agent may do the first, so this check reports rather than ` +
+        `fails, and becomes a gate with no code change the moment a key is ` +
+        `enrolled.\n`,
     );
     return 0;
   }
