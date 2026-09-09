@@ -61,7 +61,7 @@
  * timing-based, while still exercising the unmodified, real `realTreeStatus()`
  * call and override logic that a normal run uses. A second seam
  * (`MUTATION_CHECK_TEST_LIMIT`) truncates the mutation sweep so this does
- * not have to pay the full 60-80 second, 63-mutation run just to reach the
+ * not have to pay the full four-minute, 111-mutation run just to reach the
  * exit check - the exit check does not depend on how many mutations ran.
  */
 
@@ -85,8 +85,8 @@ const WITNESS = join(
 
 /**
  * `check:mutations` spawns `node --test "tests/boundaries/*.test.mjs"` up to
- * 64 times (a baseline run plus one per mutation) against its own worktree
- * copy, and this file is part of that glob. Without this guard, every one of
+ * over a hundred times (a baseline run per suite, plus one per mutation)
+ * against its own worktree copy, and this file is part of that glob. Without this guard, every one of
  * those runs would ALSO dirty its copy (or set the EXIT-only test seam) and
  * spawn a nested `mutation-check.mjs`, which would build a worktree copy of
  * ITS OWN and start a nested sweep - unbounded recursion, not merely slow.

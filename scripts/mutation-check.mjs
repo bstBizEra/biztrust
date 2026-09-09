@@ -66,10 +66,29 @@
  *     TEST-ONLY env-var seams to land deterministically in the exact
  *     failure windows a reviewer found by hand.)
  *
- * Exit codes: 0 every mutation caught; 1 at least one survived; 2 the baseline
- * suite was not green, the working tree was not clean at start, the working
- * tree was not clean at exit, or the worktree itself could not be created -
- * any of which means this run proves nothing.
+ * Round five: it is not enough that the suite went RED. A mutation recorded
+ * `caught` because SOMETHING failed is exactly as weak, one level up, as the
+ * green suite this script exists to catch: the control that is supposed to
+ * prove that rule may have stayed green while a sibling reported the file for
+ * an unrelated reason. Every mutation therefore names the control that should
+ * catch it, both suites are read per-test rather than by exit code (TAP for
+ * the boundary suite, `unittest -v` for the validator's - see
+ * `scripts/mutation-attribution.mjs`), and a mutation caught by anything
+ * other than its own declared witness FAILS the run. The first honest run of
+ * this found two: a rule-5 mutation that had been rewriting rule 2's line for
+ * four review rounds, and a CREATE/DROP SCHEMA mutation whose control matched
+ * an echoed clause the deny-by-default path echoes too.
+ *
+ * The run also reports both directions of the overlap - mutations killed by
+ * more than one control, controls killing more than one mutation - because
+ * neither is automatically a defect and neither is visible from a pass line.
+ *
+ * Exit codes: 0 every mutation caught by its declared witness; 1 at least one
+ * survived, lost or duplicated its anchor, declared no witness or the wrong
+ * one, or was caught only by a control another mutation already claims; 2 the
+ * baseline suite was not green or named no test, the working tree was not
+ * clean at start, the working tree was not clean at exit, or the worktree
+ * itself could not be created - any of which means this run proves nothing.
  */
 
 import {
@@ -81,10 +100,21 @@ import {
   unlinkSync,
   symlinkSync,
 } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ROOT as REAL_ROOT } from "./registry.mjs";
+import {
+  readTap,
+  readUnittest,
+  witnessesOf,
+  witnessedBy,
+  reasonOf,
+  anchorDefect,
+  declarationDefects,
+  indistinguishable,
+  overlaps,
+} from "./mutation-attribution.mjs";
 
 // Every worktree this script ever creates lives under this exact prefix (see
 // `createWorktree`). That is what makes an orphan from a killed run
@@ -200,7 +230,7 @@ function isProcessAlive(pid) {
  * `destroyWorktree` is never reached, and `git worktree prune` alone does
  * NOT remove a worktree whose directory still exists on disk, only the
  * admin bookkeeping for ones whose directory is already gone. Left
- * unreclaimed, every interrupted run during this script's 60-80 second
+ * unreclaimed, every interrupted run during this script's multi-minute
  * window leaks another full checkout on disk and in `git worktree list`,
  * forever, with nothing telling the operator.
  *
@@ -353,6 +383,7 @@ const LINT = join(WT_ROOT, "scripts", "migration-lint.mjs");
 const GATE = join(WT_ROOT, "scripts", "coverage-gate.mjs");
 const CODEOWNERS = join(WT_ROOT, "scripts", "generate-codeowners.mjs");
 const RECORDS = join(WT_ROOT, "scripts", "validate_continuity.py");
+const ATTRIBUTION = join(WT_ROOT, "scripts", "mutation-attribution.mjs");
 
 /** Joins anchor lines, so no source string carries an embedded newline. */
 const lines = (...parts) => parts.join("\n");
@@ -368,60 +399,101 @@ const MUTATIONS = [
   {
     file: RULES,
     name: "rule 1: protect no module's internals",
+    witness:
+      "control 1: a module reaches into the internals of another is reported as " +
+      "rule-1-internals-private-alpha",
     from: '      from: { pathNot: ' + BT + '^modules/' + DOLLAR + '{rx(m.name)}/' + BT + ' },',
     to: '      from: { pathNot: "^modules/" },',
   },
   {
     file: RULES,
     name: "rule 2: allow a cross-module import of any public file",
+    witness:
+      "control 2: a cross-module import that is not the contract is reported as " +
+      "rule-2-contracts-only-beta",
     from: '        pathNot: "^modules/[^/]+/src/public/index\\\\.ts$",',
     to: '        pathNot: "^modules/[^/]+/src/public/",',
   },
   {
     file: RULES,
     name: "rule 3: stop forbidding cycles",
+    witness: "control 3: a cycle between two modules is reported as rule-3-no-cycles",
     from: '    to: { circular: true },',
     to: '    to: { circular: false },',
   },
   {
     file: RULES,
     name: "rule 4: only the package named shared may not import a module",
+    witness:
+      "control 4: a second, differently named package reaches for domain code is reported as " +
+      "rule-4-packages-import-no-module",
     from: '    from: { path: "^packages/" },',
     to: '    from: { path: "^packages/shared/" },',
   },
   {
     file: RULES,
     name: "rule 5: allow an entry point to import any public file, not the contract",
-    from: '      pathNot: "^modules/[^/]+/src/public/index\\\\.ts$",',
-    to: '      pathNot: "^modules/[^/]+/src/public/",',
+    witness:
+      "control 5: an entry point imports a module's public file that is not the contract is " +
+      "reported as rule-5-entry-points-see-contracts-only",
+    // The `pathNot` line alone is a SUFFIX of rule 2's identical, more deeply
+    // indented line, and rule 2 is generated above rule 5 - so this mutation
+    // rewrote rule 2 for four review rounds, was duly caught by rule 2's
+    // control, and reported that rule 5 was covered. Rule 5's own `to.path` is
+    // what tells the two apart, so the anchor is both lines. (The attribution
+    // this task added found it; `anchorDefect` now refuses an anchor that
+    // matches twice, so it cannot come back silently.)
+    from: lines(
+      '      path: "^modules/[^/]+/src/",',
+      '      pathNot: "^modules/[^/]+/src/public/index\\\\.ts$",',
+    ),
+    to: lines(
+      '      path: "^modules/[^/]+/src/",',
+      '      pathNot: "^modules/[^/]+/src/public/",',
+    ),
   },
   {
     file: RULES,
     name: "rule 5b: only a module may not import an entry point",
+    witness:
+      "control 6: a package imports an entry point is reported as " +
+      "rule-5-nothing-imports-an-entry-point",
     from: '    from: { pathNot: "^(services|apps)/" },',
     to: '    from: { path: "^modules/" },',
   },
   {
     file: RULES,
     name: "rule 5: narrow entry points to services only, dropping apps",
+    witness:
+      "control 5: an app that is not the control plane bypasses a contract is reported as " +
+      "rule-5-entry-points-see-contracts-only",
     from: '    from: { path: "^(services|apps)/" },',
     to: '    from: { path: "^services/" },',
   },
   {
     file: RULES,
     name: "rule 5b: narrow the entry-point target to services only, dropping apps",
+    witness:
+      "control 6: a module imports an app, not a service is reported as " +
+      "rule-5-nothing-imports-an-entry-point",
     from: '    to: { path: "^(services|apps)/" },',
     to: '    to: { path: "^services/" },',
   },
   {
     file: RULES,
     name: "rule 6: only a service may not import a test package",
+    witness:
+      "control 7: a module reaches the test-only bypass package is reported as " +
+      "rule-6-test-packages-stay-in-tests",
     from: '    from: { pathNot: "^tests/" },',
     to: '    from: { path: "^services/" },',
   },
   {
     file: RULES,
     name: "rule 7: let the control plane call a module contract",
+    witness:
+      "control 8: the control plane calls a module contract in-process is reported as " +
+      "rule-7-control-plane-sees-packages-only",
     from: '    from: { path: "^apps/control-plane/" },',
     to: '    from: { path: "^apps/nothing-matches-this/" },',
   },
@@ -430,6 +502,7 @@ const MUTATIONS = [
   {
     file: LINT,
     name: "scrub: stop unquoting double-quoted identifiers",
+    witness: "control 4: a double-quoted schema name writes outside its schema is reported as M1",
     from: "      out.push(inner.toLowerCase());",
     to: "      out.push('\"' + inner + '\"');",
   },
@@ -440,18 +513,21 @@ const MUTATIONS = [
     // mutation is caught by the control's MESSAGE assertion, not by the rule
     // continuing to fire. Round three found the old name claiming the opposite.
     name: "M1: report an unqualified name as a schema mismatch instead (message only)",
+    witness: "baseline: an object name with no schema qualifier is reported as M1",
     from: '      if (target.schema === null) {',
     to: '      if (false) {',
   },
   {
     file: LINT,
     name: "M1: stop refusing search_path",
+    witness: "baseline: a migration that sets search_path is reported as M1",
     from: '    if (/\\bSET\\s+(?:LOCAL\\s+|SESSION\\s+)?search_path\\b/i.test(statement)) {',
     to: '    if (false) {',
   },
   {
     file: LINT,
     name: "M1: stop denying by default on an unmodelled statement",
+    witness: "control 4: eight DDL verbs the lint did not model is reported as M1",
     from:
       '  return { targets, understood: targets.some((t) => t.resolvesStatement) };',
     to: '  return { targets, understood: true };',
@@ -465,6 +541,9 @@ const MUTATIONS = [
     // the suite red by itself, independent of whether any target scan below
     // still runs.
     name: "M1: revert the deny-list to the old CREATE/ALTER/DROP opening-verb allow-list",
+    witness:
+      "control R3-14: a statement opening with a verb this lint does not model at all is " +
+      "reported as M1",
     from:
       '  return { targets, understood: targets.some((t) => t.resolvesStatement) };',
     to: '  const isDDL = /^\\s*(?:CREATE|ALTER|DROP)\\b/i.test(statement);\n  return { targets, understood: !isDDL || targets.length > 0 };',
@@ -472,18 +551,23 @@ const MUTATIONS = [
   {
     file: LINT,
     name: "M1: stop modelling COPY as a target of the schema it writes into",
+    witness: "control R3-12: COPY writes rows into another module's schema is reported as M1",
     from: '  scan(new RegExp(String.raw`\\bCOPY\\s+(${ID})(?:\\.(${ID}))?`, "gi"), (m) => {\n    if (m[2] === undefined) pushResolved(null, m[1], m[0], "COPY");\n    else pushResolved(m[1], m[2], m[0], "COPY");\n  });',
     to: '  void 0;',
   },
   {
     file: LINT,
     name: "M1: stop modelling MERGE INTO as a target of the schema it writes into",
+    witness: "control R3-13: MERGE INTO writes rows into another module's schema is reported as M1",
     from: '  scan(new RegExp(String.raw`\\bMERGE\\s+INTO\\s+(${ID})(?:\\.(${ID}))?`, "gi"), (m) => {\n    if (m[2] === undefined) pushResolved(null, m[1], m[0], "MERGE INTO");\n    else pushResolved(m[1], m[2], m[0], "MERGE INTO");\n  });',
     to: '  void 0;',
   },
   {
     file: LINT,
     name: "M1: stop modelling REFRESH MATERIALIZED VIEW as a target of the schema it refreshes",
+    witness:
+      "control R3-15: REFRESH MATERIALIZED VIEW refreshes an object in another module's schema " +
+      "is reported as M1",
     from: "  scan(\n    new RegExp(\n      String.raw`\\bREFRESH\\s+MATERIALIZED\\s+VIEW\\s+(?:CONCURRENTLY\\s+)?(${ID})(?:\\.(${ID}))?`,\n      \"gi\",\n    ),\n    (m) => {\n      if (m[2] === undefined) pushResolved(null, m[1], m[0], \"REFRESH MATERIALIZED VIEW\");\n      else pushResolved(m[1], m[2], m[0], \"REFRESH MATERIALIZED VIEW\");\n    },\n  );",
     to: '  void 0;',
   },
@@ -496,84 +580,109 @@ const MUTATIONS = [
     // list and silently ignoring the rest, which is how a cross-schema table
     // listed after a same-schema one used to lint clean.
     name: "M1: LOCK reads only the first name in a comma-separated table list again",
+    witness:
+      "control R3-16: a table later in a LOCK list is in another module's schema is reported as " +
+      "M1",
     from: '      pushCommaSeparatedTargets(rest, "LOCK", pushResolved);',
     to: '      pushCommaSeparatedTargets(rest.split(",")[0], "LOCK", pushResolved);',
   },
   {
     file: LINT,
     name: "M1: ANALYZE reads only the first name in a comma-separated table list again",
+    witness:
+      "control R3-17: a table later in an ANALYZE list is in another module's schema is " +
+      "reported as M1",
     from: '      pushCommaSeparatedTargets(m[1], "ANALYZE", pushResolved);',
     to: '      pushCommaSeparatedTargets(m[1].split(",")[0], "ANALYZE", pushResolved);',
   },
   {
     file: LINT,
     name: "M1: VACUUM reads only the first name in a comma-separated table list again",
+    witness:
+      "control R3-18: a table later in a VACUUM list is in another module's schema is reported " +
+      "as M1",
     from: '      pushCommaSeparatedTargets(m[1], "VACUUM", pushResolved);',
     to: '      pushCommaSeparatedTargets(m[1].split(",")[0], "VACUUM", pushResolved);',
   },
   {
     file: LINT,
     name: "M1: stop modelling REINDEX as a target of the schema it touches",
+    witness: "control R3-19: REINDEX touches an object in another module's schema is reported as M1",
     from: "  scan(\n    new RegExp(\n      String.raw`\\bREINDEX\\s+(?:\\([^)]*\\)\\s+)?(?:INDEX|TABLE|SCHEMA|DATABASE|SYSTEM)\\s+(?:CONCURRENTLY\\s+)?(${ID})(?:\\.(${ID}))?`,\n      \"gi\",\n    ),\n    (m) => {\n      if (m[2] === undefined) pushResolved(null, m[1], m[0], \"REINDEX\");\n      else pushResolved(m[1], m[2], m[0], \"REINDEX\");\n    },\n  );",
     to: '  void 0;',
   },
   {
     file: LINT,
     name: "M1: stop modelling CLUSTER as a target of the schema it touches",
+    witness: "control R3-20: CLUSTER touches an object in another module's schema is reported as M1",
     from: '  scan(new RegExp(String.raw`\\bCLUSTER\\s+(?:VERBOSE\\s+)?(${ID})(?:\\.(${ID}))?`, "gi"), (m) => {\n    if (m[2] === undefined) pushResolved(null, m[1], m[0], "CLUSTER");\n    else pushResolved(m[1], m[2], m[0], "CLUSTER");\n  });',
     to: '  void 0;',
   },
   {
     file: LINT,
     name: "M1: stop modelling SELECT ... INTO as a target of the schema it creates a table in",
+    witness:
+      "control R3-21: SELECT ... INTO creates a table in another module's schema is reported as " +
+      "M1",
     from: '      if (m[2] === undefined) pushResolved(null, m[1], m[0], "SELECT INTO", "table");\n      else pushResolved(m[1], m[2], m[0], "SELECT INTO", "table");',
     to: '      void 0;',
   },
   {
     file: LINT,
     name: "M1: stop modelling CREATE SCHEMA and DROP SCHEMA",
+    witness: "control 4: DROP SCHEMA against another module is reported as M1",
     from: '    (m) => pushResolved(m[2], null, m[0], ' + BT + DOLLAR + '{m[1].toUpperCase()} SCHEMA' + BT + '),',
     to: '    () => {},',
   },
   {
     file: LINT,
     name: "M1: stop modelling ALTER ... SET SCHEMA",
+    witness: "control 4: moving an object into another schema with SET SCHEMA is reported as M1",
     from: '    (m) => pushResolved(m[1], null, m[0], "SET SCHEMA"),',
     to: '    () => {},',
   },
   {
     file: LINT,
     name: "M2: drop the unqualified-REFERENCES half",
+    witness: "baseline: an unqualified REFERENCES is reported as M2",
     from: '  for (const m of statement.matchAll(unqualified)) {',
     to: '  for (const m of []) {',
   },
   {
     file: LINT,
     name: "M3: stop refusing DELETE and DROP on the audit schema",
+    witness: [
+      "control 12: a mutation of an audit table is reported as M3",
+      "control R3-9: DROP on the audit schema is reported as M3",
+    ],
     from: 'const AUDIT_FORBIDDEN = ["UPDATE", "DELETE", "TRUNCATE", "DROP"];',
     to: 'const AUDIT_FORBIDDEN = ["UPDATE", "TRUNCATE"];',
   },
   {
     file: LINT,
     name: "M3: stop refusing an audit column drop (its own sub-check)",
+    witness: "control 12: a column drop on the audit schema is reported as M3",
     from: '        report("M3", "a column drop is refused on the audit schema");',
     to: '        void 0;',
   },
   {
     file: LINT,
     name: "M3: stop refusing an audit column type change (its own sub-check)",
+    witness: "control 12: a column type change on the audit schema is reported as M3",
     from: '        report("M3", "a column type change is refused on the audit schema");',
     to: '        void 0;',
   },
   {
     file: LINT,
     name: "M4: anchor the stems so a prefix like policyholder escapes",
+    witness: "control 11: a domain word as a prefix of a longer name is reported as M4",
     from: '  { label: "policy", pattern: /^polic(y|ies)/i },',
     to: '  { label: "policy", pattern: /^polic(y|ies)$/i },',
   },
   {
     file: LINT,
     name: "M4: revert to a matcher blind to the plural",
+    witness: "control 11: the plural of a second domain word is reported as M4",
     from: '  { label: "claim", pattern: /^claim/i },',
     to: '  { label: "claim", pattern: /^claim$/i },',
   },
@@ -587,6 +696,7 @@ const MUTATIONS = [
     // and R3-27 (M4 on ALTER FOREIGN TABLE ... RENAME TO, which is gated by
     // the same set membership check) both catch it.
     name: "M4/M5: drop CREATE FOREIGN TABLE from the table-creating verb set",
+    witness: "control R3-22: CREATE FOREIGN TABLE creates a P0 domain table is reported as M4",
     from: '  "CREATE FOREIGN TABLE",\n',
     to: "",
   },
@@ -598,6 +708,10 @@ const MUTATIONS = [
     // made), R3-26 (M4 on ALTER VIEW ... RENAME TO) and R3-28 (M4 on ALTER
     // MATERIALIZED VIEW ... RENAME TO, which folds to the same "VIEW" verb).
     name: "M4/M5: drop CREATE VIEW from the table-creating verb set",
+    witness: [
+      "control R3-24: CREATE VIEW creates a P0 domain-named relation is reported as M4",
+      "control R3-25: a view with no tenant_id is reported as M5",
+    ],
     from: '  "CREATE VIEW",\n',
     to: "",
   },
@@ -607,6 +721,10 @@ const MUTATIONS = [
     // ... INTO creates a table exactly as CREATE TABLE does. Caught by R3-29
     // (M4) and R3-30 (M5).
     name: "M4/M5: drop SELECT INTO from the table-creating verb set",
+    witness: [
+      "control R3-29: SELECT ... INTO creates a P0 domain table is reported as M4",
+      "control R3-30: SELECT ... INTO creates a table with no tenant_id is reported as M5",
+    ],
     from: '  "SELECT INTO",\n',
     to: "",
   },
@@ -618,6 +736,16 @@ const MUTATIONS = [
     // past M4 again, exactly as it did before this task. Catches R3-23,
     // R3-26, R3-27 and R3-28 together.
     name: "M4: stop modelling ALTER ... RENAME TO as a target of the name it renames an object to",
+    witness:
+      "control R3-23: ALTER TABLE ... RENAME TO renames a table to a domain word is reported as " +
+      "M4",
+    shared:
+      "declared non-coverage. This mutation removes the RENAME TO scan; the one below stops M4 " +
+      "accepting the verb the scan produces. They are killed by exactly the same four controls, " +
+      "and no fixture can separate them: the only consumer of a RENAME TO target is M4 itself, " +
+      "so a target that is never produced and a target that is produced and never read are the " +
+      "same report. Separating them would need a fixture asserting something no rule does, " +
+      "which is a contrivance, not a control.",
     from: "  scan(\n    new RegExp(\n      String.raw`\\bALTER\\s+${RENAMEABLE_TYPES}\\s+(?:ONLY\\s+)?(?:IF\\s+EXISTS\\s+)?(${ID})(?:\\.(${ID}))?\\s+RENAME\\s+TO\\s+(${ID})`,\n      \"gi\",\n    ),\n    (m) => {\n      const kind = relationKind(m[1]);\n      if (m[3] === undefined) pushResolved(null, m[4], m[0], \"RENAME TO\", kind);\n      else pushResolved(m[2], m[4], m[0], \"RENAME TO\", kind);\n    },\n  );",
     to: "  void 0;",
   },
@@ -627,6 +755,13 @@ const MUTATIONS = [
     // still exists, but M4's own filter stops accepting the RENAME TO verb,
     // so the target it produces is never checked against a domain stem.
     name: "M4: stop accepting RENAME TO as a verb this rule checks",
+    witness:
+      "control R3-23: ALTER TABLE ... RENAME TO renames a table to a domain word is reported as " +
+      "M4",
+    shared:
+      "declared non-coverage, the other half of the pair above: same four controls, same " +
+      "reason. Both are kept because they loosen two independently deletable sites, and a " +
+      "review that deleted either one alone would still be caught.",
     from: '      if (!TABLE_CREATING_VERBS.has(target.verb) && target.verb !== "RENAME TO") continue;',
     to: "      if (!TABLE_CREATING_VERBS.has(target.verb)) continue;",
   },
@@ -640,6 +775,9 @@ const MUTATIONS = [
     // Catches R3-26, R3-27 and R3-28 (R3-23's plain-table rename still
     // matches TABLE alone, so it alone would not catch this).
     name: "M4: narrow the RENAME TO alternation back to the literal keyword TABLE",
+    witness:
+      "control R3-26: ALTER VIEW ... RENAME TO renames a view to a domain word is reported as " +
+      "M4",
     from: "const RENAMEABLE_TYPES = String.raw`(FOREIGN\\s+TABLE|MATERIALIZED\\s+VIEW|VIEW|TABLE)`;",
     to: "const RENAMEABLE_TYPES = String.raw`(TABLE)`;",
   },
@@ -650,6 +788,9 @@ const MUTATIONS = [
     // since every control asserts on the message. Caught by R3-22 (CREATE
     // FOREIGN TABLE) and R3-27 (ALTER FOREIGN TABLE ... RENAME TO).
     name: "M4/M5: relationKind stops labelling a foreign table as one",
+    witness:
+      "control R3-27: ALTER FOREIGN TABLE ... RENAME TO renames a foreign table to a domain " +
+      "word is reported as M4",
     from: '  if (normalised === "FOREIGN TABLE") return "foreign table";',
     to: "  if (false) return \"foreign table\";",
   },
@@ -658,66 +799,83 @@ const MUTATIONS = [
     // Same defect, the view/materialized-view half. Caught by R3-24, R3-25,
     // R3-26 and R3-28.
     name: "M4/M5: relationKind stops labelling a view as one",
+    witness:
+      "control R3-28: ALTER MATERIALIZED VIEW ... RENAME TO renames a materialized view to a " +
+      "domain word is reported as M4",
     from: '  if (normalised === "VIEW" || normalised === "MATERIALIZED VIEW") return "view";',
     to: "  if (false) return \"view\";",
   },
   {
     file: LINT,
     name: "M5: stop requiring tenant_id",
+    witness: "baseline: a tenant-owned table without tenant_id is reported as M5",
     from: '    if (created && !/\\btenant_id\\b/i.test(statement)) {',
     to: '    if (false) {',
   },
   {
     file: LINT,
     name: "M5: make the not-tenant-owned marker file-wide again",
+    witness: "baseline: a not-tenant-owned marker leaking to a later table is reported as M5",
     from: '      if (exemptStatements.has(statement)) {',
     to: '      if (exemptStatements.size > 0) {',
   },
   {
     file: LINT,
     name: "M6: stop rejecting an unregistered migration directory",
+    witness:
+      "control 7 second form: a migration directory that names no registered module is reported " +
+      "as M6",
     from: '    if (!schemaOf.has(entry)) {',
     to: '    if (false) {',
   },
   {
     file: LINT,
     name: "walk: revert to a non-recursive directory read",
+    witness: "control 4: a migration in a nested directory is reported as M1",
     from: "      if (statSync(full).isDirectory()) walk(full);",
     to: "      if (statSync(full).isDirectory()) continue;",
   },
   {
     file: LINT,
     name: "scrub: blank literals in a separate pass, as before (the apostrophe hole)",
+    witness: "control R3-1: an apostrophe inside a double-quoted identifier is reported as M1",
     from: '      if (!/^[A-Za-z0-9_]+$/.test(inner)) oddIdentifiers.push(inner);',
     to: "      if (false) oddIdentifiers.push(inner);",
   },
   {
     file: LINT,
     name: "scrub: stop refusing a non-ASCII character in an unquoted identifier",
+    witness: "control R3-2: a non-ASCII character in an unquoted identifier is reported as M1",
     from: "    if (sql.codePointAt(i) > 127) {\n      nonAscii.add(sql[i]);\n      out.push(sql[i]);\n    } else {",
     to: "    if (false) {\n      nonAscii.add(sql[i]);\n      out.push(sql[i]);\n    } else {",
   },
   {
     file: LINT,
     name: "M1: stop refusing a dollar-quoted body",
+    witness: "control R3-3: a dollar-quoted body this lint cannot read is reported as M1",
     from: "  if (dollarQuoted > 0) {",
     to: "  if (false) {",
   },
   {
     file: LINT,
     name: "M6: skip a non-directory under the migrations root, as before",
+    witness: "control R3-4: a migration file directly under the migrations root is reported as M6",
     from: "    if (!statSync(dir).isDirectory()) {",
     to: "    if (!statSync(dir).isDirectory()) { continue; } if (false) {",
   },
   {
     file: LINT,
     name: "walk: match the .sql extension case-sensitively again",
+    witness: "control R3-6: a .SQL file is read despite the uppercase extension",
     from: '      else if (entry.toLowerCase().endsWith(".sql")) found.push(full);',
     to: '      else if (entry.endsWith(".sql")) found.push(full);',
   },
   {
     file: LINT,
     name: "walk: stop reporting a file this lint would not read",
+    witness:
+      "control R3-5: a file under a migration directory that this lint would not read is " +
+      "reported as M6",
     from: "      else others.push(full);",
     to: "      else if (false) others.push(full);",
   },
@@ -735,36 +893,50 @@ const MUTATIONS = [
   {
     file: LINT,
     name: "M1: stop treating FROM as a cross-schema read",
+    witness:
+      "control R3-31: CREATE TABLE ... AS SELECT ... FROM reads another module's schema is " +
+      "reported as M1",
     from: '  "FROM",\n',
     to: "",
   },
   {
     file: LINT,
     name: "M1: stop treating JOIN as a cross-schema read",
+    witness: "control R3-32: a JOIN reads another module's schema is reported as M1",
     from: '  "JOIN",\n',
     to: "",
   },
   {
     file: LINT,
     name: "M1: stop treating USING as a cross-schema read",
+    witness: "control R3-33: DELETE ... USING reads another module's schema is reported as M1",
     from: '  "USING",\n',
     to: "",
   },
   {
     file: LINT,
     name: "M1: stop treating PARTITION OF as a cross-schema structural coupling",
+    witness:
+      "control R3-34: PARTITION OF structurally couples to another module's schema is reported " +
+      "as M1",
     from: '  "PARTITION\\\\s+OF",\n',
     to: "",
   },
   {
     file: LINT,
     name: "M1: stop treating INHERIT/INHERITS as a cross-schema structural coupling",
+    witness:
+      "control R3-35: INHERITS structurally couples to another module's schema is reported as " +
+      "M1",
     from: '  "INHERITS?",\n',
     to: "",
   },
   {
     file: LINT,
     name: "M1: stop treating LIKE as a cross-schema structural coupling",
+    witness:
+      "control R3-36: LIKE copies column definitions from another module's schema is reported " +
+      "as M1",
     from: '  "LIKE",\n',
     to: "",
   },
@@ -777,6 +949,7 @@ const MUTATIONS = [
     // Caught by R3-37, not by the qualified branch above it (that branch
     // only ever fires on a schema-qualified REFERENCES, a different shape).
     name: "M2: require a column list again, so a bare REFERENCES escapes M2",
+    witness: "control R3-37: an unqualified REFERENCES with no column list is reported as M2",
     from: 'const unqualified = new RegExp(String.raw`\\bREFERENCES\\s+(${ID})(?![\\w.])`, "gi");',
     to: 'const unqualified = new RegExp(String.raw`\\bREFERENCES\\s+(${ID})\\s*\\(`, "gi");',
   },
@@ -792,6 +965,7 @@ const MUTATIONS = [
     // mutation is caught by the message assertion even though the file
     // stays refused.
     name: "M1: stop refusing a psql meta-command as its own check",
+    witness: "control R3-38: a psql meta-command is refused outright is reported as M1",
     from: "      if (!/^[ \\t]*\\\\/.test(line)) return line;",
     to: "      if (true) return line;",
   },
@@ -813,6 +987,10 @@ const MUTATIONS = [
   {
     file: LINT,
     name: "M1: stop scanning for a schema-qualified function call in expression position",
+    witness: [
+      "control R3-39: a column DEFAULT calls a function in another module's schema is reported as M1",
+      "control R3-40: a CHECK constraint calls a function in another module's schema is reported as M1",
+    ],
     from: 'String.raw`(?<!::\\s*)(?<!\\bCREATE\\s+${MODIFIERS}${RENAMEABLE_TYPES.replace("(", "(?:")}\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?)\\b(${ID})\\.(${ID})\\s*\\(`,',
     to: "String.raw`(?!)`,",
   },
@@ -831,6 +1009,7 @@ const MUTATIONS = [
     // Not witnessed by a violating-fixture control, because the fixture this
     // guard protects is, by definition, one that must NOT be reported.
     name: "EXPR CALL: stop excluding a schema-qualified type cast's typmod from the call shape",
+    witness: "control R7-2: a schema-qualified type cast carrying a typmod is not read as a call",
     from: 'String.raw`(?<!::\\s*)(?<!\\bCREATE\\s+${MODIFIERS}${RENAMEABLE_TYPES.replace("(", "(?:")}\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?)\\b(${ID})\\.(${ID})\\s*\\(`,',
     to: 'String.raw`(?<!\\bCREATE\\s+${MODIFIERS}${RENAMEABLE_TYPES.replace("(", "(?:")}\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?)\\b(${ID})\\.(${ID})\\s*\\(`,',
   },
@@ -849,6 +1028,7 @@ const MUTATIONS = [
     // audit/): with the guard removed, that one statement is reported for M1
     // twice, not once, and the test asserts the count is exactly 1.
     name: "EXPR CALL: stop excluding a relation's own column list from the call shape",
+    witness: "finding 2: a cross-schema CREATE TABLE is reported for M1 exactly once, not twice",
     from: 'String.raw`(?<!::\\s*)(?<!\\bCREATE\\s+${MODIFIERS}${RENAMEABLE_TYPES.replace("(", "(?:")}\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?)\\b(${ID})\\.(${ID})\\s*\\(`,',
     to: 'String.raw`(?<!::\\s*)\\b(${ID})\\.(${ID})\\s*\\(`,',
   },
@@ -868,6 +1048,9 @@ const MUTATIONS = [
     // without this fold, both for the bare schema name and the
     // schema-qualified table name.
     name: "scrub: stop folding an unquoted ASCII character to lower case",
+    witness:
+      "control R7-5: a schema written in a different case than the registry's is the same " +
+      "schema",
     from: "      out.push(sql[i].toLowerCase());",
     to: "      out.push(sql[i]);",
   },
@@ -884,6 +1067,10 @@ const MUTATIONS = [
     // "one mutation, two independent witnesses" shape the EXPR CALL scan's
     // own removal mutation above uses for R3-39/R3-40.
     name: "CAST TYPE: stop scanning for a schema-qualified type reference in cast position",
+    witness: [
+      "control R5-1: a type cast with a typmod crosses a schema boundary is reported as M1",
+      "control R5-2: a type cast with no typmod crosses a schema boundary is reported as M1",
+    ],
     from: 'String.raw`::\\s*(${ID})\\.(${ID})`, "gi"), (m) => pushMention(m[1], m[2], m[0], "CAST TYPE"));',
     to: 'String.raw`(?!)`, "gi"), (m) => pushMention(m[1], m[2], m[0], "CAST TYPE"));',
   },
@@ -901,6 +1088,7 @@ const MUTATIONS = [
     // THIS mutation is the registry half specifically, so `target.schema
     // !== schema` is left standing and only the membership check is cut).
     name: "M1: stop filtering CAST TYPE targets by registry membership",
+    witness: "control R7-3: a cast to a schema no registered module owns is not a cross-schema reach",
     from: "if (knownSchemas.has(target.schema) && target.schema !== schema) {",
     to: "if (target.schema !== schema) {",
   },
@@ -913,6 +1101,7 @@ const MUTATIONS = [
     // 0005_cast_type_own_schema_and_builtin.sql going red on its two
     // own-schema columns.
     name: "M1: stop excluding a CAST TYPE target that names this directory's own schema",
+    witness: "control R7-4: a cast to this directory's own schema is not a cross-schema reach",
     from: "if (knownSchemas.has(target.schema) && target.schema !== schema) {",
     to: "if (knownSchemas.has(target.schema)) {",
   },
@@ -928,6 +1117,9 @@ const MUTATIONS = [
     // refused because nothing resolves a target from it) - NOT by R6-1,
     // which the explicit session-schema refusal below still reports.
     name: "M1: exempt a statement opening with SET from the deny-by-default refusal again",
+    witness:
+      "control R6-2: a statement opening with SET is no longer presumed harmless is reported as " +
+      "M1",
     from:
       '  return { targets, understood: targets.some((t) => t.resolvesStatement) };',
     to:
@@ -941,6 +1133,9 @@ const MUTATIONS = [
     // the deny-by-default path, but only this check produces the message
     // that names what the statement actually does.
     name: "M1: stop refusing a session SET that changes schema resolution",
+    witness:
+      "control R6-1: SET SCHEMA with a string literal changes schema resolution for the whole " +
+      "file is reported as M1",
     from:
       "    if (/^\\s*SET\\s+(?:LOCAL\\s+|SESSION\\s+)?SCHEMA\\b/i.test(statement)) {",
     to: '    if (false) {',
@@ -953,6 +1148,9 @@ const MUTATIONS = [
     // later extractors. Caught by R6-3, whose statement resolves no
     // target at all but does carry an own-schema call shape.
     name: "M1: let an incidental mention satisfy the deny-by-default refusal again",
+    witness:
+      "control R6-3: an unmodelled statement carrying an incidental own-schema call shape is " +
+      "reported as M1",
     from:
       '  return { targets, understood: targets.some((t) => t.resolvesStatement) };',
     to: '  return { targets, understood: targets.length > 0 };',
@@ -961,6 +1159,7 @@ const MUTATIONS = [
     file: LINT,
     // I3: the whole declaration-position type scan. Caught by R6-4.
     name: "M1: stop scanning for a schema-qualified type in declaration position",
+    witness: "control R7-1: a column ADDED with a type in another module's schema is reported as M1",
     from:
       'String.raw`(?:${TYPE_POSITIONS.join("|")})(${ID})\\.(${ID})`,',
     to: 'String.raw`(?!)`,',
@@ -971,6 +1170,7 @@ const MUTATIONS = [
     // the one the finding reproduced. The other four entries stay, so this
     // is not the same mutation as removing the scan. Caught by R6-4.
     name: "M1: stop reading a relation's own column list as a type position",
+    witness: "control R6-4: a column declared with a type in another module's schema is reported as M1",
     from: '  String.raw`[(,]\\s*${ID}\\s+`,\n',
     to: "",
   },
@@ -981,6 +1181,9 @@ const MUTATIONS = [
     // alternation back to the plural reproduces exactly that. Caught by
     // R6-5, not by R3-35 (whose CREATE form still says INHERITS).
     name: "M1: narrow the INHERITS alternation back to the plural CREATE spelling",
+    witness:
+      "control R6-5: ALTER TABLE ... INHERIT couples to another module's schema is reported as " +
+      "M1",
     from: '  "INHERITS?",\n',
     to: '  "INHERITS",\n',
   },
@@ -989,6 +1192,9 @@ const MUTATIONS = [
     // I4, second half: `ATTACH PARTITION` is its own entry beside
     // `PARTITION OF`, and is independently deletable. Caught by R6-6.
     name: "M1: stop treating ATTACH PARTITION as a cross-schema structural coupling",
+    witness:
+      "control R6-6: ALTER TABLE ... ATTACH PARTITION couples to another module's schema is " +
+      "reported as M1",
     from: '  "ATTACH\\\\s+PARTITION",\n',
     to: "",
   },
@@ -1000,6 +1206,11 @@ const MUTATIONS = [
     // R6-8 and R6-9; the plain ALTER TABLE controls stay green, which is
     // the point.
     name: "M3: anchor both audit sub-checks back to the literal keywords ALTER TABLE",
+    witness: [
+      "control R6-7: a column drop on an audit FOREIGN TABLE is reported as M3",
+      "control R6-8: a column type change on an audit FOREIGN TABLE is reported as M3",
+      "control R6-9: a column type change on an audit MATERIALIZED VIEW is reported as M3",
+    ],
     from:
       "      const alterRelation = String.raw`\\bALTER\\s+${RENAMEABLE_TYPES}\\b`;",
     to: "      const alterRelation = String.raw`\\bALTER\\s+TABLE\\b`;",
@@ -1013,6 +1224,9 @@ const MUTATIONS = [
     // R6-11's message assertion: with this off, the fixture's INSERT
     // resolves its own target, is understood, and the file passes outright.
     name: "M1: stop refusing a set_config() call that can change the session search_path",
+    witness:
+      "control R6-11: set_config() changes the session search_path from inside a resolved " +
+      "statement is reported as M1",
     from: "    if (/\\bset_config\\s*\\(/i.test(statement)) {",
     to: '    if (false) {',
   },
@@ -1022,6 +1236,9 @@ const MUTATIONS = [
     // dollar-quoted one, and refused only in the $$ spelling before.
     // Caught by R6-10.
     name: "M1: stop refusing a function body written as a single-quoted string literal",
+    witness:
+      "control R6-10: a function body written as a single-quoted string literal is reported as " +
+      "M1",
     from:
       "      /\\b(?:CREATE|ALTER)\\s+(?:OR\\s+REPLACE\\s+)?(?:FUNCTION|PROCEDURE)\\b[\\s\\S]*\\bAS\\s+''/i.test(",
     to: '      /(?!)/.test(',
@@ -1043,6 +1260,7 @@ const MUTATIONS = [
     // The finding verbatim. Caught by the PASS-line assertion: a gate that
     // returns before checking anything prints no count at all.
     name: "coverage gate: return 0 before checking any protection",
+    witness: "the coverage gate passes on this repository and reports what it checked",
     from: "function main() {\n  let registry;",
     to: "function main() {\n  return 0;\n  let registry;",
   },
@@ -1058,6 +1276,7 @@ const MUTATIONS = [
     // the argv/environment witness, which points the retired variable at two
     // EMPTY test files and requires the gate to keep reading the repository.
     name: "coverage gate: honour an ambient COVERAGE_GATE_TEST_TESTS_DIR again",
+    witness: "the coverage gate reads its own argv and cannot be redirected by the environment",
     from: "const TESTS_DIR = testsDirFromArgv();",
     to: "const TESTS_DIR = testsDirFromArgv() ?? process.env.COVERAGE_GATE_TEST_TESTS_DIR;",
   },
@@ -1066,18 +1285,21 @@ const MUTATIONS = [
     // Caught twice over: the independently-derived count in the PASS-line
     // test drops by four, and the unwitnessed-verb test stops being reported.
     name: "coverage gate: stop asking whether the audit verbs are witnessed",
+    witness: "the coverage gate refuses an audit verb no control asserts",
     from: "  for (const verb of AUDIT_FORBIDDEN) {",
     to: "  for (const verb of []) {",
   },
   {
     file: GATE,
     name: "coverage gate: stop asking whether the P0 domain stems are witnessed",
+    witness: "the coverage gate refuses a P0 domain stem no control asserts",
     from: "  for (const { label } of P0_FORBIDDEN_TABLE_STEMS) {",
     to: "  for (const { label } of []) {",
   },
   {
     file: GATE,
     name: "coverage gate: stop asking whether the generated rule families are witnessed",
+    witness: "the coverage gate refuses a generated rule family no control names",
     from: "  for (const family of [...families].sort()) {",
     to: "  for (const family of []) {",
   },
@@ -1089,6 +1311,18 @@ const MUTATIONS = [
     // down. Caught by the exit-code assertion in all three failure tests -
     // none of which would notice on the message alone.
     name: "coverage gate: report every gap but exit 0 anyway",
+    witness: [
+      "the coverage gate refuses an audit verb no control asserts",
+      "the coverage gate refuses a P0 domain stem no control asserts",
+      "the coverage gate refuses a generated rule family no control names",
+    ],
+    shared:
+      "declared non-coverage. This is the exit code, not the report: the gate still finds every " +
+      "gap and still prints it. What proves it is the exit-code assertion inside each of the " +
+      "three refusal tests above, which are the declared witnesses of the three loop mutations. " +
+      "A fourth test asserting the same exit code on the same seam would be a copy of one of " +
+      "them, not an independent control - the honest record is that this mutation is witnessed " +
+      "by an assertion those three carry, not by a fixture of its own.",
     from: lines("    );", "    return 1;", "  }", "", "  process.stdout.write("),
     to: lines("    );", "    return 0;", "  }", "", "  process.stdout.write("),
   },
@@ -1098,6 +1332,7 @@ const MUTATIONS = [
     // generated routing file stands. Caught by the stale/missing test, which
     // makes a real stale copy through the CODEOWNERS_TEST_OUT seam.
     name: "codeowners: --check accepts a stale generated file",
+    witness: "--check refuses a stale file and refuses a missing one",
     from: "    if (found !== content) {",
     to: "    if (false) {",
   },
@@ -1107,6 +1342,7 @@ const MUTATIONS = [
     // governance path rather than a refusal - which is how a review
     // requirement disappears with nothing recording that.
     name: "codeowners: stop refusing a routing entry that records no owner or verifier",
+    witness: "a routing entry recording no owner or no verifier is refused",
     from: "        throw new RegistryError(`routing entry ${path || \"?\"} records no ${label}`);",
     to: "        continue;",
   },
@@ -1116,6 +1352,7 @@ const MUTATIONS = [
     // by the team-slug test and by the byte-equality test against the real
     // .github/CODEOWNERS.
     name: "codeowners: emit no team slug for a seat that names a declared role",
+    witness: "a routing entry naming a declared role emits that role's TEAM slug",
     from: "        teams.push(`@${ORG}/${value}`);",
     to: "        void 0;",
   },
@@ -1126,6 +1363,7 @@ const MUTATIONS = [
     // seat does - and every seat in badf/agents.yaml records held_by: null.
     // Caught by the never-a-person test.
     name: "codeowners: emit a bare handle instead of a team slug under the organisation",
+    witness: "the generator never emits a person, only a team slug under the org",
     from: "        teams.push(`@${ORG}/${value}`);",
     to: "        teams.push(`@${value}`);",
   },
@@ -1136,6 +1374,7 @@ const MUTATIONS = [
     // that path has a verifier and no owner. Caught by the prose test and by
     // the byte-equality test.
     name: "codeowners: drop the note for an owner that names no fixed seat",
+    witness: "a routing entry whose owner is prose emits a note and no ownership line",
     from: "      lines.push(`# ${path}: ${notes.join(\"; \")}`);",
     to: "      void 0;",
   },
@@ -1155,6 +1394,7 @@ const MUTATIONS = [
     // agent may occupy passed both validate:records and codeowners:check.
     // This drops the whole pin.
     name: "records: stop pinning the routing entries of the governance registries",
+    witness: "test_deleting_a_governance_routing_entry_is_reported",
     from: "    for path, (owner, verifier) in sorted(PINNED_ROUTING.items()):",
     to: "    for path, (owner, verifier) in []:",
   },
@@ -1165,6 +1405,7 @@ const MUTATIONS = [
     // be routed anywhere. Caught by the reroute witness, not by the deletion
     // witness - which is the point of having both.
     name: "records: let a pinned governance path be routed to any seat",
+    witness: "test_rerouting_a_governance_path_to_agent_occupiable_seats_is_reported",
     from: lines("            if actual == expected:", "                continue"),
     to: lines("            if True:", "                continue"),
   },
@@ -1175,6 +1416,7 @@ const MUTATIONS = [
     // CODEOWNERS line at all: the path is unreviewed while reading as though
     // it were routed.
     name: "records: stop requiring a routing owner or verifier to name a declared role",
+    witness: "test_a_routing_verifier_naming_no_declared_role_is_reported",
     from: lines("            if ROLE_SHAPED.fullmatch(value) is None:", "                continue"),
     to: lines("            if True:", "                continue"),
   },
@@ -1185,6 +1427,7 @@ const MUTATIONS = [
     // entry losing its verifier - a pinned path would be caught by
     // PINNED_ROUTING instead and this would survive.
     name: "records: stop refusing a routing entry that records no path, owner or verifier",
+    witness: "test_a_routing_entry_with_no_verifier_is_reported",
     from: '        for field in ("path", "owner", "verifier"):',
     to: "        for field in ():",
   },
@@ -1195,6 +1438,7 @@ const MUTATIONS = [
     // or above its pin. Drops the deletion refusal and the widening refusal
     // together.
     name: "records: stop checking the pinned skill roster at all",
+    witness: "test_deleting_record_a_gate_is_reported",
     from: "    for skill_id, pinned in sorted(PINNED_SKILL_STATUS.items()):",
     to: "    for skill_id, pinned in []:",
   },
@@ -1204,6 +1448,7 @@ const MUTATIONS = [
     // Narrower: the pinned ids must still all be PRESENT, but any status is
     // accepted. This is `write-a-migration: BLOCKED -> AVAILABLE`, exactly.
     name: "records: accept any status on a pinned skill, so a BLOCKED skill can be made AVAILABLE",
+    witness: "test_making_a_blocked_skill_available_is_reported",
     from: "        if SKILL_STATUS_RANK.get(status, -1) < SKILL_STATUS_RANK[pinned]:",
     to: "        if False:",
   },
@@ -1213,6 +1458,7 @@ const MUTATIONS = [
     // I8's superset half: without it the pin is a floor the data can outgrow
     // - a new skill, at any status, is simply unprotected.
     name: "records: stop requiring every recorded skill to be pinned in the validator",
+    witness: "test_a_forbidden_skill_the_validator_does_not_pin_is_reported",
     from: lines("        if skill_id in PINNED_SKILL_STATUS:", "            continue"),
     to: lines("        if True:", "            continue"),
   },
@@ -1222,6 +1468,7 @@ const MUTATIONS = [
     // I6: an empty registry is not a registry with nothing forbidden; it is
     // one that says nothing, which a caller reads as permission.
     name: "records: stop refusing a skills registry that records no skill",
+    witness: "test_a_skills_registry_with_no_skill_is_reported",
     from: lines(
       "    if not entries:",
       '        errors.append("badf/skills.yaml: no skill is recorded")',
@@ -1232,6 +1479,7 @@ const MUTATIONS = [
     file: RECORDS,
     suite: "validator",
     name: "records: stop refusing a role registry that records no role",
+    witness: "test_an_agents_registry_with_no_role_is_reported",
     from: lines(
       "    if not roles:",
       '        errors.append("badf/agents.yaml: no role is recorded")',
@@ -1246,6 +1494,7 @@ const MUTATIONS = [
     // state at length: a field the reader silently drops is a field a human
     // reading the file still sees.
     name: "records: silently skip an unknown field on a skill instead of refusing it",
+    witness: "test_an_unknown_field_on_a_skill_is_reported",
     from: "            if field not in SKILL_FIELDS:",
     to: "            if False:",
   },
@@ -1253,6 +1502,7 @@ const MUTATIONS = [
     file: RECORDS,
     suite: "validator",
     name: "records: silently skip an unknown field on a role instead of refusing it",
+    witness: "test_an_unknown_field_on_a_role_is_reported",
     from: "                if field not in ROLE_FIELDS:",
     to: "                if False:",
   },
@@ -1260,8 +1510,109 @@ const MUTATIONS = [
     file: RECORDS,
     suite: "validator",
     name: "records: silently skip an unknown field on a routing entry instead of refusing it",
+    witness: "test_an_unknown_field_on_a_routing_entry_is_reported",
     from: "                if field not in ROUTING_FIELDS:",
     to: "                if False:",
+  },
+
+  // ---- round five: this harness's own attribution -------------------------
+  //
+  // scripts/mutation-attribution.mjs decides WHICH control caught a mutation,
+  // and every refusal in it is a rule that can be loosened exactly as the
+  // boundary rules and the migration lint can. It is pure for that reason:
+  // its controls are ordinary tests rather than a nested sweep, so it is
+  // reachable from here without this script having to spawn itself.
+  {
+    file: ATTRIBUTION,
+    name: "attribution: read a control reported not ok as passing",
+    witness: "TAP: only a control reported not ok is read as a killer",
+    from: '    if (parsed[1] === "not ok") failed.push(name);',
+    to: '    if (false) failed.push(name);',
+  },
+  {
+    file: ATTRIBUTION,
+    name: "attribution: keep a TAP SKIP directive as part of the control's name",
+    witness: "TAP: every control the suite ran is read into the roster, skipped ones included",
+    from: '      .replace(/\\s+#\\s+(?:SKIP|TODO)\\b.*$/, "")',
+    to: '      .replace(/(?!)/, "")',
+  },
+  {
+    file: ATTRIBUTION,
+    name: "attribution: read an indented subtest result as a control of its own",
+    witness: "TAP: an indented subtest result is not read as a second control",
+    from: '    const parsed = /^(not ok|ok) [0-9]+ - (.*)$/.exec(line);',
+    to: '    const parsed = /(not ok|ok) [0-9]+ - (.*)$/.exec(line);',
+  },
+  {
+    file: ATTRIBUTION,
+    name: "attribution: read a validator control that ERRORED as passing",
+    witness: "unittest: a control that FAILED and a control that ERRORED are both killers",
+    from: '    const failure = /^(?:FAIL|ERROR): (test_[A-Za-z0-9_]*) \\(/.exec(line);',
+    to: '    const failure = /^(?:FAIL): (test_[A-Za-z0-9_]*) \\(/.exec(line);',
+  },
+  {
+    file: ATTRIBUTION,
+    name: "attribution: stop reading the validator's per-test line into the roster",
+    witness: "unittest: the verbose per-test line is what puts a control in the roster",
+    from: '    const ran = /^(test_[A-Za-z0-9_]*) \\(/.exec(line);',
+    to: "    const ran = null;",
+  },
+  {
+    file: ATTRIBUTION,
+    name: "attribution: accept an anchor that matches more than once",
+    witness: "an anchor that appears twice is refused rather than rewriting the first copy",
+    from: "  if (String(source).indexOf(from, first + 1) >= 0) {",
+    to: "  if (false) {",
+  },
+  {
+    file: ATTRIBUTION,
+    name: "attribution: accept an anchor that is not in the file at all",
+    witness: "an anchor that is gone is refused as a mutation that stopped testing",
+    from: "  if (first < 0) {",
+    to: "  if (false) {",
+  },
+  {
+    file: ATTRIBUTION,
+    name: "attribution: accept a mutation that declares no witness",
+    witness: "a mutation that declares no witness is refused",
+    from: "    if (witnesses.length === 0) {",
+    to: "    if (false) {",
+  },
+  {
+    file: ATTRIBUTION,
+    name: "attribution: accept a witness that names no test in its suite",
+    witness: "a witness that names no test in its own suite is refused",
+    from: "      if (!known.has(witness)) {",
+    to: "      if (false) {",
+  },
+  {
+    file: ATTRIBUTION,
+    name: "attribution: let a mutation borrow another's witness with no reason",
+    witness: "borrowing a witness another mutation already claims is refused without a reason",
+    from: "      if (reasonOf(entry) !== null) continue;",
+    to: "      if (true) continue;",
+  },
+  {
+    file: ATTRIBUTION,
+    name: "attribution: stop noticing two mutations no control tells apart",
+    witness:
+      "two mutations killed by exactly the same controls are refused unless one records a reason",
+    from: "    if (group.length < 2) continue;",
+    to: "    if (true) continue;",
+  },
+  {
+    file: ATTRIBUTION,
+    name: "attribution: credit a declared witness that did not go red",
+    witness: "only the declared witnesses that actually went red are credited",
+    from: "  return witnessesOf(mutation).filter((name) => killers.includes(name));",
+    to: "  return witnessesOf(mutation);",
+  },
+  {
+    file: ATTRIBUTION,
+    name: "attribution: stop reporting the controls that kill more than one mutation",
+    witness: "the overlap report names both directions of the relation",
+    from: "    multiplyKilling: [...kills].filter(([, victims]) => victims.length > 1),",
+    to: "    multiplyKilling: [],",
   },
 ];
 
@@ -1269,8 +1620,8 @@ const MUTATIONS = [
 // Every mutation above still runs, unmodified, whenever this is unset - a
 // normal `pnpm check:mutations` never sets it. It exists because witnessing
 // the EXIT-time half of the dirty-tree guard (below) needs a real,
-// end-to-end run of this script, and paying the full 60-80 second, 63
-// mutation sweep for that would make every `pnpm verify` noticeably slower
+// end-to-end run of this script, and paying the full four-minute,
+// 111-mutation sweep for that would make every `pnpm verify` noticeably slower
 // for a check that does not touch the sweep loop at all. Truncating the
 // array (not skipping it) means the truncated run still exercises the exact
 // same baseline-suite-then-loop-then-exit-check code path, just over fewer
@@ -1297,18 +1648,29 @@ if (process.env.MUTATION_CHECK_TEST_LIMIT !== undefined) {
  */
 const SUITES = {
   boundaries: {
-    label: 'node --test "tests/boundaries/*.test.mjs"',
-    argv: ["--test", "tests/boundaries/*.test.mjs"],
+    label: 'node --test --test-reporter=tap "tests/boundaries/*.test.mjs"',
+    argv: ["--test", "--test-reporter=tap", "tests/boundaries/*.test.mjs"],
+    read: readTap,
   },
   validator: {
-    label: "node scripts/python.mjs -m unittest discover -s tests/unit",
-    argv: [join("scripts", "python.mjs"), "-m", "unittest", "discover", "-s", "tests/unit"],
+    label: "node scripts/python.mjs -m unittest discover -s tests/unit -v",
+    argv: [join("scripts", "python.mjs"), "-m", "unittest", "discover", "-s", "tests/unit", "-v"],
+    read: readUnittest,
   },
 };
 
 /** The suite a mutation is checked against when it names none. */
 const DEFAULT_SUITE = "boundaries";
 
+/**
+ * Runs one suite and returns WHICH controls failed, not merely that some did.
+ *
+ * `spawnSync` rather than `execFileSync`: the two suites write their results
+ * to different streams (TAP to stdout, unittest's verbose listing to stderr),
+ * and execFileSync hands back only stdout on a green run - so the validator
+ * suite's roster of test names would be thrown away exactly when it is
+ * needed. spawnSync returns both streams whatever the exit status.
+ */
 function runSuite(suite = DEFAULT_SUITE) {
   const spec = SUITES[suite];
   if (spec === undefined) {
@@ -1316,21 +1678,25 @@ function runSuite(suite = DEFAULT_SUITE) {
       `unknown suite ${JSON.stringify(suite)}; known: ${Object.keys(SUITES).join(", ")}`,
     );
   }
-  try {
-    execFileSync(process.execPath, spec.argv, {
-      cwd: WT_ROOT,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-      // Tells tests/boundaries/mutation-check-guard.test.mjs it is running
-      // inside a mutation-check sweep already, so it does not spawn a nested
-      // mutation-check.mjs of its own - see that file for why that would be
-      // unbounded recursion rather than merely redundant.
-      env: { ...process.env, MUTATION_CHECK_RUNNING: "1" },
-    });
-    return "GREEN";
-  } catch {
-    return "RED";
-  }
+  const run = spawnSync(process.execPath, spec.argv, {
+    cwd: WT_ROOT,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    // Tells tests/boundaries/mutation-check-guard.test.mjs it is running
+    // inside a mutation-check sweep already, so it does not spawn a nested
+    // mutation-check.mjs of its own - see that file for why that would be
+    // unbounded recursion rather than merely redundant.
+    env: { ...process.env, MUTATION_CHECK_RUNNING: "1" },
+  });
+  if (run.error !== undefined) throw run.error;
+  const output = `${run.stdout ?? ""}${run.stderr ?? ""}`;
+  const { names, failed } = spec.read(output);
+  return { status: run.status === 0 ? "GREEN" : "RED", names, failed, output };
+}
+
+/** Formats a control list for the overlap report, one indented line each. */
+function indent(names) {
+  return names.map((name) => `      ${name}\n`).join("");
 }
 
 function main() {
@@ -1338,31 +1704,71 @@ function main() {
   // a red suite makes every mutation checked against it meaningless, and a
   // suite no mutation names should not be paid for.
   const usedSuites = [...new Set(MUTATIONS.map((m) => m.suite ?? DEFAULT_SUITE))].sort();
+  /** suite -> every control name that suite reported at baseline. */
+  const roster = new Map();
   for (const suite of usedSuites) {
-    if (runSuite(suite) !== "GREEN") {
+    const baseline = runSuite(suite);
+    if (baseline.status !== "GREEN") {
       process.stderr.write(
         `MUTATION_CHECK FAIL the ${suite} baseline suite (${SUITES[suite].label}) is ` +
           `not green, so this run proves nothing. Fix the suite first.\n`,
       );
       return 2;
     }
+    // A suite that names no test is green for the same reason an empty suite
+    // is: it asserted nothing. Every mutation checked against it would then
+    // SURVIVE and every witness declared against it would name nothing, so
+    // this is a defect in the harness's own reading of the suite, not a
+    // result. Deny by default rather than reporting a green baseline over a
+    // roster the reader never produced.
+    if (baseline.names.length === 0) {
+      process.stderr.write(
+        `MUTATION_CHECK FAIL the ${suite} baseline suite (${SUITES[suite].label}) ` +
+          `reported no test at all, so no mutation could be attributed to a ` +
+          `control and no declared witness could be checked for existence.\n`,
+      );
+      return 2;
+    }
+    roster.set(suite, new Set(baseline.names));
+    process.stdout.write(
+      `MUTATION_CHECK baseline GREEN ${suite}: ${baseline.names.length} controls\n`,
+    );
   }
   process.stdout.write(
     `MUTATION_CHECK baseline GREEN (${usedSuites.join(", ")}), ` +
       `${MUTATIONS.length} mutations\n`,
   );
 
+  // ---- what each mutation DECLARES, checked before anything is run --------
+  //
+  // These are defects in the mutation table itself, not results, so they are
+  // decided statically: a mutation that names no witness is the "caught, so
+  // presumed covered" hole this attribution exists to close, and a witness
+  // naming a test that does not exist is a declaration that stopped testing
+  // in the same way a lost anchor is. The sweep still runs, so one run
+  // reports both the declaration defects and the control that actually
+  // caught each mutation - which is what a reader needs to fix them.
+  const { undeclared, unknownWitness, undeclaredSharing } = declarationDefects(
+    MUTATIONS.map((mutation) => ({ ...mutation, suite: mutation.suite ?? DEFAULT_SUITE })),
+    roster,
+  );
+
   const survived = [];
-  const missing = [];
+  const anchorDefects = [];
+  const misattributed = [];
+  /** mutation name -> every control that went red under it, sorted. */
+  const killedBy = new Map();
 
   for (const mutation of MUTATIONS) {
     const original = readFileSync(mutation.file, "utf8");
-    if (!original.includes(mutation.from)) {
+    const defect = anchorDefect(original, mutation.from, mutation.name);
+    if (defect !== null) {
       // An anchor that no longer exists means the rule was rewritten and this
-      // mutation silently stopped testing anything. That is a failure, not a
-      // skip: it is the same "passes whether or not it works" defect one level
-      // up.
-      missing.push(mutation.name);
+      // mutation silently stopped testing anything; an anchor that matches
+      // TWICE means it rewrites whichever copy comes first, which need not be
+      // the rule its name claims. Either is a failure, not a skip: both are
+      // the same "passes whether or not it works" defect one level up.
+      anchorDefects.push(defect);
       continue;
     }
     writeFileSync(mutation.file, original.replace(mutation.from, mutation.to), "utf8");
@@ -1372,32 +1778,129 @@ function main() {
     } finally {
       writeFileSync(mutation.file, original, "utf8");
     }
-    if (result === "RED") {
-      process.stdout.write(`  caught    ${mutation.name}\n`);
-    } else {
+    if (result.status !== "RED") {
       process.stdout.write(`  SURVIVED  ${mutation.name}\n`);
       survived.push(mutation.name);
+      continue;
+    }
+
+    const killers = [...new Set(result.failed)].sort();
+    killedBy.set(mutation.name, killers);
+
+    const witnessed = witnessedBy(mutation, killers);
+    if (witnessed.length > 0) {
+      const others = killers.length - witnessed.length;
+      process.stdout.write(
+        `  caught    ${mutation.name}\n      by ${witnessed.join(", ")}` +
+          `${others > 0 ? ` (and ${others} other control(s))` : ""}\n`,
+      );
+      continue;
+    }
+
+    // Red, but not by the control that is supposed to prove this rule. The
+    // suite reports a defect either way, so the nominal coverage number is
+    // unchanged - and that reading is exactly what this attribution exists to
+    // refuse: a mutation caught by a sibling is a rule whose own fixture
+    // proves nothing about it.
+    process.stdout.write(`  MISATTRIBUTED ${mutation.name}\n`);
+    misattributed.push(
+      `${mutation.name}\n      declared: ` +
+        `${witnessesOf(mutation).join(", ") || "(nothing)"}\n` +
+        (killers.length > 0
+          ? `      actually caught by:\n${indent(killers)}`
+          : `      caught by nothing this harness could name - the suite failed ` +
+            `without naming a single failing test, so the red proves nothing:\n` +
+            `${result.output.split(/\r?\n/).slice(-12).join("\n")}\n`),
+    );
+  }
+
+  // Two mutations that die under exactly the same controls are the same
+  // mutation as far as this suite can tell, whichever of them declares which
+  // control. That is not always wrong - see `shared` - but it is never
+  // something a reader should have to derive from the overlap report.
+  const undeclaredTwins = indistinguishable(
+    killedBy,
+    new Map(MUTATIONS.map((mutation) => [mutation.name, reasonOf(mutation)])),
+  );
+
+  // ---- the two directions of the overlap, reported whatever the verdict ---
+  //
+  // Neither direction is automatically a defect. Both are places where the
+  // count of mutations caught is larger than the number of independent things
+  // actually proved, and a reader cannot see that from a pass line.
+  const { multiplyKilled, multiplyKilling } = overlaps(killedBy);
+  process.stdout.write(
+    `MUTATION_CHECK OVERLAP ${multiplyKilled.length} mutation(s) killed by more than ` +
+      `one control, ${multiplyKilling.length} control(s) killing more than one mutation\n`,
+  );
+  for (const [name, killers] of multiplyKilled) {
+    process.stdout.write(`  killed by ${killers.length} controls  ${name}\n${indent(killers)}`);
+  }
+  for (const [name, victims] of multiplyKilling) {
+    process.stdout.write(`  kills ${victims.length} mutations  ${name}\n${indent(victims)}`);
+  }
+
+  const declaredShared = MUTATIONS.filter((mutation) => reasonOf(mutation) !== null);
+  if (declaredShared.length > 0) {
+    process.stdout.write(
+      `MUTATION_CHECK DECLARED NON-COVERAGE ${declaredShared.length} mutation(s) share ` +
+        `a witness on purpose\n`,
+    );
+    for (const mutation of declaredShared) {
+      process.stdout.write(`  ${mutation.name}\n      ${reasonOf(mutation)}\n`);
     }
   }
 
-  for (const name of missing) {
-    process.stderr.write(`MUTATION_CHECK ANCHOR LOST ${name}\n`);
+  for (const entry of anchorDefects) {
+    process.stderr.write(`MUTATION_CHECK ANCHOR ${entry}\n`);
   }
   for (const name of survived) {
     process.stderr.write(`MUTATION_CHECK SURVIVED ${name}\n`);
   }
+  for (const entry of undeclared) {
+    process.stderr.write(`MUTATION_CHECK NO WITNESS ${entry}\n`);
+  }
+  for (const entry of unknownWitness) {
+    process.stderr.write(`MUTATION_CHECK WITNESS NAMES NO TEST ${entry}\n`);
+  }
+  for (const entry of undeclaredSharing) {
+    process.stderr.write(`MUTATION_CHECK SHARED WITNESS ${entry}\n`);
+  }
+  for (const entry of undeclaredTwins) {
+    process.stderr.write(`MUTATION_CHECK INDISTINGUISHABLE ${entry}\n`);
+  }
+  for (const entry of misattributed) {
+    process.stderr.write(`MUTATION_CHECK MISATTRIBUTED ${entry}\n`);
+  }
 
-  if (survived.length > 0 || missing.length > 0) {
+  const failures =
+    survived.length +
+    anchorDefects.length +
+    undeclared.length +
+    unknownWitness.length +
+    undeclaredSharing.length +
+    undeclaredTwins.length +
+    misattributed.length;
+  if (failures > 0) {
     process.stderr.write(
       `MUTATION_CHECK FAIL ${survived.length} mutation(s) survived, ` +
-        `${missing.length} anchor(s) lost. A surviving mutation is a rule no ` +
-        `fixture enforces; a lost anchor is a mutation that stopped testing.\n`,
+        `${anchorDefects.length} anchor(s) defective, ` +
+        `${undeclared.length} declared no witness, ` +
+        `${unknownWitness.length} declared a witness that names no test, ` +
+        `${undeclaredSharing.length} share a declared witness without saying so, ` +
+        `${undeclaredTwins.length} are indistinguishable from another mutation, ` +
+        `${misattributed.length} were caught by something other than their witness. ` +
+        `A surviving mutation is a rule no fixture enforces; a defective anchor is a ` +
+        `mutation that stopped testing, or one testing a rule other than the one it ` +
+        `names; a mutation caught by a sibling is a rule whose own control proves ` +
+        `nothing about it.\n`,
     );
     return 1;
   }
 
   process.stdout.write(
-    `MUTATION_CHECK PASS ${MUTATIONS.length} mutations, every one caught\n`,
+    `MUTATION_CHECK PASS ${MUTATIONS.length} mutations, every one caught by its ` +
+      `declared witness\n`,
   );
   return 0;
 }

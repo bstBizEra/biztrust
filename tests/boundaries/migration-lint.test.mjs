@@ -38,11 +38,71 @@ function lint(relativeDir) {
 
 const FIXTURES = "tests/boundaries/fixtures/migrations";
 
+const conforming = lint(`${FIXTURES}/conforming`);
+
 test("the conforming fixtures pass the lint", () => {
-  const { code, out } = lint(`${FIXTURES}/conforming`);
-  assert.equal(code, 0, `expected the conforming fixtures to pass; got:\n${out}`);
-  assert.match(out, /MIGRATION_LINT PASS/);
+  assert.equal(
+    conforming.code,
+    0,
+    `expected the conforming fixtures to pass; got:\n${conforming.out}`,
+  );
+  assert.match(conforming.out, /MIGRATION_LINT PASS/);
 });
+
+/**
+ * The conforming half of the negative-control table.
+ *
+ * The test above is one assertion over the whole directory, so every guard
+ * whose only evidence is "a conforming fixture must stay silent" is witnessed
+ * by that ONE control - and `scripts/mutation-check.mjs`'s attribution found
+ * exactly that: three separate guards (the typmod-cast exclusion and the two
+ * halves of the CAST TYPE registry filter) were each caught only by it, and
+ * were therefore indistinguishable from one another. Each control below names
+ * the specific line the guard exists to keep OUT of the report, so breaking
+ * one guard turns exactly one of them red.
+ *
+ * `absent` is asserted against the report as a whole rather than per file
+ * where the guard is about a MESSAGE SHAPE that must never appear anywhere in
+ * a conforming directory; `file` narrows it where two guards would otherwise
+ * produce the same shape in different files.
+ */
+const CONFORMING_CONTROLS = [
+  {
+    control: "R7-2",
+    guard: "a schema-qualified type cast carrying a typmod is not read as a call",
+    file: "0002_typmod_cast_not_a_call.sql",
+    absent: 'touches schema "pg_catalog"',
+  },
+  {
+    control: "R7-3",
+    guard: "a cast to a schema no registered module owns is not a cross-schema reach",
+    absent: 'casts to type "pg_catalog.',
+  },
+  {
+    control: "R7-4",
+    guard: "a cast to this directory's own schema is not a cross-schema reach",
+    absent: 'casts to type "tenancy.',
+  },
+  {
+    control: "R7-5",
+    guard: "a schema written in a different case than the registry's is the same schema",
+    file: "0004_own_schema_different_case.sql",
+    absent: ": M1: ",
+  },
+];
+
+for (const { control, guard, file, absent } of CONFORMING_CONTROLS) {
+  test(`control ${control}: ${guard}`, () => {
+    const reported = conforming.out
+      .split(/\r?\n/)
+      .filter((line) => (file === undefined || line.includes(file)) && line.includes(absent));
+    assert.deepEqual(
+      reported,
+      [],
+      `a conforming fixture must not be reported for this; the lint said:\n${conforming.out}`,
+    );
+  });
+}
 
 const CONTROLS = [
   {
@@ -176,7 +236,14 @@ const CONTROLS = [
     threat: "DROP SCHEMA against another module",
     file: "new2_unmodelled_verbs.sql",
     rule: "M1",
-    match: "drop schema audit",
+    // The echoed clause alone is not enough here, and mutation-check.mjs's
+    // attribution is what showed it: with the CREATE/DROP SCHEMA scan
+    // removed, this statement resolves no target at all and is refused by
+    // the deny-by-default path instead - under a message that still ECHOES
+    // "drop schema audit", so a control asserting only the echo stayed green
+    // while the scan it exists to witness was gone. Asserting the REASON as
+    // well as the clause is what makes this control the one that catches it.
+    match: 'touches schema "audit" but this directory owns "tenancy" (drop schema audit',
   },
   {
     control: 4,
@@ -704,6 +771,22 @@ const CONTROLS = [
     file: "r6_set_config_changes_search_path.sql",
     rule: "M1",
     match: "calls set_config(), which sets a run-time parameter for the session",
+  },
+
+  // Round five, the attribution round. TYPE_POSITIONS is one alternation of
+  // five declaration positions, and only the FIRST of them - a relation's own
+  // column list, R6-4 - had a fixture. So the mutation that removes the whole
+  // scan and the mutation that removes that single entry were killed by the
+  // same control and by nothing else: two mutations, one witness, and no way
+  // to tell from a green suite which of the two the fixture actually proved.
+  // This is the second position. R6-4 stays red only for the narrow one; both
+  // controls go red for the broad one.
+  {
+    control: "R7-1",
+    threat: "a column ADDED with a type in another module's schema",
+    file: "r7_add_column_type_position.sql",
+    rule: "M1",
+    match: 'references type "audit.status_code" in declaration position',
   },
 ];
 
