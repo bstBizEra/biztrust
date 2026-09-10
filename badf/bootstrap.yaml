@@ -1,0 +1,87 @@
+# The record of the one-time external act that seats the first occupant of a
+# human-only seat, and of the succession rule that act adopts.
+#
+# WHY THIS FILE EXISTS. badf/agents.yaml routes changes to itself to
+# `verifier: repository-administrator`, so filling that seat requires the seat
+# to verify its own creation. The same unfilled seat owns
+# badf/signing-policy.yaml and AGENTS.md. No agent may break that loop:
+# badf/authority.yaml tool_authority.may_not forbids an agent to "Grant, extend
+# or infer authority, including its own", and a rule deciding who may seat an
+# authority is a rule about authority.
+#
+# docs/decisions/PROPOSAL-bootstrap-seating.md costs four ways out and
+# recommends (a) adopted once by (c): an out-of-band operator instruction that
+# seats the first administrator AND, in the same act, adopts the succession
+# rule now written into badf/agents.yaml, so that no further out-of-band
+# instruction is ever needed. This file is the record of that act.
+#
+# WHAT THIS FILE IS NOT. It is not a seating. It is the SHAPE of one, shipped
+# with the principal absent, and scripts/validate_continuity.py refuses it as a
+# completed seating until an operator names one. An agent may not supply that
+# name: the repository's git identity is a fact about a machine, not a decision
+# about who holds an office, and an agent writing a human into a seat is the
+# forgery this repository exists to refuse.
+#
+# THE FIVE PROPERTIES THE VALIDATOR ENFORCES, not merely documents:
+#
+#   1. NO PERSISTENT BYPASS. The capability is single-use and is consumed by
+#      its own use. badf/current-state.json records which act was spent and on
+#      which seats; a second act, or this act extended to a seat it did not
+#      seat, is refused.
+#   2. NON-SELF-AMENDING. The seat this record seats may not be the owner or
+#      the verifier of the routing entry for this file. The administrator this
+#      act creates cannot rewrite the record that created its authority.
+#   3. (c) ESTABLISHED (a). established_by and the statement below say, in
+#      terms no later reader can mistake, that the operator instruction was the
+#      MECHANISM that adopted the succession rule - not a standing parallel
+#      authority path that remains available afterwards.
+#   4. DECLARED SEPARATION = ACTUAL SEPARATION. One principal in two seats is
+#      legal only as a declared, expiring exception. A declaration without the
+#      dual seat, or a dual seat without the declaration, is refused.
+#   5. DETERMINISTIC SUCCESSION. The next vacancy needs no operator
+#      instruction: badf/agents.yaml `succession:` decides it, and this record
+#      is the act that adopted that rule.
+#
+# HOW A SEATING IS RECORDED, when an operator makes one:
+#
+#   - state: SEATED
+#   - instruction_date / instruction_origin: filled in from the instruction
+#   - the seating's principal: the named human
+#   - badf/agents.yaml: that seat's held_by set to the SAME name
+#   - badf/current-state.json bootstrap: state SEATED, act_id, seats, and
+#     historical_digest set to the sha256 of the frozen block below
+#
+# All six change together or the validator refuses the set. That is deliberate:
+# a forgery has to be consistent across three files and two schemas, and two of
+# the three are covered by badf/signing-policy.yaml.
+
+version: "0.1.0"
+updated_at: "2026-09-10T10:00:00Z"
+
+# ---- BEGIN HISTORICAL RECORD ----
+# Everything between these two markers is hashed. Once state is SEATED the
+# sha256 of this block is recorded in badf/current-state.json and any later
+# edit - a character of prose included - is refused. The markers are part of
+# the grammar, not decoration: a record with no frozen block can never be
+# frozen, so it is refused outright.
+act_id: BOOTSTRAP-001
+state: AWAITING_OPERATOR_INSTRUCTION
+established_by: OPERATOR_INSTRUCTION_ADOPTING_THE_SUCCESSION_RULE
+standing_authority_path: false
+instruction_date: null
+instruction_origin: null
+temporary_dual_seat: false
+exception_type: null
+expiry: null
+separation_trigger: null
+establishment_statement: >-
+  THE OPERATOR INSTRUCTION RECORDED HERE IS THE MECHANISM THAT ADOPTED THE
+  SUCCESSION RULE IN badf/agents.yaml. IT IS NOT A STANDING ALTERNATIVE
+  AUTHORITY PATH, AND IT IS SPENT BY ITS OWN USE.
+seatings:
+  - seat: repository-administrator
+    principal: null
+    note: >-
+      The seat the loop blocks. principal stays null until an operator names a
+      human; nothing else in this record is missing.
+# ---- END HISTORICAL RECORD ----

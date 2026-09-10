@@ -64,6 +64,7 @@ protected_paths:
   - badf/current-state.json
   - badf/lifecycle.yaml
   - badf/agents.yaml
+  - badf/bootstrap.yaml
   - badf/skills.yaml
   - badf/signing-policy.yaml
   - sessions/checkpoints

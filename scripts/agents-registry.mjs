@@ -103,6 +103,17 @@ export function parseAgentsRegistry(text) {
         section = null;
         continue;
       }
+      // The succession rule: how the FIRST occupant of a human-only seat is
+      // seated. It is prose, and it is pinned - verbatim - by
+      // validate_agents_succession_rule in scripts/validate_continuity.py,
+      // which is the reader that gives it meaning. What this reader owes it is
+      // only that a file carrying it still parses: the two readers must agree
+      // on the SHAPE of badf/agents.yaml or one of them stops governing it.
+      if (key === "succession") {
+        if (BLOCK_OPENERS.has(rest)) blockIndent = 2;
+        section = null;
+        continue;
+      }
       // An unknown top-level key used to be silently skipped elsewhere in
       // this repository, which let a field sit in a registry looking
       // authoritative while nothing read it.

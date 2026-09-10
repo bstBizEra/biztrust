@@ -16,7 +16,9 @@ Run: ``py -m unittest discover -s tests/unit`` (``python3`` on Linux).
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -77,6 +79,13 @@ STATE = {
         "production_deployment": "NOT_GRANTED",
         "main_branch_protection": "NOT_RECORDED_REQUIRES_REPOSITORY_ADMIN",
         "wp_001_acceptance": "NOT_GRANTED_AWAITING_INDEPENDENT_VERIFIER",
+    },
+    "bootstrap": {
+        "record": "badf/bootstrap.yaml",
+        "state": "AWAITING_OPERATOR_INSTRUCTION",
+        "act_id": "BOOTSTRAP-001",
+        "seats": [],
+        "historical_digest": None,
     },
     "latest_checkpoint": "sessions/checkpoints/fixture.json",
     "latest_handoff": None,
@@ -151,6 +160,7 @@ REGISTRIES = (
     "agents.yaml",
     "skills.yaml",
     "signing-policy.yaml",
+    "bootstrap.yaml",
 )
 
 #: A minimal but STRUCTURALLY REAL authority registry.
@@ -292,6 +302,23 @@ skills:
     status: FORBIDDEN_TO_AGENTS
 """
 
+#: The two sentences of the succession rule, pinned in
+#: scripts/validate_continuity.py (SUCCESSION_PINS) and written into the
+#: fixture below from the same constants, so a test that deletes one deletes
+#: exactly the sentence the validator pins and not an approximation of it.
+SUCCESSION_FIRST_FILL = (
+    "  The first fill of a seat whose may_be_an_agent is false is verified by a"
+    + NL
+    + "  different seat whose may_be_an_agent is false."
+    + NL
+)
+SUCCESSION_SUBSEQUENT = (
+    "  Every subsequent change to that seat's occupancy is verified normally by the"
+    + NL
+    + "  routing table above."
+    + NL
+)
+
 #: A minimal but STRUCTURALLY REAL role registry. Task 6: badf/agents.yaml had
 #: no field capable of recording who holds a seat, and may_be_an_agent could be
 #: flipped to true on all four human-only seats with nothing objecting. This
@@ -353,7 +380,130 @@ routing:
   - path: "badf/signing-policy.yaml"
     owner: repository-administrator
     verifier: architecture-authority
+  - path: "badf/bootstrap.yaml"
+    owner: architecture-authority
+    verifier: legal-compliance-reviewer
+
+succession: >-
+  How the FIRST occupant of a human-only seat is seated, as a rule of this
+  file and not as an exception to it.
+
+""" + SUCCESSION_FIRST_FILL + """
+""" + SUCCESSION_SUBSEQUENT + """
+  The rule is deterministic: the next vacancy in a human-only seat needs no
+  further operator instruction.
 """
+
+
+#: A FICTIONAL human, and the only place in this repository where a name
+#: appears in a seat at all. It is written into a temporary directory, never
+#: into badf/agents.yaml, whose every held_by is the literal null: seating a
+#: human is an operator's act, and an agent that wrote one here would be
+#: rehearsing the forgery the whole record exists to refuse.
+PRINCIPAL = "A Fixture Human <fixture@example.invalid>"
+OTHER_PRINCIPAL = "Another Fixture Human <other@example.invalid>"
+
+ADMIN_SEAT = ("repository-administrator", PRINCIPAL)
+BUSINESS_SEAT = ("business-authority", PRINCIPAL)
+OTHER_BUSINESS_SEAT = ("business-authority", OTHER_PRINCIPAL)
+
+
+def bootstrap_record(
+    *,
+    state="AWAITING_OPERATOR_INSTRUCTION",
+    act_id="BOOTSTRAP-001",
+    seatings=(("repository-administrator", None),),
+    dual="false",
+    exception="null",
+    expiry="null",
+    trigger="null",
+) -> str:
+    """A minimal but STRUCTURALLY REAL bootstrap record.
+
+    A stub would leave this file checked for a version line only, which is the
+    state authority.yaml, gates.yaml, skills.yaml and agents.yaml were each
+    found in by a later review. It carries the frozen-region markers, the
+    pinned literals and the establishment statement verbatim, because every
+    one of those is a rule and a fixture that omits one exercises nothing.
+
+    The DEFAULT is the shipped shape: awaiting an operator, principal null.
+    """
+    entries = ""
+    for seat, principal in seatings:
+        who = "null" if principal is None else chr(34) + principal + chr(34)
+        entries += "  - seat: " + seat + NL + "    principal: " + who + NL
+    return (
+        'version: "0.1.0"' + NL
+        + 'updated_at: "2026-01-01T00:00:00Z"' + NL
+        + NL
+        + "# ---- BEGIN HISTORICAL RECORD ----" + NL
+        + "act_id: " + act_id + NL
+        + "state: " + state + NL
+        + "established_by: OPERATOR_INSTRUCTION_ADOPTING_THE_SUCCESSION_RULE" + NL
+        + "standing_authority_path: false" + NL
+        + "instruction_date: null" + NL
+        + "instruction_origin: null" + NL
+        + "temporary_dual_seat: " + dual + NL
+        + "exception_type: " + exception + NL
+        + "expiry: " + expiry + NL
+        + "separation_trigger: " + trigger + NL
+        + "establishment_statement: >-" + NL
+        + "  THE OPERATOR INSTRUCTION RECORDED HERE IS THE MECHANISM THAT ADOPTED THE" + NL
+        + "  SUCCESSION RULE IN badf/agents.yaml. IT IS NOT A STANDING ALTERNATIVE" + NL
+        + "  AUTHORITY PATH, AND IT IS SPENT BY ITS OWN USE." + NL
+        + "seatings:" + NL
+        + entries
+        + "# ---- END HISTORICAL RECORD ----" + NL
+    )
+
+
+BOOTSTRAP_YAML = bootstrap_record()
+
+
+def digest_of(record: str) -> str:
+    """The sha256 of the frozen region, computed INDEPENDENTLY of the validator.
+
+    Three lines, written out here rather than imported, so that a fixture
+    proving a seating valid is not proving it valid by asking the code under
+    test what the answer should be.
+    """
+    lines = record.replace(chr(13) + NL, NL).split(NL)
+    start = lines.index("# ---- BEGIN HISTORICAL RECORD ----")
+    end = lines.index("# ---- END HISTORICAL RECORD ----")
+    return hashlib.sha256(NL.join(lines[start + 1:end]).encode("utf-8")).hexdigest()
+
+
+def agents_seated(*pairs, human_only=True) -> str:
+    """badf/agents.yaml with held_by filled in for each (seat, principal)."""
+    text = AGENTS_YAML
+    flag = "false" if human_only else "true"
+    for seat, principal in pairs:
+        old = (
+            "  - id: " + seat + NL
+            + '    owns: ["fixture"]' + NL
+            + "    may_be_an_agent: " + flag + NL
+            + "    held_by: null" + NL
+        )
+        assert old in text, "no such seat in the agents fixture: " + seat
+        text = text.replace(
+            old, old.replace("held_by: null", 'held_by: "' + principal + '"'), 1
+        )
+    return text
+
+
+def state_for(record: str, *, seats=()) -> dict:
+    """badf/current-state.json's consumption ledger for a given record."""
+    is_seated = (NL + "state: SEATED" + NL) in record
+    act = re.search(r"^act_id: (\S+)$", record, re.MULTILINE)
+    state = copy.deepcopy(STATE)
+    state["bootstrap"] = {
+        "record": "badf/bootstrap.yaml",
+        "state": "SEATED" if is_seated else "AWAITING_OPERATOR_INSTRUCTION",
+        "act_id": act.group(1) if act else "BOOTSTRAP-001",
+        "seats": list(seats),
+        "historical_digest": digest_of(record) if is_seated else None,
+    }
+    return state
 
 
 #: A minimal but STRUCTURALLY REAL signature policy.
@@ -377,6 +527,7 @@ protected_paths:
   - badf/current-state.json
   - badf/lifecycle.yaml
   - badf/agents.yaml
+  - badf/bootstrap.yaml
   - badf/skills.yaml
   - badf/signing-policy.yaml
   - sessions/checkpoints
@@ -422,6 +573,7 @@ def build(tmp: Path, *, state=None, actions=None, decision_lines=None, checkpoin
             "agents.yaml": AGENTS_YAML,
             "skills.yaml": SKILLS_YAML,
             "signing-policy.yaml": SIGNING_POLICY_YAML,
+            "bootstrap.yaml": BOOTSTRAP_YAML,
         }.get(name, REGISTRY_STUB)
         (badf / name).write_text(content, encoding="utf-8")
 
@@ -1547,6 +1699,427 @@ class SigningPolicyClosed(unittest.TestCase):
                 "    enrolled_by: platform-engineer",
                 1,
             ),
+        )
+
+
+class BootstrapSeatingClosed(unittest.TestCase):
+    """badf/bootstrap.yaml: the one-time act that seats the first human-only seat.
+
+    badf/agents.yaml routes changes to itself to
+    ``verifier: repository-administrator``, so filling that seat required the
+    seat to verify its own creation. The mechanism that breaks the loop is the
+    single most dangerous thing in these records: it is the ONE place where a
+    named human may legally appear in a seat, and every rule below exists so
+    that appearing there costs a consistent, simultaneous edit to three
+    governed files rather than one line.
+
+    NOTHING HERE SEATS ANYONE IN THIS REPOSITORY. Every fixture is written into
+    a temporary directory, the principal is fictional, and this repository's own
+    badf/agents.yaml holds every seat at the literal null. The seated fixtures
+    exist because most of the rules below cannot fire at all while the record is
+    still awaiting an operator, and a rule that cannot fire is a rule that would
+    pass if it were deleted - the defect five review rounds found five times.
+    """
+
+    def _run(self, *, bootstrap=None, agents=None, state=None):
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = build(Path(directory), state=state)
+            if bootstrap is not None:
+                (tmp / "badf" / "bootstrap.yaml").write_text(bootstrap, encoding="utf-8")
+            if agents is not None:
+                (tmp / "badf" / "agents.yaml").write_text(agents, encoding="utf-8")
+            return run(tmp)
+
+    def _refused(self, needle, **kwargs):
+        result = self._run(**kwargs)
+        self.assertEqual(
+            result.returncode, 1,
+            f"this forgery must be refused:{NL}{result.stdout}{result.stderr}",
+        )
+        self.assertIn(needle, result.stderr)
+
+    # ---- the baselines must pass, or every test below is meaningless -------
+
+    def test_the_bootstrap_fixture_passes(self):
+        result = self._run(bootstrap=BOOTSTRAP_YAML)
+        self.assertEqual(
+            result.returncode, 0,
+            f"the bootstrap baseline must pass:{NL}{result.stdout}{result.stderr}",
+        )
+
+    def test_a_valid_seating_passes(self):
+        """The POSITIVE control, and the one this class needs most.
+
+        Every other test here requires a refusal. Without this one a validator
+        that refused EVERY seating - which is a validator that has quietly
+        re-pinned held_by to null and made the whole mechanism decorative -
+        would pass all of them and look thorough doing it.
+        """
+        record = bootstrap_record(state="SEATED", seatings=(ADMIN_SEAT,))
+        result = self._run(
+            bootstrap=record,
+            agents=agents_seated(ADMIN_SEAT),
+            state=state_for(record, seats=("repository-administrator",)),
+        )
+        self.assertEqual(
+            result.returncode, 0,
+            f"a coherent seating must validate:{NL}{result.stdout}{result.stderr}",
+        )
+
+    # ---- the reader: refuse what it cannot classify, with a line number ----
+
+    def test_a_bootstrap_line_the_reader_cannot_classify_is_reported(self):
+        self._refused(
+            "matches no rule of this record's grammar",
+            bootstrap=BOOTSTRAP_YAML.replace(
+                "act_id: BOOTSTRAP-001",
+                "act_id: BOOTSTRAP-001" + NL + "   three_space_indent: true",
+            ),
+        )
+
+    def test_an_unknown_top_level_key_in_the_bootstrap_record_is_reported(self):
+        self._refused(
+            "unknown top-level key",
+            bootstrap=BOOTSTRAP_YAML.replace(
+                "act_id: BOOTSTRAP-001",
+                "already_approved: true" + NL + "act_id: BOOTSTRAP-001",
+            ),
+        )
+
+    def test_an_unknown_field_on_a_seating_is_reported(self):
+        self._refused(
+            "unknown field",
+            bootstrap=BOOTSTRAP_YAML.replace(
+                "    principal: null" + NL,
+                "    principal: null" + NL + "    approved_by_itself: true" + NL,
+            ),
+        )
+
+    # ---- the pinned literals ----------------------------------------------
+
+    def test_a_bootstrap_state_that_is_neither_awaiting_nor_seated_is_reported(self):
+        self._refused(
+            "records state as 'PROVISIONALLY_SEATED'",
+            bootstrap=BOOTSTRAP_YAML.replace(
+                "state: AWAITING_OPERATOR_INSTRUCTION", "state: PROVISIONALLY_SEATED"
+            ),
+        )
+
+    def test_a_bootstrap_established_by_naming_another_mechanism_is_reported(self):
+        """(c) established (a), and the record has to say which (c).
+
+        With this rule gone the record reads as a standing operator path that
+        stays available afterwards - which is the option
+        docs/decisions/PROPOSAL-bootstrap-seating.md costed and rejected.
+        """
+        self._refused(
+            "records established_by as 'STANDING_OPERATOR_AUTHORITY'",
+            bootstrap=BOOTSTRAP_YAML.replace(
+                "established_by: OPERATOR_INSTRUCTION_ADOPTING_THE_SUCCESSION_RULE",
+                "established_by: STANDING_OPERATOR_AUTHORITY",
+            ),
+        )
+
+    def test_a_bootstrap_record_declaring_itself_a_standing_path_is_reported(self):
+        self._refused(
+            "records standing_authority_path as 'true'",
+            bootstrap=BOOTSTRAP_YAML.replace(
+                "standing_authority_path: false", "standing_authority_path: true"
+            ),
+        )
+
+    def test_a_reworded_establishment_statement_is_reported(self):
+        self._refused(
+            "does not carry the establishment statement verbatim",
+            bootstrap=BOOTSTRAP_YAML.replace(
+                "IT IS NOT A STANDING ALTERNATIVE", "IT IS ALSO A STANDING ALTERNATIVE"
+            ),
+        )
+
+    def test_a_bootstrap_record_with_no_frozen_region_is_reported(self):
+        """No markers, no digest, no immutability - and the file still reads
+        exactly as authoritative as it did with them."""
+        self._refused(
+            "does not delimit a historical record",
+            bootstrap=BOOTSTRAP_YAML.replace(
+                "# ---- END HISTORICAL RECORD ----" + NL, ""
+            ),
+        )
+
+    # ---- the seats ---------------------------------------------------------
+
+    def test_a_seating_naming_the_same_seat_twice_is_reported(self):
+        record = bootstrap_record(
+            state="SEATED",
+            seatings=(("repository-administrator", OTHER_PRINCIPAL), ADMIN_SEAT),
+        )
+        self._refused(
+            "which an earlier seating in this record already names",
+            bootstrap=record,
+            agents=agents_seated(ADMIN_SEAT),
+            state=state_for(record, seats=("repository-administrator",)),
+        )
+
+    def test_a_seating_naming_no_declared_role_is_reported(self):
+        record = bootstrap_record(
+            state="SEATED", seatings=(("supreme-administrator", PRINCIPAL),)
+        )
+        self._refused(
+            "which is no role declared in badf/agents.yaml",
+            bootstrap=record,
+            state=state_for(record, seats=()),
+        )
+
+    def test_a_seating_naming_a_seat_an_agent_may_occupy_is_reported(self):
+        """The mechanism exists for human-only seats.
+
+        Without this rule an agent bootstraps a seat no loop ever blocked, and
+        the held_by pin - the one thing stopping an occupant being written into
+        this registry by whoever is editing it - opens for every
+        agent-occupiable seat at once.
+        """
+        record = bootstrap_record(
+            state="SEATED", seatings=(("peer-reviewer", PRINCIPAL),)
+        )
+        self._refused(
+            "whose may_be_an_agent is not false",
+            bootstrap=record,
+            agents=agents_seated(("peer-reviewer", PRINCIPAL), human_only=False),
+            state=state_for(record, seats=("peer-reviewer",)),
+        )
+
+    def test_a_principal_named_while_awaiting_the_operator_is_reported(self):
+        self._refused(
+            "while state is AWAITING_OPERATOR_INSTRUCTION",
+            bootstrap=bootstrap_record(seatings=(ADMIN_SEAT,)),
+        )
+
+    def test_a_seating_with_no_principal_while_seated_is_reported(self):
+        """The shipped record with nothing but the state word changed.
+
+        This is the forgery the file is shaped to refuse: the act declared
+        complete without an operator ever naming anyone.
+        """
+        record = bootstrap_record(state="SEATED")
+        self._refused(
+            "records no principal while state is SEATED",
+            bootstrap=record,
+            state=state_for(record, seats=()),
+        )
+
+    def test_a_seated_seat_whose_held_by_is_still_null_is_reported(self):
+        record = bootstrap_record(state="SEATED", seatings=(ADMIN_SEAT,))
+        self._refused(
+            "The two records must agree in BOTH",
+            bootstrap=record,
+            state=state_for(record, seats=("repository-administrator",)),
+        )
+
+    def test_a_held_by_no_bootstrap_record_names_is_reported(self):
+        """The other direction, and the one with a motive behind it: an
+        occupant written into badf/agents.yaml with no act that seated them."""
+        self._refused(
+            "records no valid bootstrap seating naming that seat and that principal",
+            agents=agents_seated(ADMIN_SEAT),
+        )
+
+    # ---- constraint 4: declared separation = actual separation -------------
+
+    def test_one_principal_in_two_seats_without_the_exception_is_reported(self):
+        record = bootstrap_record(state="SEATED", seatings=(ADMIN_SEAT, BUSINESS_SEAT))
+        self._refused(
+            "is recorded as the occupant of",
+            bootstrap=record,
+            agents=agents_seated(ADMIN_SEAT, BUSINESS_SEAT),
+            state=state_for(
+                record, seats=("repository-administrator", "business-authority")
+            ),
+        )
+
+    def test_a_declared_dual_seat_with_no_dual_seat_is_reported(self):
+        """A fictitious separation exception: the declaration is there, the
+        expiry is there, nobody holds two seats, so nothing will ever trigger
+        and nothing has to be restored."""
+        record = bootstrap_record(
+            state="SEATED",
+            seatings=(ADMIN_SEAT,),
+            dual="true",
+            exception="BOOTSTRAP",
+            expiry='"2999-01-01"',
+            trigger='"a second human accepts the second seat"',
+        )
+        self._refused(
+            "no principal in this record holds two seats",
+            bootstrap=record,
+            agents=agents_seated(ADMIN_SEAT),
+            state=state_for(record, seats=("repository-administrator",)),
+        )
+
+    def test_a_dual_seat_whose_exception_type_is_not_bootstrap_is_reported(self):
+        record = bootstrap_record(
+            state="SEATED",
+            seatings=(ADMIN_SEAT, BUSINESS_SEAT),
+            dual="true",
+            exception="OPERATIONAL_CONVENIENCE",
+            expiry='"2999-01-01"',
+            trigger='"a second human accepts the second seat"',
+        )
+        self._refused(
+            "with exception_type 'OPERATIONAL_CONVENIENCE'",
+            bootstrap=record,
+            agents=agents_seated(ADMIN_SEAT, BUSINESS_SEAT),
+            state=state_for(
+                record, seats=("repository-administrator", "business-authority")
+            ),
+        )
+
+    def test_a_dual_seat_with_no_expiry_or_trigger_is_reported(self):
+        record = bootstrap_record(
+            state="SEATED",
+            seatings=(ADMIN_SEAT, BUSINESS_SEAT),
+            dual="true",
+            exception="BOOTSTRAP",
+        )
+        self._refused(
+            "A dual seat records BOTH",
+            bootstrap=record,
+            agents=agents_seated(ADMIN_SEAT, BUSINESS_SEAT),
+            state=state_for(
+                record, seats=("repository-administrator", "business-authority")
+            ),
+        )
+
+    def test_a_dual_seat_exception_that_has_already_expired_is_reported(self):
+        record = bootstrap_record(
+            state="SEATED",
+            seatings=(ADMIN_SEAT, BUSINESS_SEAT),
+            dual="true",
+            exception="BOOTSTRAP",
+            expiry='"2020-01-01"',
+            trigger='"a second human accepts the second seat"',
+        )
+        self._refused(
+            "the dual-seat exception expired on 2020-01-01",
+            bootstrap=record,
+            agents=agents_seated(ADMIN_SEAT, BUSINESS_SEAT),
+            state=state_for(
+                record, seats=("repository-administrator", "business-authority")
+            ),
+        )
+
+    # ---- constraint 1: the capability is consumed by its own use -----------
+
+    def test_a_ledger_disagreeing_about_whether_anyone_is_seated_is_reported(self):
+        record = bootstrap_record(state="SEATED", seatings=(ADMIN_SEAT,))
+        ledger = state_for(record, seats=("repository-administrator",))
+        ledger["bootstrap"]["state"] = "AWAITING_OPERATOR_INSTRUCTION"
+        self._refused(
+            "records bootstrap.state 'AWAITING_OPERATOR_INSTRUCTION'",
+            bootstrap=record,
+            agents=agents_seated(ADMIN_SEAT),
+            state=ledger,
+        )
+
+    def test_a_second_bootstrap_act_is_reported(self):
+        """The persistent bypass. One act was spent; this is a second one,
+        written into the same file with the same ceremony and no operator
+        anywhere near it."""
+        record = bootstrap_record(
+            state="SEATED", seatings=(BUSINESS_SEAT,), act_id="BOOTSTRAP-002"
+        )
+        ledger = state_for(record, seats=("business-authority",))
+        ledger["bootstrap"]["act_id"] = "BOOTSTRAP-001"
+        self._refused(
+            "It is SINGLE-USE",
+            bootstrap=record,
+            agents=agents_seated(BUSINESS_SEAT),
+            state=ledger,
+        )
+
+    def test_a_consumed_bootstrap_record_reused_for_another_seat_is_reported(self):
+        """The same act, extended. The ledger records the one seat it was
+        consumed seating; the record now seats a second one under it."""
+        record = bootstrap_record(
+            state="SEATED", seatings=(ADMIN_SEAT, OTHER_BUSINESS_SEAT)
+        )
+        self._refused(
+            "may not be reused for another seat",
+            bootstrap=record,
+            agents=agents_seated(ADMIN_SEAT, OTHER_BUSINESS_SEAT),
+            state=state_for(record, seats=("repository-administrator",)),
+        )
+
+    # ---- constraint 2: immutability, and non-self-amendment ----------------
+
+    def test_a_digest_recorded_before_anyone_is_seated_is_reported(self):
+        ledger = state_for(BOOTSTRAP_YAML, seats=())
+        ledger["bootstrap"]["historical_digest"] = digest_of(BOOTSTRAP_YAML)
+        self._refused(
+            "records a bootstrap historical_digest while",
+            bootstrap=BOOTSTRAP_YAML,
+            state=ledger,
+        )
+
+    def test_an_edited_historical_record_is_reported(self):
+        """The seated administrator rewriting the act that created it.
+
+        The digest was recorded over the text that seated the seat; the record
+        now says something else, and every OTHER check here still passes,
+        because the record is entirely consistent with itself. That is the
+        whole reason the digest lives in a second file.
+        """
+        record = bootstrap_record(state="SEATED", seatings=(ADMIN_SEAT,))
+        ledger = state_for(record, seats=("repository-administrator",))
+        rewritten = record.replace(
+            "instruction_origin: null",
+            'instruction_origin: "a different instruction entirely"',
+        )
+        self.assertNotEqual(rewritten, record, "the replace target did not match")
+        self._refused(
+            "hashes to",
+            bootstrap=rewritten,
+            agents=agents_seated(ADMIN_SEAT),
+            state=ledger,
+        )
+
+    def test_routing_the_bootstrap_record_to_the_seat_it_seats_is_reported(self):
+        """Non-self-amending, structurally. An administrator who may verify a
+        change to badf/bootstrap.yaml may rewrite its own appointment."""
+        agents = AGENTS_YAML.replace(
+            "    verifier: legal-compliance-reviewer" + NL,
+            "    verifier: repository-administrator" + NL,
+        )
+        self.assertNotEqual(agents, AGENTS_YAML, "the replace target did not match")
+        self._refused(
+            "which is a seat badf/bootstrap.yaml seats",
+            bootstrap=BOOTSTRAP_YAML,
+            agents=agents,
+        )
+
+    # ---- constraint 5: the succession rule, present and unmodified ---------
+
+    def test_deleting_the_first_fill_succession_sentence_is_reported(self):
+        agents = AGENTS_YAML.replace(SUCCESSION_FIRST_FILL, "  It depends." + NL)
+        self.assertNotEqual(agents, AGENTS_YAML, "the replace target did not match")
+        self._refused(
+            "a human-only seat's FIRST occupant is verified by a DIFFERENT "
+            "human-only seat",
+            agents=agents,
+        )
+
+    def test_deleting_the_subsequent_change_succession_sentence_is_reported(self):
+        """The half that makes it a RULE rather than a standing exception.
+
+        Delete it and the file still reads as though it had a succession rule
+        while saying nothing about how the SECOND change to a seat's occupancy
+        is verified - which is the door the bootstrap path would then be left
+        propped open behind.
+        """
+        agents = AGENTS_YAML.replace(SUCCESSION_SUBSEQUENT, "  It depends." + NL)
+        self.assertNotEqual(agents, AGENTS_YAML, "the replace target did not match")
+        self._refused(
+            "once a seat is filled, its occupancy is routed like everything else",
+            agents=agents,
         )
 
 

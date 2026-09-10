@@ -28,6 +28,7 @@ reader knows which artifact to debug.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import sys
@@ -55,6 +56,7 @@ REGISTRIES = (
     "agents.yaml",
     "skills.yaml",
     "signing-policy.yaml",
+    "bootstrap.yaml",
 )
 
 # Every keyword this checker implements. A schema using anything else is a
@@ -927,6 +929,12 @@ PINNED_ROUTING = {
     "badf/gates.yaml": ("architecture-authority", "repository-administrator"),
     "badf/agents.yaml": ("architecture-authority", "repository-administrator"),
     "badf/skills.yaml": ("architecture-authority", "repository-administrator"),
+    # The record of the one-time seating act. Its verifier is deliberately the
+    # ONE human-only seat this repository's bootstrap does not seat: the record
+    # that creates a seat's authority may not be reviewed by that seat, and
+    # validate_bootstrap_record refuses the overlap dynamically as well, for
+    # whatever seat a future act names.
+    "badf/bootstrap.yaml": ("architecture-authority", "legal-compliance-reviewer"),
 }
 
 #: A value that LOOKS like a role id: one bare token, no spaces. Anything
@@ -1003,6 +1011,16 @@ def parse_agents(
                 section = "routing"
                 continue
             if key in ("version", "updated_at"):
+                section = None
+                continue
+            # The succession rule: prose, pinned verbatim by
+            # validate_agents_succession_rule below, which is the reader that
+            # gives it meaning. scripts/agents-registry.mjs learns the same
+            # shape in the same change - two readers in two languages that must
+            # independently agree on this file, as its own header says.
+            if key == "succession":
+                if rest in (">", ">-", "|", "|-", ""):
+                    block_indent = 2
                 section = None
                 continue
             problems.append(
@@ -1101,7 +1119,7 @@ def parse_agents(
     return roles, routing, problems
 
 
-def validate_agents_registry(errors: list[str]) -> None:
+def validate_agents_registry(errors: list[str], seated: dict[str, str]) -> None:
     """The role registry: may_be_an_agent pinned for the four human seats, and
     held_by pinned to the literal null on every role.
 
@@ -1155,10 +1173,19 @@ def validate_agents_registry(errors: list[str]) -> None:
             )
         else:
             held_by = entry["held_by"].strip().strip('"')
-            if held_by != "null":
+            # NARROWED, never removed. The literal null is still the only value
+            # this registry may carry on its own; the one exception is a seat
+            # that badf/bootstrap.yaml VALIDLY seats, to that same principal,
+            # with badf/current-state.json agreeing about the act, the seats and
+            # the digest. validate_bootstrap_record returns an empty map unless
+            # every one of those holds, so a defect anywhere in the bootstrap
+            # record restores the unconditional pin rather than relaxing it.
+            if held_by != "null" and seated.get(role_id) != held_by:
                 errors.append(
                     f"badf/agents.yaml: role {role_id} has held_by "
-                    f"{held_by!r}, not the literal null. Every seat in this "
+                    f"{held_by!r}, and badf/bootstrap.yaml records no valid "
+                    f"bootstrap seating naming that seat and that principal. "
+                    f"Every seat in this "
                     f"registry stays null; a human filling one is a Work "
                     f"Package that changes validate_agents_registry in "
                     f"scripts/validate_continuity.py in the same pull "
@@ -1251,6 +1278,555 @@ def validate_agents_registry(errors: list[str]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# badf/bootstrap.yaml: the one-time act that seats the first human-only seat.
+#
+# badf/agents.yaml routes changes to itself to `verifier:
+# repository-administrator`, so filling that seat requires the seat to verify
+# its own creation, and the same unfilled seat owns badf/signing-policy.yaml
+# and AGENTS.md. docs/decisions/PROPOSAL-bootstrap-seating.md costs four ways
+# out; the mechanism built here is its recommendation - option (a), the
+# succession rule, adopted ONCE by option (c), an operator instruction.
+#
+# NOTHING BELOW SEATS ANYONE. The record ships with no principal named and is
+# refused as a completed seating until an operator names one. An agent may not
+# supply that name, and this validator is written so that it cannot: every rule
+# here narrows what a record may say, and none of them can be satisfied by an
+# agent writing a human into a seat, because the seating has to agree with
+# badf/agents.yaml AND with badf/current-state.json, both of which are covered
+# by badf/signing-policy.yaml.
+# ---------------------------------------------------------------------------
+
+#: The markers delimiting the frozen region of badf/bootstrap.yaml. They are
+#: comments, so the reader below skips them as prose; they are read separately,
+#: by line, because what is hashed is TEXT and not a parse. A record with no
+#: frozen region can never be frozen, so exactly one of each is required.
+BOOTSTRAP_BEGIN = "# ---- BEGIN HISTORICAL RECORD ----"
+BOOTSTRAP_END = "# ---- END HISTORICAL RECORD ----"
+
+BOOTSTRAP_AWAITING = "AWAITING_OPERATOR_INSTRUCTION"
+BOOTSTRAP_SEATED = "SEATED"
+
+#: The literal that says WHICH mechanism adopted the succession rule. It is one
+#: value and not a free string for the reason WITHHELD_STATUSES is a set: a
+#: reader's conclusion lives in the word, and "OPERATOR_INSTRUCTION" alone
+#: would read equally well as a standing authority path that stays available.
+BOOTSTRAP_ESTABLISHED_BY = "OPERATOR_INSTRUCTION_ADOPTING_THE_SUCCESSION_RULE"
+
+#: The only exception a dual seat may be. A dual seat recorded as anything else
+#: is an exception whose type nothing constrains, which is a permanent one.
+BOOTSTRAP_EXCEPTION_TYPE = "BOOTSTRAP"
+
+#: The statement constraint 3 asks for, pinned VERBATIM in the shape
+#: validate_lifecycle_pins uses: a later reader must not be able to mistake the
+#: operator instruction for a standing parallel authority path, and prose that
+#: can be reworded is prose that will be.
+BOOTSTRAP_STATEMENT = (
+    "THE OPERATOR INSTRUCTION RECORDED HERE IS THE MECHANISM THAT ADOPTED THE "
+    "SUCCESSION RULE IN badf/agents.yaml. IT IS NOT A STANDING ALTERNATIVE "
+    "AUTHORITY PATH, AND IT IS SPENT BY ITS OWN USE."
+)
+
+BOOTSTRAP_SCALARS = {
+    "version",
+    "updated_at",
+    "act_id",
+    "state",
+    "established_by",
+    "standing_authority_path",
+    "instruction_date",
+    "instruction_origin",
+    "temporary_dual_seat",
+    "exception_type",
+    "expiry",
+    "separation_trigger",
+    "establishment_statement",
+}
+BOOTSTRAP_SEATING_FIELDS = {"seat", "principal", "note"}
+
+BOOTSTRAP_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}")
+
+#: The scalars pinned to a fixed set of literals, one deletable row per rule,
+#: for the reason ACCEPTED_KEY_RULES is a table: three conditions inside one
+#: function share one mutation and one control, and which of them is actually
+#: enforced then cannot be observed.
+#:
+#: (field, allowed values, what it must be)
+BOOTSTRAP_LITERALS = (
+    (
+        "state",
+        (BOOTSTRAP_AWAITING, BOOTSTRAP_SEATED),
+        f"either {BOOTSTRAP_AWAITING} - the shape of a seating, awaiting the "
+        f"operator's name - or {BOOTSTRAP_SEATED}. A record ambiguous about "
+        f"whether anyone is seated is read as seated by whoever benefits",
+    ),
+    (
+        "established_by",
+        (BOOTSTRAP_ESTABLISHED_BY,),
+        f"the literal {BOOTSTRAP_ESTABLISHED_BY}. The operator instruction is "
+        f"the MECHANISM that adopted the succession rule in badf/agents.yaml, "
+        f"and recording it as anything else turns a spent, one-time act into a "
+        f"second authority path a later reader may take",
+    ),
+    (
+        "standing_authority_path",
+        ("false",),
+        "the literal false. This record is consumed by its own use; a record "
+        "that declares itself a standing path declares the bypass this "
+        "mechanism exists to close",
+    ),
+)
+
+
+def bootstrap_historical_block(text: str) -> str | None:
+    """The frozen region of badf/bootstrap.yaml, verbatim, or None.
+
+    Text and not a parse: what constraint 2 freezes is the record a human
+    reads, so a comment reworded inside the region changes the digest exactly
+    as a changed principal does. Newlines are normalised because the checkout
+    that computes the digest need not be the checkout that recorded it.
+    """
+    lines = text.replace("\r\n", "\n").split("\n")
+    starts = [i for i, line in enumerate(lines) if line.strip() == BOOTSTRAP_BEGIN]
+    ends = [i for i, line in enumerate(lines) if line.strip() == BOOTSTRAP_END]
+    if len(starts) != 1 or len(ends) != 1 or ends[0] < starts[0]:
+        return None
+    return "\n".join(lines[starts[0] + 1 : ends[0]])
+
+
+def bootstrap_digest(block: str) -> str:
+    return hashlib.sha256(block.encode("utf-8")).hexdigest()
+
+
+def parse_bootstrap(text: str) -> tuple[dict, list[str]]:
+    """Reads badf/bootstrap.yaml, refusing every line it cannot classify.
+
+    A sibling of parse_authority, parse_skills, parse_agents and
+    parse_signing_policy, and written for the reason the first of those
+    documents at length: a reader that SKIPS what it does not recognise was
+    defeated five ways with ordinary, legal YAML. The default is an error.
+
+    Returns {"scalars": {key: value}, "seatings": [{field: value}, ...]}.
+    """
+    record: dict = {"scalars": {}, "seatings": []}
+    problems: list[str] = []
+    section: str | None = None
+    entry: dict[str, str] | None = None
+    block_indent: int | None = None
+
+    for number, raw in enumerate(text.splitlines(), start=1):
+        if raw.strip() == "" or raw.lstrip().startswith("#"):
+            continue
+
+        indent = len(raw) - len(raw.lstrip(" "))
+
+        if block_indent is not None:
+            if indent >= block_indent:
+                continue
+            block_indent = None
+
+        # A tab is not an indent this reader disagrees with; it is a shape that
+        # made a whole section invisible to an earlier reader. It matches no
+        # rule below and lands on the catch-all, with its number.
+        tabless = "\t" not in raw
+
+        if tabless and indent == 0:
+            top = re.match(r"^(\S+):[ ]*(.*)$", raw)
+            if top is not None:
+                key, value = top.group(1), top.group(2).strip()
+                section = None
+                entry = None
+                if key in BOOTSTRAP_SCALARS:
+                    if value in (">", ">-", "|", "|-", ""):
+                        block_indent = 2
+                        value = ""
+                    record["scalars"][key] = value.strip('"')
+                    continue
+                if key == "seatings":
+                    if value != "":
+                        problems.append(
+                            f"badf/bootstrap.yaml line {number}: 'seatings' carries "
+                            f"an inline value; its entries must be written as a block"
+                        )
+                    section = "seatings"
+                    continue
+                problems.append(
+                    f"badf/bootstrap.yaml line {number}: unknown top-level key "
+                    f"{key!r}. A key nothing reads is a key a forger fills in while "
+                    f"the file still looks authoritative"
+                )
+                continue
+
+        if tabless and indent == 2 and section == "seatings":
+            opener = re.match(r"^ {2}- seat:[ ]*(\S.*)$", raw)
+            if opener is not None:
+                entry = {
+                    "seat": opener.group(1).strip().strip('"'),
+                    "__line__": str(number),
+                }
+                record["seatings"].append(entry)
+                continue
+
+        if tabless and indent == 4 and section == "seatings" and entry is not None:
+            field_match = re.match(r"^ {4}(\S+):[ ]*(.*)$", raw)
+            if field_match is not None:
+                field, value = field_match.group(1), field_match.group(2).strip()
+                if field not in BOOTSTRAP_SEATING_FIELDS:
+                    problems.append(
+                        f"badf/bootstrap.yaml line {number}: unknown field {field!r} "
+                        f"on a seating. A field this reader drops is a field a human "
+                        f"reading the file still sees, and believes"
+                    )
+                    continue
+                if value in (">", ">-", "|", "|-", ""):
+                    block_indent = 6
+                    value = ""
+                entry[field] = value.strip('"')
+                continue
+
+        problems.append(
+            f"badf/bootstrap.yaml line {number}: matches no rule of this record's "
+            f"grammar, or names a field with no seating open: {raw.strip()!r}. This "
+            f"reader refuses what it cannot classify rather than skipping it"
+        )
+
+    return record, problems
+
+
+def validate_bootstrap_record(state, errors: list[str]) -> dict[str, str]:
+    """The one-time act, and the seats it legitimately seats.
+
+    Returns {seat: principal}, which validate_agents_registry uses to NARROW -
+    never to remove - the pin holding every held_by at the literal null. The
+    map is empty unless this record is valid in every respect, so a defect
+    anywhere here restores the unconditional pin rather than relaxing it: the
+    fail-closed direction is the one where nobody is seated.
+    """
+    before = len(errors)
+    try:
+        text = (BADF / "bootstrap.yaml").read_text(encoding="utf-8")
+    except OSError as exc:
+        errors.append(f"badf/bootstrap.yaml: cannot read: {exc}")
+        return {}
+
+    record, problems = parse_bootstrap(text)
+    errors.extend(problems)
+    scalars = record["scalars"]
+    seatings = record["seatings"]
+
+    # The roles and the routing table this record has to agree with. Parse
+    # problems here are validate_agents_registry's to report, not this
+    # function's: one malformed line should be one error, not two.
+    try:
+        agents_text = (BADF / "agents.yaml").read_text(encoding="utf-8")
+    except OSError as exc:
+        errors.append(
+            f"badf/bootstrap.yaml: cannot read badf/agents.yaml to check it "
+            f"against: {exc}"
+        )
+        return {}
+    roles, routing, _ = parse_agents(agents_text)
+
+    for field, allowed, expectation in BOOTSTRAP_LITERALS:
+        value = scalars.get(field, "").strip()
+        if value in allowed:
+            continue
+        errors.append(
+            f"badf/bootstrap.yaml: records {field} as {value!r}, and it must be "
+            f"{expectation}"
+        )
+
+    # Constraint 3, in the shape validate_lifecycle_pins uses for the
+    # acceptance transition: the sentence has to be PRESENT and UNMODIFIED.
+    # Whitespace is normalised because the statement is a folded scalar and
+    # where the folding falls is not part of what it says.
+    if BOOTSTRAP_STATEMENT not in " ".join(text.split()):
+        errors.append(
+            "badf/bootstrap.yaml: does not carry the establishment statement "
+            "verbatim. That sentence is what tells a later reader that the "
+            "operator instruction was the mechanism which adopted the succession "
+            "rule and not a standing parallel authority path, and a sentence that "
+            "can be reworded is a sentence that will be"
+        )
+
+    block = bootstrap_historical_block(text)
+    if block is None:
+        errors.append(
+            f"badf/bootstrap.yaml: does not delimit a historical record with exactly "
+            f"one {BOOTSTRAP_BEGIN!r} line and one {BOOTSTRAP_END!r} line after it. "
+            f"The frozen region is what the digest in badf/current-state.json is "
+            f"taken over, so a record with no region can never be frozen"
+        )
+
+    declared_state = scalars.get("state", "").strip()
+    dual = scalars.get("temporary_dual_seat", "").strip()
+    expiry = scalars.get("expiry", "").strip()
+    trigger = scalars.get("separation_trigger", "").strip()
+    exception = scalars.get("exception_type", "").strip()
+
+    seats_named: list[str] = []
+    seated: dict[str, str] = {}
+    for position, seating in enumerate(seatings, start=1):
+        seat = seating.get("seat", "").strip()
+        principal = seating.get("principal", "").strip()
+        line = seating.get("__line__", "?")
+
+        if seat in seats_named:
+            errors.append(
+                f"badf/bootstrap.yaml: seating {position} (line {line}) names seat "
+                f"{seat!r}, which an earlier seating in this record already names. "
+                f"One seat, seated twice in one act, is two claims about the same "
+                f"office and this reader would take the later one"
+            )
+        seats_named.append(seat)
+
+        if seat not in roles:
+            errors.append(
+                f"badf/bootstrap.yaml: seating {position} (line {line}) names seat "
+                f"{seat!r}, which is no role declared in badf/agents.yaml. A record "
+                f"that seats an office no registry declares creates the office and "
+                f"the occupant in one unreviewed act"
+            )
+        elif roles[seat].get("may_be_an_agent", "").strip().strip('"') != "false":
+            errors.append(
+                f"badf/bootstrap.yaml: seating {position} (line {line}) names seat "
+                f"{seat!r}, whose may_be_an_agent is not false. This mechanism exists "
+                f"for human-only seats: a seat an agent may occupy is not blocked by "
+                f"the loop this record breaks, and bootstrapping one would hand an "
+                f"agent a seat by an act no seat reviewed"
+            )
+
+        if declared_state == BOOTSTRAP_AWAITING and principal != "null":
+            errors.append(
+                f"badf/bootstrap.yaml: seating {position} (line {line}) records "
+                f"principal {principal!r} while state is {BOOTSTRAP_AWAITING}. This "
+                f"record is the SHAPE of a seating and not one: the principal is the "
+                f"operator's to name, and until the state says {BOOTSTRAP_SEATED} it "
+                f"is the literal null"
+            )
+
+        if declared_state == BOOTSTRAP_SEATED and principal in ("", "null"):
+            errors.append(
+                f"badf/bootstrap.yaml: seating {position} (line {line}) records no "
+                f"principal while state is {BOOTSTRAP_SEATED}. A seating with no "
+                f"named human seats nobody, and an agent may not supply the name: the "
+                f"repository's git identity is a fact about a machine, not a decision "
+                f"about who holds an office"
+            )
+            continue
+
+        if declared_state != BOOTSTRAP_SEATED:
+            continue
+
+        held = roles.get(seat, {}).get("held_by", "").strip().strip('"')
+        if held != principal:
+            errors.append(
+                f"badf/bootstrap.yaml: seating {position} (line {line}) records seat "
+                f"{seat!r} as seated by {principal!r}, and badf/agents.yaml records "
+                f"that seat's held_by as {held!r}. The two records must agree in BOTH "
+                f"directions - a bootstrap record naming a seat nobody holds is a "
+                f"claim of authority with no occupant, exactly as an occupant no "
+                f"bootstrap record names is an occupant nothing seated"
+            )
+            continue
+        seated[seat] = principal
+
+    # Constraint 4. DECLARED SEPARATION = ACTUAL SEPARATION, and the rule is
+    # written in both directions on purpose: a dual seat that is not declared
+    # is a separation of duties this repository's routing table claims to have
+    # and does not, and a declaration with no dual seat is an expiring
+    # exception nothing will ever trigger, sitting in the record as cover.
+    holders: dict[str, list[str]] = {}
+    for seat, principal in seated.items():
+        holders.setdefault(principal, []).append(seat)
+    doubled = sorted(
+        (principal, sorted(held_seats))
+        for principal, held_seats in holders.items()
+        if len(held_seats) > 1
+    )
+
+    if doubled and dual != "true":
+        errors.append(
+            f"badf/bootstrap.yaml: {doubled[0][0]!r} is recorded as the occupant of "
+            f"{doubled[0][1]} and temporary_dual_seat is {dual!r}. One principal in "
+            f"two seats IS the collapse of the separation of duties the routing table "
+            f"exists to create; it may be unavoidable, and it is then a recorded, "
+            f"expiring exception - never a silence"
+        )
+
+    if not doubled and dual == "true":
+        errors.append(
+            "badf/bootstrap.yaml: declares temporary_dual_seat: true and no principal "
+            "in this record holds two seats. A declared exception with nothing to "
+            "except is an expiry nothing will trigger and a separation nobody has to "
+            "restore: declared separation must equal actual separation in both "
+            "directions"
+        )
+
+    if dual == "true" and exception != BOOTSTRAP_EXCEPTION_TYPE:
+        errors.append(
+            f"badf/bootstrap.yaml: declares temporary_dual_seat: true with "
+            f"exception_type {exception!r}, and it must be the literal "
+            f"{BOOTSTRAP_EXCEPTION_TYPE}. An exception whose type nothing constrains "
+            f"is a permanent one"
+        )
+
+    if dual == "true" and (
+        BOOTSTRAP_DATE.match(expiry) is None or trigger in ("", "null")
+    ):
+        errors.append(
+            f"badf/bootstrap.yaml: declares temporary_dual_seat: true with expiry "
+            f"{expiry!r} and separation_trigger {trigger!r}. A dual seat records BOTH: "
+            f"a date it ends on and the event that ends it. An exception with no "
+            f"expiry and no trigger is the permanent arrangement it says it is not"
+        )
+
+    now = str(state.get("updated_at") or "") if isinstance(state, dict) else ""
+    if BOOTSTRAP_DATE.match(expiry) is not None and expiry[:10] < now[:10]:
+        errors.append(
+            f"badf/bootstrap.yaml: the dual-seat exception expired on {expiry[:10]}, "
+            f"and the records were updated on {now[:10]}. An expired exception is a "
+            f"stop condition, not a live one, and a dual seat that outlives its own "
+            f"expiry is the permanent collapse of duties it was granted not to be"
+        )
+
+    # The consumption ledger, which lives in badf/current-state.json because a
+    # record attesting to its own single use attests to nothing.
+    ledger = state.get("bootstrap") if isinstance(state, dict) else None
+    if not isinstance(ledger, dict):
+        errors.append(
+            "badf/current-state.json: records no bootstrap block, so nothing outside "
+            "badf/bootstrap.yaml says which act was spent, on which seats, or over "
+            "what text - and a record that is its own only witness is not a witness"
+        )
+        return {}
+
+    if str(ledger.get("state")) != declared_state:
+        errors.append(
+            f"badf/current-state.json: records bootstrap.state "
+            f"{ledger.get('state')!r} and badf/bootstrap.yaml records state "
+            f"{declared_state!r}. Two records that disagree about whether anyone is "
+            f"seated leave a reader to pick, and a reader picks the one that helps"
+        )
+
+    if str(ledger.get("act_id")) != scalars.get("act_id", "").strip():
+        errors.append(
+            f"badf/current-state.json: the bootstrap capability was spent by act "
+            f"{ledger.get('act_id')!r} and badf/bootstrap.yaml now records act "
+            f"{scalars.get('act_id', '')!r}. It is SINGLE-USE: a second act is not a "
+            f"second bootstrap, it is the persistent bypass this mechanism was built "
+            f"to refuse"
+        )
+
+    recorded_seats = ledger.get("seats")
+    recorded_seats = sorted(recorded_seats) if isinstance(recorded_seats, list) else []
+    if recorded_seats != sorted(seated):
+        errors.append(
+            f"badf/current-state.json: the bootstrap capability was consumed seating "
+            f"{recorded_seats} and badf/bootstrap.yaml now seats {sorted(seated)}. A "
+            f"consumed record may not be reused for another seat: what the act seated "
+            f"is what it seated, and the next vacancy is the succession rule's, not "
+            f"this record's"
+        )
+
+    recorded = ledger.get("historical_digest")
+    if declared_state == BOOTSTRAP_AWAITING and recorded is not None:
+        errors.append(
+            f"badf/current-state.json: records a bootstrap historical_digest while "
+            f"badf/bootstrap.yaml is still {BOOTSTRAP_AWAITING}. Nothing is frozen "
+            f"until something is seated, and a digest recorded early is a digest "
+            f"chosen before the text it is supposed to bind"
+        )
+
+    if declared_state == BOOTSTRAP_SEATED:
+        computed = bootstrap_digest(block) if block is not None else None
+        if recorded != computed:
+            errors.append(
+                f"badf/current-state.json: records bootstrap historical_digest "
+                f"{recorded!r} and the frozen region of badf/bootstrap.yaml hashes to "
+                f"{computed!r}. Once a principal is named the historical record is "
+                f"fixed: the seat this act created may not rewrite the act that "
+                f"created it, and an edit that repairs the digest is an edit to a "
+                f"second governed record with a second reviewer"
+            )
+
+    # Constraint 2, the structural half. The seat this record seats may not be
+    # the owner or the verifier of the routing entry for this record - an
+    # administrator who could review a change here could rewrite its own
+    # appointment, which is the loop this whole mechanism exists to leave
+    # closed behind it.
+    for route in routing:
+        if route.get("path", "").strip().strip('"') != "badf/bootstrap.yaml":
+            continue
+        for field in ("owner", "verifier"):
+            value = route.get(field, "").strip().strip('"')
+            if value not in seats_named:
+                continue
+            errors.append(
+                f"badf/agents.yaml: routes 'badf/bootstrap.yaml' {field} to {value!r}, "
+                f"which is a seat badf/bootstrap.yaml seats. A record that created a "
+                f"seat's authority may not be owned or reviewed by that seat: this "
+                f"record is non-self-amending, or it is a self-appointment with extra "
+                f"steps"
+            )
+
+    if len(errors) != before:
+        return {}
+    return seated
+
+
+#: The two sentences of badf/agents.yaml's succession rule that the mechanism
+#: in badf/bootstrap.yaml depends on, pinned in the shape
+#: validate_lifecycle_pins uses for the acceptance transition. The first makes
+#: the rule apply to the FIRST fill; the second makes every later change
+#: ordinary. Delete either and the file still reads as though it had a
+#: succession rule.
+SUCCESSION_PINS = (
+    (
+        "The first fill of a seat whose may_be_an_agent is false is verified by a "
+        "different seat whose may_be_an_agent is false.",
+        "the rule that a human-only seat's FIRST occupant is verified by a "
+        "DIFFERENT human-only seat, which is what keeps an agent from ever being "
+        "the verifier of a seating",
+    ),
+    (
+        "Every subsequent change to that seat's occupancy is verified normally by "
+        "the routing table above.",
+        "the sentence that makes this a RULE and not a standing exception: once a "
+        "seat is filled, its occupancy is routed like everything else, and the "
+        "bootstrap path is not available a second time",
+    ),
+)
+
+
+def validate_agents_succession_rule(errors: list[str]) -> None:
+    """The succession rule is present and unmodified.
+
+    Round three rewrote a lifecycle transition to requires_human: false and the
+    validator passed, which is why validate_lifecycle_pins exists. The same
+    treatment applies here for a stronger reason: this rule is the whole answer
+    to "who verifies the NEXT vacancy", and a rule an agent can edit is a rule
+    an agent does not have.
+    """
+    try:
+        text = (BADF / "agents.yaml").read_text(encoding="utf-8")
+    except OSError as exc:
+        errors.append(f"badf/agents.yaml: cannot read: {exc}")
+        return
+
+    flat = " ".join(text.split())
+    for sentence, what in SUCCESSION_PINS:
+        if sentence in flat:
+            continue
+        errors.append(
+            f"badf/agents.yaml: the succession rule no longer states, verbatim, "
+            f"{what}. badf/bootstrap.yaml records that this rule was adopted by a "
+            f"single-use operator instruction which is already spent, so a rule "
+            f"edited away here cannot be re-adopted: it can only be restored by a "
+            f"reviewed change that says why"
+        )
+
+
+# ---------------------------------------------------------------------------
 # badf/signing-policy.yaml: WHO wrote a record, not what it says.
 #
 # Every other check in this file constrains what a record may SAY. None of them
@@ -1317,6 +1893,7 @@ PINNED_PROTECTED_PATHS = (
     "badf/agents.yaml",
     "badf/skills.yaml",
     "badf/signing-policy.yaml",
+    "badf/bootstrap.yaml",
     "sessions/checkpoints",
 )
 
@@ -1833,7 +2410,9 @@ def main() -> int:
     validate_authority_registry(state, errors)
     validate_gates_registry(state, errors)
     validate_skills_registry(errors)
-    validate_agents_registry(errors)
+    seated = validate_bootstrap_record(state, errors)
+    validate_agents_registry(errors, seated)
+    validate_agents_succession_rule(errors)
     validate_signing_policy(errors)
     validate_lifecycle_pins(errors)
     validate_acceptance_is_not_self_awarded(state, errors)

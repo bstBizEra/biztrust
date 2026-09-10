@@ -1920,6 +1920,268 @@ const MUTATIONS = [
     ),
     to: "",
   },
+  // ---- the bootstrap record: the one-time act that seats the first
+  // occupant of a human-only seat -----------------------------------------
+  //
+  // badf/agents.yaml routed changes to itself to `verifier:
+  // repository-administrator`, so filling that seat required the seat to
+  // verify its own creation. badf/bootstrap.yaml is the record of the
+  // out-of-band act that breaks the loop, and it is the ONE place where a
+  // named human may legally appear in a seat - so every rule guarding it
+  // gets a mutation, and the pin those rules narrow (held_by) gets the one
+  // it never had.
+  {
+    file: RECORDS,
+    suite: "validator",
+    // The reader's default. Same shape as the signing-policy reader above:
+    // the message is still computed and simply never reported.
+    name: "records: silently skip a bootstrap-record line the reader cannot classify",
+    witness: "test_a_bootstrap_line_the_reader_cannot_classify_is_reported",
+    from: "        problems.append(\n            f\"badf/bootstrap.yaml line {number}: matches no rule of this record's \"",
+    to: "        _unclassified_bootstrap = (\n            f\"badf/bootstrap.yaml line {number}: matches no rule of this record's \"",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: silently skip an unknown top-level key in the bootstrap record",
+    witness: "test_an_unknown_top_level_key_in_the_bootstrap_record_is_reported",
+    from: "                problems.append(\n                    f\"badf/bootstrap.yaml line {number}: unknown top-level key \"",
+    to: "                _unknown_bootstrap_key = (\n                    f\"badf/bootstrap.yaml line {number}: unknown top-level key \"",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: silently skip an unknown field on a bootstrap seating",
+    witness: "test_an_unknown_field_on_a_seating_is_reported",
+    from: "                if field not in BOOTSTRAP_SEATING_FIELDS:",
+    to: "                if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // BOOTSTRAP_LITERALS is one alternation for the reason ACCEPTED_KEY_RULES
+    // is: each rule is one deletable line, so each can carry a control of its
+    // own instead of three conditions sharing one.
+    name: "records: accept a bootstrap state that is neither awaiting nor seated",
+    witness: "test_a_bootstrap_state_that_is_neither_awaiting_nor_seated_is_reported",
+    from: "    (\n        \"state\",\n        (BOOTSTRAP_AWAITING, BOOTSTRAP_SEATED),\n        f\"either {BOOTSTRAP_AWAITING} - the shape of a seating, awaiting the \"\n        f\"operator's name - or {BOOTSTRAP_SEATED}. A record ambiguous about \"\n        f\"whether anyone is seated is read as seated by whoever benefits\",\n    ),\n",
+    to: "",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // Constraint 3. Without this row the record reads as a STANDING operator
+    // path rather than the spent, one-time act that adopted the succession
+    // rule.
+    name: "records: let the bootstrap record name a mechanism other than the operator instruction",
+    witness: "test_a_bootstrap_established_by_naming_another_mechanism_is_reported",
+    from: "    (\n        \"established_by\",\n        (BOOTSTRAP_ESTABLISHED_BY,),\n        f\"the literal {BOOTSTRAP_ESTABLISHED_BY}. The operator instruction is \"\n        f\"the MECHANISM that adopted the succession rule in badf/agents.yaml, \"\n        f\"and recording it as anything else turns a spent, one-time act into a \"\n        f\"second authority path a later reader may take\",\n    ),\n",
+    to: "",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: let the bootstrap record declare itself a standing authority path",
+    witness: "test_a_bootstrap_record_declaring_itself_a_standing_path_is_reported",
+    from: "    (\n        \"standing_authority_path\",\n        (\"false\",),\n        \"the literal false. This record is consumed by its own use; a record \"\n        \"that declares itself a standing path declares the bypass this \"\n        \"mechanism exists to close\",\n    ),\n",
+    to: "",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // The validate_lifecycle_pins treatment applied to constraint 3. A
+    // sentence that can be reworded is a sentence that will be.
+    name: "records: stop requiring the bootstrap establishment statement verbatim",
+    witness: "test_a_reworded_establishment_statement_is_reported",
+    from: "    if BOOTSTRAP_STATEMENT not in \" \".join(text.split()):",
+    to: "    if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // No markers, no digest, no immutability - and the file still reads
+    // exactly as authoritative as it did with them.
+    name: "records: accept a bootstrap record that delimits no frozen region",
+    witness: "test_a_bootstrap_record_with_no_frozen_region_is_reported",
+    from: "    if block is None:",
+    to: "    if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: let one bootstrap record seat the same seat twice",
+    witness: "test_a_seating_naming_the_same_seat_twice_is_reported",
+    from: "        if seat in seats_named:",
+    to: "        if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: let a bootstrap record seat an office no registry declares",
+    witness: "test_a_seating_naming_no_declared_role_is_reported",
+    from: "            errors.append(\n                f\"badf/bootstrap.yaml: seating {position} (line {line}) names seat \"\n                f\"{seat!r}, which is no role declared in badf/agents.yaml. A record \"",
+    to: "            _undeclared_seat = (\n                f\"badf/bootstrap.yaml: seating {position} (line {line}) names seat \"\n                f\"{seat!r}, which is no role declared in badf/agents.yaml. A record \"",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // The mechanism exists for human-only seats. Without this the held_by pin
+    // opens for every agent-occupiable seat at once.
+    name: "records: let a bootstrap record seat a seat an agent may occupy",
+    witness: "test_a_seating_naming_a_seat_an_agent_may_occupy_is_reported",
+    from: "            errors.append(\n                f\"badf/bootstrap.yaml: seating {position} (line {line}) names seat \"\n                f\"{seat!r}, whose may_be_an_agent is not false. This mechanism exists \"",
+    to: "            _agent_occupiable_seat = (\n                f\"badf/bootstrap.yaml: seating {position} (line {line}) names seat \"\n                f\"{seat!r}, whose may_be_an_agent is not false. This mechanism exists \"",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: let a bootstrap record name a principal while it still awaits the operator",
+    witness: "test_a_principal_named_while_awaiting_the_operator_is_reported",
+    from: "            errors.append(\n                f\"badf/bootstrap.yaml: seating {position} (line {line}) records \"\n                f\"principal {principal!r} while state is {BOOTSTRAP_AWAITING}. This \"",
+    to: "            _named_while_awaiting = (\n                f\"badf/bootstrap.yaml: seating {position} (line {line}) records \"\n                f\"principal {principal!r} while state is {BOOTSTRAP_AWAITING}. This \"",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // The forgery the whole record is shaped to refuse: the act declared
+    // complete without an operator ever naming anyone.
+    name: "records: accept a completed bootstrap seating that names no human at all",
+    witness: "test_a_seating_with_no_principal_while_seated_is_reported",
+    from: "            errors.append(\n                f\"badf/bootstrap.yaml: seating {position} (line {line}) records no \"\n                f\"principal while state is {BOOTSTRAP_SEATED}. A seating with no \"",
+    to: "            _seated_with_nobody = (\n                f\"badf/bootstrap.yaml: seating {position} (line {line}) records no \"\n                f\"principal while state is {BOOTSTRAP_SEATED}. A seating with no \"",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: let a bootstrap seating disagree with the held_by it claims to have filled",
+    witness: "test_a_seated_seat_whose_held_by_is_still_null_is_reported",
+    from: "        if held != principal:",
+    to: "        if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // The pin itself, which had no mutation until this task. NARROWING it was
+    // the change; deleting it is what this proves is caught.
+    name: "records: unpin held_by, so any seat may name any occupant",
+    witness: "test_a_held_by_no_bootstrap_record_names_is_reported",
+    from: "            if held_by != \"null\" and seated.get(role_id) != held_by:",
+    to: "            if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: let one principal hold two seats with no declared exception",
+    witness: "test_one_principal_in_two_seats_without_the_exception_is_reported",
+    from: "    if doubled and dual != \"true\":",
+    to: "    if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // The other direction of DECLARED SEPARATION = ACTUAL SEPARATION: an
+    // expiring exception with nothing to except is cover, not a constraint.
+    name: "records: accept a declared dual seat that no principal actually holds",
+    witness: "test_a_declared_dual_seat_with_no_dual_seat_is_reported",
+    from: "    if not doubled and dual == \"true\":",
+    to: "    if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: let a dual seat be an exception of any type at all",
+    witness: "test_a_dual_seat_whose_exception_type_is_not_bootstrap_is_reported",
+    from: "    if dual == \"true\" and exception != BOOTSTRAP_EXCEPTION_TYPE:",
+    to: "    if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: let a dual seat record no expiry and no separation trigger",
+    witness: "test_a_dual_seat_with_no_expiry_or_trigger_is_reported",
+    from: "    if dual == \"true\" and (",
+    to: "    if False and (",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: let a dual-seat exception outlive its own expiry",
+    witness: "test_a_dual_seat_exception_that_has_already_expired_is_reported",
+    from: "    if BOOTSTRAP_DATE.match(expiry) is not None and expiry[:10] < now[:10]:",
+    to: "    if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: let the two records disagree about whether anyone is seated",
+    witness: "test_a_ledger_disagreeing_about_whether_anyone_is_seated_is_reported",
+    from: "    if str(ledger.get(\"state\")) != declared_state:",
+    to: "    if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // The persistent bypass, which is constraint 1 exactly: the capability is
+    // consumed by its own use or it is a standing one.
+    name: "records: let a second bootstrap act be written after the first was spent",
+    witness: "test_a_second_bootstrap_act_is_reported",
+    from: "    if str(ledger.get(\"act_id\")) != scalars.get(\"act_id\", \"\").strip():",
+    to: "    if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: let a consumed bootstrap record be reused for another seat",
+    witness: "test_a_consumed_bootstrap_record_reused_for_another_seat_is_reported",
+    from: "    if recorded_seats != sorted(seated):",
+    to: "    if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: let a bootstrap digest be recorded before anyone is seated",
+    witness: "test_a_digest_recorded_before_anyone_is_seated_is_reported",
+    from: "    if declared_state == BOOTSTRAP_AWAITING and recorded is not None:",
+    to: "    if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // The immutability check itself. With it gone the historical record is
+    // editable by whoever the record seated, which is the loop this whole
+    // mechanism exists to leave closed behind it.
+    name: "records: let the seated administrator rewrite the act that created its authority",
+    witness: "test_an_edited_historical_record_is_reported",
+    from: "        if recorded != computed:",
+    to: "        if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: let the bootstrap record be reviewed by a seat it seats",
+    witness: "test_routing_the_bootstrap_record_to_the_seat_it_seats_is_reported",
+    from: "            if value not in seats_named:",
+    to: "            if True:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // SUCCESSION_PINS is a table for the reason BOOTSTRAP_LITERALS is: the
+    // two halves of the rule are independently deletable, so they get a
+    // control and a mutation each.
+    name: "records: stop pinning the first-fill half of the succession rule",
+    witness: "test_deleting_the_first_fill_succession_sentence_is_reported",
+    from: "    (\n        \"The first fill of a seat whose may_be_an_agent is false is verified by a \"\n        \"different seat whose may_be_an_agent is false.\",\n        \"the rule that a human-only seat's FIRST occupant is verified by a \"\n        \"DIFFERENT human-only seat, which is what keeps an agent from ever being \"\n        \"the verifier of a seating\",\n    ),\n",
+    to: "",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: stop pinning the half of the succession rule that makes it a rule",
+    witness: "test_deleting_the_subsequent_change_succession_sentence_is_reported",
+    from: "    (\n        \"Every subsequent change to that seat's occupancy is verified normally by \"\n        \"the routing table above.\",\n        \"the sentence that makes this a RULE and not a standing exception: once a \"\n        \"seat is filled, its occupancy is routed like everything else, and the \"\n        \"bootstrap path is not available a second time\",\n    ),\n",
+    to: "",
+  },
   {
     file: SIGNING_POLICY,
     name: "signing: read a policy line the second reader cannot classify as if it were fine",

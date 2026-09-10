@@ -14,6 +14,7 @@
     "source",
     "gates",
     "authority",
+    "bootstrap",
     "latest_checkpoint",
     "primary_next_action_id",
     "resume_decision"
@@ -189,6 +190,22 @@
             "REVISION_REQUIRED_BY_INDEPENDENT_VERIFIER",
             "ACCEPTED_BY_INDEPENDENT_VERIFIER"
           ]
+        }
+      }
+    },
+    "bootstrap": {
+      "description": "The consumption ledger for badf/bootstrap.yaml, the one-time act that seats the first occupant of a human-only seat. It lives HERE, in a second record with a second reviewer, because a record attesting to its own immutability attests to nothing: historical_digest is the sha256 of that record's frozen block, and act_id and seats are what make the capability single-use - a second act, or this one extended to a seat it did not seat, disagrees with this block and is refused.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["record", "state", "act_id", "seats", "historical_digest"],
+      "properties": {
+        "record": { "enum": ["badf/bootstrap.yaml"] },
+        "state": { "enum": ["AWAITING_OPERATOR_INSTRUCTION", "SEATED"] },
+        "act_id": { "type": "string", "pattern": "^BOOTSTRAP-[0-9]{3}$" },
+        "seats": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "historical_digest": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{64}$"
         }
       }
     },

@@ -122,3 +122,29 @@ routing:
   - path: "AGENTS.md"
     owner: repository-administrator
     verifier: architecture-authority
+  - path: "badf/bootstrap.yaml"
+    owner: architecture-authority
+    verifier: legal-compliance-reviewer
+    note: >-
+      The record of the one-time act that seats the first occupant of a
+      human-only seat. Neither seat named here may be a seat that record
+      seats: an administrator who could verify a change to the record that
+      created its authority could rewrite its own appointment. The validator
+      refuses that overlap rather than trusting this note.
+
+succession: >-
+  How the FIRST occupant of a human-only seat is seated, as a rule of this
+  file and not as an exception to it.
+
+  The first fill of a seat whose may_be_an_agent is false is verified by a
+  different seat whose may_be_an_agent is false.
+
+  Every subsequent change to that seat's occupancy is verified normally by the
+  routing table above.
+
+  The rule is deterministic: the next vacancy in a human-only seat needs no
+  further operator instruction, because this rule already decides who verifies
+  the fill. It was adopted once, by the operator instruction recorded in
+  badf/bootstrap.yaml, which is single-use and is spent by that adoption. That
+  instruction is the mechanism which established this rule; it is not a
+  standing alternative authority path, and no second one is available.
