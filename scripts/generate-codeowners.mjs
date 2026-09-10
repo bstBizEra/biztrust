@@ -112,6 +112,31 @@ export function renderCodeowners(registry) {
     }
   }
 
+  // Round two: this sentence was UNCONDITIONAL, so the moment a human is
+  // seated under badf/bootstrap.yaml the generated file would assert, in
+  // writing, that nobody holds any seat - and nothing would notice, because
+  // nothing read held_by here. It is derived from the registry now. What does
+  // NOT change either way is that no human is ever NAMED in this file: a team
+  // is an organisational structure, an occupant is a person, and naming one
+  // here would be the forgery badf/agents.yaml exists to refuse.
+  const occupied = registry.roles.filter(
+    (role) => (role.held_by ?? "null").replace(/"/g, "").trim() !== "null",
+  ).length;
+  const occupancy =
+    occupied === 0
+      ? [
+          "# person. Every role in badf/agents.yaml currently records held_by: null:",
+          "# no human occupies any seat, and this file does not assert that any",
+          `# @${ORG}/<role-id> team exists in the GitHub organisation either -`,
+          "# creating and populating one is the same human act held_by waits on.",
+        ]
+      : [
+          `# person. ${occupied} of ${registry.roles.length} seats in badf/agents.yaml`,
+          "# record an occupant; none of them is named here, and this file does not",
+          `# assert that any @${ORG}/<role-id> team exists in the GitHub`,
+          "# organisation or has that occupant as a member.",
+        ];
+
   const header =
     [
       "# GENERATED FILE - DO NOT EDIT.",
@@ -121,10 +146,7 @@ export function renderCodeowners(registry) {
       "# `node scripts/generate-codeowners.mjs --check`.",
       "#",
       `# Each entry below names a GitHub TEAM SLUG (@${ORG}/<role-id>), never a`,
-      "# person. Every role in badf/agents.yaml currently records held_by: null:",
-      "# no human occupies any seat, and this file does not assert that any",
-      `# @${ORG}/<role-id> team exists in the GitHub organisation either -`,
-      "# creating and populating one is the same human act held_by waits on.",
+      ...occupancy,
       "#",
       "# This file is NOT a working review mechanism by itself. Branch",
       "# protection on main IS applied (evidence/security-proof/",
@@ -136,7 +158,7 @@ export function renderCodeowners(registry) {
       "#      is turned on for that protection - the repository",
       "#      administrator's record, not recorded yet;",
       `#   2. each @${ORG}/<role-id> team named below exists and has a human`,
-      "#      member (badf/agents.yaml held_by - unfilled for every seat).",
+      `#      member (badf/agents.yaml held_by - ${occupied === 0 ? "unfilled for every seat" : `${occupied} seat(s) filled`}).`,
       "#",
       "# Registry:         badf/agents.yaml",
       `# Registry version: ${registry.version}`,

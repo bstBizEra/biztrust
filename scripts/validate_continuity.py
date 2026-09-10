@@ -929,12 +929,13 @@ PINNED_ROUTING = {
     "badf/gates.yaml": ("architecture-authority", "repository-administrator"),
     "badf/agents.yaml": ("architecture-authority", "repository-administrator"),
     "badf/skills.yaml": ("architecture-authority", "repository-administrator"),
-    # The record of the one-time seating act. Its verifier is deliberately the
-    # ONE human-only seat this repository's bootstrap does not seat: the record
-    # that creates a seat's authority may not be reviewed by that seat, and
-    # validate_bootstrap_record refuses the overlap dynamically as well, for
-    # whatever seat a future act names.
-    "badf/bootstrap.yaml": ("architecture-authority", "legal-compliance-reviewer"),
+    # 'badf/bootstrap.yaml' is DELIBERATELY not pinned here. Round two showed
+    # the static pin subsumed the dynamic rule in validate_bootstrap_record
+    # entirely, and that changing a static pin is a change to THIS file, which
+    # badf/agents.yaml routes to two seats an agent may occupy. The dynamic
+    # rule states the whole requirement - routed at all, to human-only seats,
+    # neither of which the record seats - and it holds for whatever seat a
+    # future act names rather than for the two this one happens to use.
 }
 
 #: A value that LOOKS like a role id: one bare token, no spaces. Anything
@@ -1378,6 +1379,26 @@ BOOTSTRAP_LITERALS = (
 )
 
 
+def bootstrap_region(text: str) -> tuple[int, int] | None:
+    """The 1-based line numbers of the BEGIN and END markers, or None.
+
+    Separate from the block below because the SPAN is what says which recorded
+    fields the digest actually covers. Round two proved why that matters: the
+    markers being present, in order, and one of each was the whole rule, so a
+    region enclosing NOTHING hashed the empty string and passed, and a region
+    shrunk to one field left every other field editable with the recorded
+    digest still matching. A digest over a region that encloses less than the
+    record binds less than it appears to, at the one moment - the first
+    recording - when there is nothing to compare it against.
+    """
+    lines = text.replace("\r\n", "\n").split("\n")
+    starts = [i for i, line in enumerate(lines, start=1) if line.strip() == BOOTSTRAP_BEGIN]
+    ends = [i for i, line in enumerate(lines, start=1) if line.strip() == BOOTSTRAP_END]
+    if len(starts) != 1 or len(ends) != 1 or ends[0] < starts[0]:
+        return None
+    return starts[0], ends[0]
+
+
 def bootstrap_historical_block(text: str) -> str | None:
     """The frozen region of badf/bootstrap.yaml, verbatim, or None.
 
@@ -1386,12 +1407,11 @@ def bootstrap_historical_block(text: str) -> str | None:
     as a changed principal does. Newlines are normalised because the checkout
     that computes the digest need not be the checkout that recorded it.
     """
-    lines = text.replace("\r\n", "\n").split("\n")
-    starts = [i for i, line in enumerate(lines) if line.strip() == BOOTSTRAP_BEGIN]
-    ends = [i for i, line in enumerate(lines) if line.strip() == BOOTSTRAP_END]
-    if len(starts) != 1 or len(ends) != 1 or ends[0] < starts[0]:
+    span = bootstrap_region(text)
+    if span is None:
         return None
-    return "\n".join(lines[starts[0] + 1 : ends[0]])
+    lines = text.replace("\r\n", "\n").split("\n")
+    return "\n".join(lines[span[0] : span[1] - 1])
 
 
 def bootstrap_digest(block: str) -> str:
@@ -1406,13 +1426,18 @@ def parse_bootstrap(text: str) -> tuple[dict, list[str]]:
     documents at length: a reader that SKIPS what it does not recognise was
     defeated five ways with ordinary, legal YAML. The default is an error.
 
-    Returns {"scalars": {key: value}, "seatings": [{field: value}, ...]}.
+    Returns {"scalars": {key: value}, "seatings": [{field: value}, ...],
+    "classified": [(line, what)]}. The third is what
+    validate_bootstrap_record checks the frozen region against: a field this
+    reader classified but the digest does not cover is a field the record's
+    immutability does not cover.
     """
-    record: dict = {"scalars": {}, "seatings": []}
+    record: dict = {"scalars": {}, "seatings": [], "classified": []}
     problems: list[str] = []
     section: str | None = None
     entry: dict[str, str] | None = None
     block_indent: int | None = None
+    block_owner: str = ""
 
     for number, raw in enumerate(text.splitlines(), start=1):
         if raw.strip() == "" or raw.lstrip().startswith("#"):
@@ -1422,6 +1447,11 @@ def parse_bootstrap(text: str) -> tuple[dict, list[str]]:
 
         if block_indent is not None:
             if indent >= block_indent:
+                # The body of a folded scalar is prose and is not read for
+                # meaning - but it IS part of the record, so it is recorded as
+                # classified. Otherwise the frozen region could be drawn
+                # between a pinned statement's key and the statement itself.
+                record["classified"].append((number, f"the body of {block_owner!r}"))
                 continue
             block_indent = None
 
@@ -1437,10 +1467,32 @@ def parse_bootstrap(text: str) -> tuple[dict, list[str]]:
                 section = None
                 entry = None
                 if key in BOOTSTRAP_SCALARS:
-                    if value in (">", ">-", "|", "|-", ""):
+                    if value in (">", ">-", "|", "|-"):
                         block_indent = 2
+                        block_owner = key
                         value = ""
+                    elif value == "":
+                        # An empty value used to open a folded block here, and a
+                        # block opened by accident swallows every line indented
+                        # under it WITHOUT classifying any of them - which this
+                        # reader's own docstring promises never to do. Round two
+                        # built the file that exploits it: `expiry:` with no
+                        # value between `seatings:` and its entries makes the
+                        # whole block invisible, so a record that READS to a
+                        # human as a completed seating parses as no seating at
+                        # all. That divergence between the machine's text and
+                        # the human's text is the exact thing the digest exists
+                        # to prevent, arriving one layer below it.
+                        problems.append(
+                            f"badf/bootstrap.yaml line {number}: {key!r} carries no "
+                            f"value and does not open a folded scalar. Every scalar "
+                            f"in this record says something, the literal null "
+                            f"included; a key with nothing after the colon is a key "
+                            f"whose meaning a reader has to guess"
+                        )
+                        continue
                     record["scalars"][key] = value.strip('"')
+                    record["classified"].append((number, key))
                     continue
                 if key == "seatings":
                     if value != "":
@@ -1449,6 +1501,7 @@ def parse_bootstrap(text: str) -> tuple[dict, list[str]]:
                             f"an inline value; its entries must be written as a block"
                         )
                     section = "seatings"
+                    record["classified"].append((number, "seatings"))
                     continue
                 problems.append(
                     f"badf/bootstrap.yaml line {number}: unknown top-level key "
@@ -1465,6 +1518,9 @@ def parse_bootstrap(text: str) -> tuple[dict, list[str]]:
                     "__line__": str(number),
                 }
                 record["seatings"].append(entry)
+                record["classified"].append(
+                    (number, f"the seat of seating {len(record['seatings'])}")
+                )
                 continue
 
         if tabless and indent == 4 and section == "seatings" and entry is not None:
@@ -1480,8 +1536,12 @@ def parse_bootstrap(text: str) -> tuple[dict, list[str]]:
                     continue
                 if value in (">", ">-", "|", "|-", ""):
                     block_indent = 6
+                    block_owner = f"a seating's {field}"
                     value = ""
                 entry[field] = value.strip('"')
+                record["classified"].append(
+                    (number, f"the {field} of seating {len(record['seatings'])}")
+                )
                 continue
 
         problems.append(
@@ -1558,11 +1618,53 @@ def validate_bootstrap_record(state, errors: list[str]) -> dict[str, str]:
             f"taken over, so a record with no region can never be frozen"
         )
 
+    # C-1, first half. A region present, ordered, and enclosing nothing hashed
+    # the empty string - e3b0c442..., the sha256 every reader recognises - and
+    # passed, with every historical field sitting outside it.
+    if block is not None and block.strip() == "":
+        errors.append(
+            "badf/bootstrap.yaml: the frozen historical region encloses no content at "
+            "all. The sha256 of nothing is a digest that binds nothing, and it is "
+            "recorded at the one moment - the first seating - when there is nothing "
+            "to compare it against, so it would never be caught later either"
+        )
+
+    # C-1, second half, and the one with the sharper attack behind it. With the
+    # END marker moved so the region held only act_id, a seating was recorded
+    # for Alice, the digest taken, and then the principal rewritten to Mallory
+    # in badf/bootstrap.yaml AND badf/agents.yaml with the ledger untouched -
+    # exit 0, one forger, one pair of files, digest still matching. Every line
+    # this reader classified, except the two that are legitimately mutable,
+    # must be inside the region the digest covers.
+    span = bootstrap_region(text)
+    if span is not None:
+        for number, what in record["classified"]:
+            if what in ("version", "updated_at") or span[0] < number < span[1]:
+                continue
+            errors.append(
+                f"badf/bootstrap.yaml line {number}: {what} is recorded OUTSIDE the "
+                f"frozen historical region (lines {span[0]}-{span[1]}). The digest in "
+                f"badf/current-state.json is taken over that region and nothing else, "
+                f"so a field outside it is a field this record's immutability does not "
+                f"cover, in a file that still reads as though it were frozen whole"
+            )
+
     declared_state = scalars.get("state", "").strip()
     dual = scalars.get("temporary_dual_seat", "").strip()
     expiry = scalars.get("expiry", "").strip()
     trigger = scalars.get("separation_trigger", "").strip()
     exception = scalars.get("exception_type", "").strip()
+
+    if declared_state == BOOTSTRAP_SEATED and not seatings:
+        errors.append(
+            f"badf/bootstrap.yaml: records state {BOOTSTRAP_SEATED} and no seating at "
+            f"all. A single-use capability recorded as spent having seated nobody is "
+            f"the bypass consumed with nothing to show for it: the act is gone, no "
+            f"office is filled, and the next vacancy has neither an operator "
+            f"instruction nor an unspent one to reach for. This is the mirror of the "
+            f"declared dual seat that no principal holds, and it is refused for the "
+            f"same reason - a declaration with nothing behind it"
+        )
 
     seats_named: list[str] = []
     seated: dict[str, str] = {}
@@ -1681,6 +1783,20 @@ def validate_bootstrap_record(state, errors: list[str]) -> dict[str, str]:
             f"expiry and no trigger is the permanent arrangement it says it is not"
         )
 
+    if dual != "true" and (
+        exception not in ("", "null")
+        or expiry not in ("", "null")
+        or trigger not in ("", "null")
+    ):
+        errors.append(
+            f"badf/bootstrap.yaml: records temporary_dual_seat {dual!r} and still "
+            f"carries exception_type {exception!r}, expiry {expiry!r} and "
+            f"separation_trigger {trigger!r}. Only the expiry being in the PAST was "
+            f"checked, so a future date sat here reading as a live exception that no "
+            f"rule above governs - and an expiry with no exception to expire is a date "
+            f"nothing will ever read"
+        )
+
     now = str(state.get("updated_at") or "") if isinstance(state, dict) else ""
     if BOOTSTRAP_DATE.match(expiry) is not None and expiry[:10] < now[:10]:
         errors.append(
@@ -1750,25 +1866,51 @@ def validate_bootstrap_record(state, errors: list[str]) -> dict[str, str]:
                 f"second governed record with a second reviewer"
             )
 
-    # Constraint 2, the structural half. The seat this record seats may not be
-    # the owner or the verifier of the routing entry for this record - an
-    # administrator who could review a change here could rewrite its own
-    # appointment, which is the loop this whole mechanism exists to leave
-    # closed behind it.
-    for route in routing:
-        if route.get("path", "").strip().strip('"') != "badf/bootstrap.yaml":
-            continue
+    # Constraint 2, the structural half, and now the WHOLE rule for this path.
+    #
+    # It was three rules until round two: a static PINNED_ROUTING entry naming
+    # two specific seats, plus this dynamic one. The review showed the dynamic
+    # rule was entirely subsumed - no routing the static pin allowed could ever
+    # trigger it - and that the escape hatch was not neutral: PINNED_ROUTING
+    # lives in scripts/validate_continuity.py, which badf/agents.yaml routes to
+    # platform-engineer / peer-reviewer, BOTH seats an agent may occupy. So a
+    # governance collision about who reviews the seating record would have been
+    # resolved through a file an agent may own AND verify. The static pin is
+    # gone and this rule states the whole requirement instead: routed at all,
+    # to human-only seats, neither of which this record seats.
+    routes = [
+        route
+        for route in routing
+        if route.get("path", "").strip().strip('"') == "badf/bootstrap.yaml"
+    ]
+    if not routes:
+        errors.append(
+            "badf/agents.yaml: records no routing entry for 'badf/bootstrap.yaml'. A "
+            "path with no row routes to peer-reviewer and stops (this file's own "
+            "note), and peer-reviewer is a seat an agent may occupy - so deleting the "
+            "row is how the record of who was seated becomes reviewable by an agent "
+            "without anyone recording that"
+        )
+    for route in routes:
         for field in ("owner", "verifier"):
             value = route.get(field, "").strip().strip('"')
-            if value not in seats_named:
+            if value in seats_named:
+                errors.append(
+                    f"badf/agents.yaml: routes 'badf/bootstrap.yaml' {field} to "
+                    f"{value!r}, which is a seat badf/bootstrap.yaml seats. A record "
+                    f"that created a seat's authority may not be owned or reviewed by "
+                    f"that seat: this record is non-self-amending, or it is a "
+                    f"self-appointment with extra steps"
+                )
                 continue
-            errors.append(
-                f"badf/agents.yaml: routes 'badf/bootstrap.yaml' {field} to {value!r}, "
-                f"which is a seat badf/bootstrap.yaml seats. A record that created a "
-                f"seat's authority may not be owned or reviewed by that seat: this "
-                f"record is non-self-amending, or it is a self-appointment with extra "
-                f"steps"
-            )
+            if roles.get(value, {}).get("may_be_an_agent", "").strip().strip('"') != "false":
+                errors.append(
+                    f"badf/agents.yaml: routes 'badf/bootstrap.yaml' {field} to "
+                    f"{value!r}, which is not a seat pinned may_be_an_agent: false. "
+                    f"This record decides who holds an office; a seat an agent may "
+                    f"occupy reviewing a change to it is an agent reviewing the "
+                    f"creation of authority"
+                )
 
     if len(errors) != before:
         return {}
@@ -1799,6 +1941,29 @@ SUCCESSION_PINS = (
 )
 
 
+def succession_body(text: str, opener) -> str:
+    """The body of the succession: key, comments removed.
+
+    Round two deleted the key outright, left the two pinned sentences as
+    ordinary ``#`` comments, and the whole-file substring search passed. A rule
+    demoted to a comment is not a rule of the file, so the search is scoped to
+    the key's own block and comment lines inside it do not count.
+    """
+    if opener is None:
+        return ""
+    lines = text.replace("\r\n", "\n").split("\n")
+    body: list[str] = []
+    for line in lines[text[: opener.start()].count("\n") + 1 :]:
+        if line.strip() == "":
+            continue
+        if not line.startswith("  "):
+            break
+        if line.lstrip().startswith("#"):
+            continue
+        body.append(line)
+    return " ".join(" ".join(body).split())
+
+
 def validate_agents_succession_rule(errors: list[str]) -> None:
     """The succession rule is present and unmodified.
 
@@ -1814,7 +1979,18 @@ def validate_agents_succession_rule(errors: list[str]) -> None:
         errors.append(f"badf/agents.yaml: cannot read: {exc}")
         return
 
-    flat = " ".join(text.split())
+    opener = re.search(r"^succession:[ ]*(\S*)[ ]*$", text, re.MULTILINE)
+    if opener is None:
+        errors.append(
+            "badf/agents.yaml: declares no top-level succession: key. The rule that "
+            "decides who verifies the FIRST fill of a human-only seat is a rule OF "
+            "this file, beside roles: and routing: - not prose beside it. Both readers "
+            "of this file were taught the key in the same change; a pin that searched "
+            "the whole text for two sentences would have accepted them demoted to "
+            "comments, which is what a rule stops being when nothing parses it"
+        )
+
+    flat = succession_body(text, opener)
     for sentence, what in SUCCESSION_PINS:
         if sentence in flat:
             continue

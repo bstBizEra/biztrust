@@ -2134,6 +2134,143 @@ class BootstrapSeatingClosed(unittest.TestCase):
             agents=agents,
         )
 
+    # ---- round two: the frozen region has to enclose the record ------------
+
+    def test_a_frozen_region_that_encloses_nothing_is_reported(self):
+        """C-1, first half. BEGIN immediately followed by END hashes the empty
+        string - e3b0c442... - and the digest is recorded at the one moment
+        there is nothing to compare it against, so it would never be caught
+        later either."""
+        record = BOOTSTRAP_YAML.replace("# ---- BEGIN HISTORICAL RECORD ----" + NL, "")
+        record = record.replace(
+            "# ---- END HISTORICAL RECORD ----" + NL,
+            "# ---- BEGIN HISTORICAL RECORD ----" + NL
+            + "# ---- END HISTORICAL RECORD ----" + NL,
+        )
+        self.assertNotEqual(record, BOOTSTRAP_YAML, "the replace target did not match")
+        self._refused("the frozen historical region encloses no content at all", bootstrap=record)
+
+    def test_a_field_recorded_outside_the_frozen_region_is_reported(self):
+        """C-1, second half, and the sharper attack.
+
+        With END moved so the region held only act_id, a seating was recorded,
+        the digest taken, and the principal then rewritten in BOTH
+        badf/bootstrap.yaml and badf/agents.yaml with the ledger untouched -
+        one forger, one pair of files, digest still matching. A digest over a
+        region that encloses less than the record binds less than it appears
+        to.
+        """
+        record = BOOTSTRAP_YAML.replace("# ---- END HISTORICAL RECORD ----" + NL, "")
+        record = record.replace(
+            "state: AWAITING_OPERATOR_INSTRUCTION" + NL,
+            "# ---- END HISTORICAL RECORD ----" + NL
+            + "state: AWAITING_OPERATOR_INSTRUCTION" + NL,
+        )
+        self.assertNotEqual(record, BOOTSTRAP_YAML, "the replace target did not match")
+        self._refused("is recorded OUTSIDE the frozen historical region", bootstrap=record)
+
+    # ---- round two: acts and readers that record nothing -------------------
+
+    def test_a_completed_act_that_seats_nobody_is_reported(self):
+        """The single-use capability recorded as spent having seated no one:
+        the act is gone, no office is filled, and the next vacancy has neither
+        an operator instruction nor an unspent one to reach for."""
+        record = bootstrap_record(state="SEATED", seatings=())
+        self._refused(
+            "records state SEATED and no seating at all",
+            bootstrap=record,
+            state=state_for(record, seats=()),
+        )
+
+    def test_a_top_level_scalar_with_no_value_is_reported(self):
+        """The reader's own docstring says it refuses what it cannot classify.
+
+        An empty value used to open a folded block, and a block opened by
+        accident swallows every line indented under it without classifying any
+        of them. `expiry:` with no value between `seatings:` and its entries
+        makes the whole block invisible: this record READS as seating a named
+        human and parsed as no seating at all.
+        """
+        record = bootstrap_record(
+            state="SEATED", seatings=(("repository-administrator", "Mallory Operator"),)
+        )
+        record = record.replace("seatings:" + NL, "seatings:" + NL + "expiry:" + NL)
+        self.assertIn("Mallory Operator", record, "the fixture must read as a seating")
+        self._refused(
+            "carries no value and does not open a folded scalar",
+            bootstrap=record,
+            state=state_for(record, seats=()),
+        )
+
+    def test_dual_seat_fields_recorded_with_no_dual_seat_are_reported(self):
+        """Only a PAST expiry was checked, so a future date sat here reading as
+        a live exception that no rule above governs."""
+        record = bootstrap_record(
+            state="SEATED",
+            seatings=(ADMIN_SEAT,),
+            expiry='"2999-01-01"',
+            trigger='"a second human accepts the second seat"',
+        )
+        self._refused(
+            "and still carries exception_type",
+            bootstrap=record,
+            agents=agents_seated(ADMIN_SEAT),
+            state=state_for(record, seats=("repository-administrator",)),
+        )
+
+    # ---- round two: the routing rule, and the succession KEY ---------------
+
+    def test_deleting_the_bootstrap_routing_entry_is_reported(self):
+        """A path with no row routes to peer-reviewer and stops - a seat an
+        agent may occupy. Deleting the row is how the record of who was seated
+        becomes agent-reviewable with nobody recording that."""
+        agents = AGENTS_YAML.replace(
+            '  - path: "badf/bootstrap.yaml"' + NL
+            + "    owner: architecture-authority" + NL
+            + "    verifier: legal-compliance-reviewer" + NL,
+            "",
+        )
+        self.assertNotEqual(agents, AGENTS_YAML, "the replace target did not match")
+        self._refused(
+            "records no routing entry for 'badf/bootstrap.yaml'",
+            bootstrap=BOOTSTRAP_YAML,
+            agents=agents,
+        )
+
+    def test_routing_the_bootstrap_record_to_an_agent_occupiable_seat_is_reported(self):
+        """Not the seat this record seats - just a seat an agent may hold.
+
+        This rule and the self-amendment rule are now the WHOLE requirement for
+        this path: the static PINNED_ROUTING entry is gone, because changing a
+        static pin is a change to scripts/validate_continuity.py, which
+        badf/agents.yaml routes to two seats an agent may occupy.
+        """
+        agents = AGENTS_YAML.replace(
+            "    verifier: legal-compliance-reviewer" + NL,
+            "    verifier: peer-reviewer" + NL,
+        )
+        self.assertNotEqual(agents, AGENTS_YAML, "the replace target did not match")
+        self._refused(
+            "which is not a seat pinned may_be_an_agent: false",
+            bootstrap=BOOTSTRAP_YAML,
+            agents=agents,
+        )
+
+    def test_demoting_the_succession_rule_to_comments_is_reported(self):
+        """Constraint 5 was a byte-substring pin over the whole file, so
+        deleting the succession: key and leaving both sentences as ordinary
+        comments passed. A rule nothing parses is not a rule of the file."""
+        block = AGENTS_YAML[AGENTS_YAML.index("succession: >-"):]
+        commented = NL.join("# " + line for line in block.rstrip(NL).split(NL)) + NL
+        agents = AGENTS_YAML.replace(block, commented)
+        self.assertNotEqual(agents, AGENTS_YAML, "the replace target did not match")
+        self.assertIn(
+            " ".join(SUCCESSION_FIRST_FILL.split()),
+            " ".join(agents.replace("#", " ").split()),
+            "the sentences must still be PRESENT as prose, or this proves nothing",
+        )
+        self._refused("declares no top-level succession: key", agents=agents)
+
 
 class ValidatorRunsAgainstThisRepository(unittest.TestCase):
     def test_the_real_records_pass(self):

@@ -2194,6 +2194,111 @@ const MUTATIONS = [
     from: "    (\n        \"Every subsequent change to that seat's occupancy is verified normally by \"\n        \"the routing table above.\",\n        \"the sentence that makes this a RULE and not a standing exception: once a \"\n        \"seat is filled, its occupancy is routed like everything else, and the \"\n        \"bootstrap path is not available a second time\",\n    ),\n",
     to: "",
   },
+  // ---- round two of the bootstrap review: C-1 and I-1..I-5 --------------
+  //
+  // The mechanism held; the region it froze did not have to enclose
+  // anything, an act could be recorded as spent having seated nobody, an
+  // empty scalar could swallow the seatings a human reads, and the
+  // succession rule could be demoted from a key to a comment. Each of
+  // those was reachable with exit 0 against an otherwise-real repository.
+  {
+    file: RECORDS,
+    suite: "validator",
+    // C-1, first half. A region present, ordered and enclosing NOTHING hashed
+    // the empty string and passed, with every historical field outside it.
+    // The marker mutation above deletes the END line, which is a different
+    // thing from a region that is present and covers zero bytes.
+    name: "records: accept a frozen historical region that encloses nothing",
+    witness: "test_a_frozen_region_that_encloses_nothing_is_reported",
+    from: "    if block is not None and block.strip() == \"\":",
+    to: "    if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // C-1, second half, and the sharper one. With END moved so the region
+    // held only act_id, the principal could be rewritten in
+    // badf/bootstrap.yaml AND badf/agents.yaml with the ledger untouched and
+    // the recorded digest still matching - one forger, one pair of files.
+    name: "records: let a recorded field sit outside the region its digest covers",
+    witness: "test_a_field_recorded_outside_the_frozen_region_is_reported",
+    from: "            if what in (\"version\", \"updated_at\") or span[0] < number < span[1]:",
+    to: "            if True:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // The mirror of the declared dual seat nobody holds: the single-use
+    // capability recorded as spent having seated nobody at all.
+    name: "records: accept a completed bootstrap act that seats nobody",
+    witness: "test_a_completed_act_that_seats_nobody_is_reported",
+    from: "    if declared_state == BOOTSTRAP_SEATED and not seatings:",
+    to: "    if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // An empty value opened a folded block, and a block opened by accident
+    // swallows every line indented under it WITHOUT classifying any - which
+    // this reader's docstring promises never to do. It is how a record that
+    // reads to a human as a completed seating parses as no seating at all.
+    name: "records: let an empty bootstrap scalar open a block and swallow the seatings",
+    witness: "test_a_top_level_scalar_with_no_value_is_reported",
+    from: "                    elif value == \"\":",
+    to: "                    elif False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // Only a PAST expiry was checked, so a future date with no dual seat sat
+    // in the record reading as a live exception no rule above governs.
+    name: "records: let a bootstrap record carry dual-seat fields with no dual seat",
+    witness: "test_dual_seat_fields_recorded_with_no_dual_seat_are_reported",
+    from: "    if dual != \"true\" and (",
+    to: "    if False and (",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // The static PINNED_ROUTING entry for this path is gone, so 'routed at
+    // all' is this rule's to state. A path with no row routes to
+    // peer-reviewer, a seat an agent may occupy.
+    name: "records: let the bootstrap record be routed nowhere at all",
+    witness: "test_deleting_the_bootstrap_routing_entry_is_reported",
+    from: "    if not routes:",
+    to: "    if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // Not the seat the record seats - just a seat an agent may hold. Without
+    // this an agent reviews the creation of authority.
+    name: "records: let a seat an agent may occupy review the bootstrap record",
+    witness: "test_routing_the_bootstrap_record_to_an_agent_occupiable_seat_is_reported",
+    from: "            if roles.get(value, {}).get(\"may_be_an_agent\", \"\").strip().strip('\"') != \"false\":",
+    to: "            if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // Constraint 5 was a byte-substring pin over the whole file, so deleting
+    // the succession: key and leaving both sentences as ordinary comments
+    // passed. A rule nothing parses is not a rule of the file.
+    name: "records: accept a succession rule demoted from a key to a comment",
+    witness: "test_demoting_the_succession_rule_to_comments_is_reported",
+    from: "    if opener is None:\n        errors.append(\n            \"badf/agents.yaml: declares no top-level succession: key. The rule that \"",
+    to: "    if opener is None:\n        _no_succession_key = (\n            \"badf/agents.yaml: declares no top-level succession: key. The rule that \"",
+  },
+  {
+    file: CODEOWNERS,
+    // The occupancy sentence in the generated header was UNCONDITIONAL, so
+    // the moment a human is seated the file would assert in writing that
+    // nobody holds any seat, and nothing read held_by here to notice.
+    name: "codeowners: assert that no seat is occupied whatever the registry records",
+    witness: "the header's occupancy claim is derived from held_by, not asserted",
+    from: "    (role) => (role.held_by ?? \"null\").replace(/\"/g, \"\").trim() !== \"null\",",
+    to: "    () => false,",
+  },
   {
     file: SIGNING_POLICY,
     name: "signing: read a policy line the second reader cannot classify as if it were fine",

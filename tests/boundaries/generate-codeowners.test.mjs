@@ -93,6 +93,41 @@ test("the real .github/CODEOWNERS is exactly what the generator renders", () => 
   assert.equal(renderCodeowners(loadAgentsRegistry()), readFileSync(CODEOWNERS, "utf8"));
 });
 
+test("the header's occupancy claim is derived from held_by, not asserted", () => {
+  // Round two of the bootstrap review: this sentence was unconditional, so the
+  // moment a human is seated under badf/bootstrap.yaml the generated file
+  // would state in writing that nobody holds any seat - and nothing read
+  // held_by here, so nothing would notice. Both branches are asserted, and
+  // NEITHER may name the occupant: a team is an organisational structure, a
+  // person is not, and this file names only teams.
+  const unfilled = registry([{ path: "scripts/**", owner: "platform-engineer", verifier: "peer-reviewer" }]);
+  assert.match(
+    renderCodeowners(unfilled),
+    /no human occupies any seat/,
+    "with every held_by null the file must say so",
+  );
+
+  const filled = {
+    ...unfilled,
+    roles: [
+      { id: "platform-engineer", held_by: "null" },
+      { id: "peer-reviewer", held_by: '"A Fixture Human"' },
+    ],
+  };
+  const rendered = renderCodeowners(filled);
+  assert.doesNotMatch(
+    rendered,
+    /no human occupies any seat/,
+    "with a seat filled the file must stop claiming none is",
+  );
+  assert.match(rendered, /1 of 2 seats in badf\/agents\.yaml/);
+  assert.doesNotMatch(
+    rendered,
+    /A Fixture Human/,
+    "the occupant is never named in CODEOWNERS, filled or not",
+  );
+});
+
 test("a routing entry naming a declared role emits that role's TEAM slug", () => {
   const out = renderCodeowners(
     registry([{ path: '"db/migrations/**"', owner: "platform-engineer", verifier: "peer-reviewer" }]),
