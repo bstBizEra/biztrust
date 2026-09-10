@@ -2172,8 +2172,8 @@ const MUTATIONS = [
     suite: "validator",
     name: "records: let the bootstrap record be reviewed by a seat it seats",
     witness: "test_routing_the_bootstrap_record_to_the_seat_it_seats_is_reported",
-    from: "            if value not in seats_named:",
-    to: "            if True:",
+    from: "            if value in seats_named:",
+    to: "            if False:",
   },
   {
     file: RECORDS,
