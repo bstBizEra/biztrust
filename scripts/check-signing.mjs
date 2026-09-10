@@ -69,10 +69,20 @@
  * green about a rule it is not running.)
  *
  * A GRAFTED HISTORY IS THE SAME BYPASS WITHOUT THE SHALLOW FLAG, and it is
- * closed a level lower down, in `git()` below: every git call this file makes
- * passes `--no-replace-objects`, so `refs/replace` cannot rewrite the history
- * the check reads. See the comment on that helper for why the default is
- * inverted there rather than a `refs/replace` refusal being added here.
+ * closed a level lower down, in `git()` below, by TWO independent settings -
+ * because it turns out there are two independent ways to graft. Every git
+ * call this file makes passes `--no-replace-objects`, so `refs/replace`
+ * cannot rewrite the history the check reads. That flag does NOT touch
+ * `.git/info/grafts`, git's older, deprecated graft mechanism: DEC-029
+ * recorded that writing HEAD's own sha into that file reproduces the exact
+ * same bypass - the enforcement point resolves to HEAD and the check reports
+ * PASS having verified nothing - with `--no-replace-objects` present and
+ * doing nothing about it, because grafts and replace refs are different
+ * mechanisms that happen to produce the same symptom. `git()` also sets
+ * `GIT_GRAFT_FILE` to the null device on every call, so `.git/info/grafts`
+ * is never consulted regardless of what a write to it contains. See the
+ * comment on that helper for why both are per-call settings rather than a
+ * refusal added here.
  *
  * Exit codes: 0 every governed commit verified, or the policy enrols no key
  * and said so; 1 a governed commit is not verified, or the policy is
@@ -83,6 +93,7 @@
 
 import { execFileSync } from "node:child_process";
 import { realpathSync } from "node:fs";
+import { devNull } from "node:os";
 import { fileURLToPath } from "node:url";
 import { ROOT } from "./registry.mjs";
 import { loadSigningPolicy, SigningPolicyError, ENFORCEMENT_POINT_LITERAL } from "./signing-policy.mjs";
@@ -179,10 +190,43 @@ class GitUnavailable extends Error {}
  */
 const NO_REPLACEMENT = "--no-replace-objects";
 
+/**
+ * The older mechanism `--no-replace-objects` does NOT reach: `.git/info/grafts`.
+ *
+ * DEC-029 recorded this as the sibling vector the review that added
+ * `--no-replace-objects` left open, and a reviewer demonstrated it falsifies
+ * that flag's own justification: writing HEAD's own sha into
+ * `.git/info/grafts` produces the identical bypass - a repository with one
+ * commit, `--is-shallow-repository` answering `false`, `--diff-filter=A`
+ * reading every file as added in HEAD - and `git()` below still passed
+ * `--no-replace-objects` on every call while doing so. Grafts and
+ * `refs/replace` are two different features that happen to share a symptom;
+ * `git replace --convert-graft-file` existing at all is git's own admission
+ * that one does not subsume the other. `-c core.useReplaceRefs=false` was
+ * tried too, side by side with the flag already here, against a real graft
+ * file, in the throwaway repository this fix was reproduced in: neither
+ * moved the bypass, because `core.useReplaceRefs` also governs `refs/replace`
+ * only. What git 2.53 actually reads grafts from is the file named by the
+ * `GIT_GRAFT_FILE` environment variable, defaulting to
+ * `<GIT_DIR>/info/grafts`, and pointing that variable at the OS null device
+ * makes every read see a graft file that is always empty, regardless of what
+ * a write to the real path contains - the same "property of every read"
+ * reasoning as the flag above, applied to the mechanism the flag does not
+ * cover. (git also prints a `graftFileDeprecated` hint when the real file is
+ * consulted; redirecting the read away from it removes the hint too, which
+ * is a side effect, not the point.)
+ */
+const NO_GRAFTS = devNull;
+
 function git(args) {
   const argv = [NO_REPLACEMENT, ...args];
   try {
-    return execFileSync("git", argv, { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    return execFileSync("git", argv, {
+      cwd: ROOT,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, GIT_GRAFT_FILE: NO_GRAFTS },
+    });
   } catch (error) {
     throw new GitUnavailable(
       `git ${argv.join(" ")} failed: ${String(error?.stderr ?? error?.message ?? error).trim()}`,

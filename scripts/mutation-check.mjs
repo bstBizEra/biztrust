@@ -1996,6 +1996,19 @@ const MUTATIONS = [
   {
     file: SIGNING_CHECK,
     suite: "signing",
+    // DEC-029's sibling vector: --no-replace-objects does not touch
+    // .git/info/grafts, git's older graft mechanism. Dropping the
+    // GIT_GRAFT_FILE override hands the check back to whatever an agent with
+    // ordinary .git/ write access - strictly less than `git replace` needs -
+    // has written into that file.
+    name: "signing: let .git/info/grafts rewrite the history this check reads",
+    witness: "a graft written straight into .git/info/grafts is read through to the real commits, not the replacement",
+    from: "      env: { ...process.env, GIT_GRAFT_FILE: NO_GRAFTS },",
+    to: "      env: { ...process.env },",
+  },
+  {
+    file: SIGNING_CHECK,
+    suite: "signing",
     name: "signing: resolve an enforcement point no commit in the history establishes",
     witness: "a policy no commit has added is refused rather than resolved to something",
     from: "  if (adds.length === 0) {",

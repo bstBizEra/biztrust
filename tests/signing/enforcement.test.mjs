@@ -240,6 +240,65 @@ test("a grafted history is read through to the real commits, not the replacement
   });
 });
 
+test("a graft written straight into .git/info/grafts is read through to the real commits, not the replacement", () => {
+  // THE SIBLING BYPASS `--no-replace-objects` DOES NOT CLOSE, recorded as
+  // DEC-029. `.git/info/grafts` is git's older, separate graft mechanism -
+  // `git replace --convert-graft-file` existing at all is git's own
+  // admission that one does not subsume the other - and writing HEAD's own
+  // sha into that file needs only ordinary write access to .git/, which is
+  // strictly less than `git replace` needs. It reproduces the identical
+  // symptom: --is-shallow-repository answers false, rev-list --count HEAD
+  // answers 1, and --diff-filter=A reads every file as added in HEAD. A
+  // throwaway repository confirmed this check printed
+  // `SIGNING_CHECK PASS 0 commit(s)` against this exact fixture before the
+  // fix, with `--no-replace-objects` present on every git call and doing
+  // nothing about it. The correct answer, once the check also redirects
+  // GIT_GRAFT_FILE away from the real path, is the answer a repository with
+  // no graft in it gives - FAIL, naming the unsigned commit - and it must be
+  // byte-identical to that answer, not merely non-PASS.
+  fixture((dir) => {
+    commitPolicy(dir, POLICY_WITH_KEY);
+    writeFileSync(join(dir, "badf", "authority.yaml"), "version: \"0.1.0\"\n", "utf8");
+    git(dir, ["add", "-A"]);
+    git(dir, ["commit", "-q", "-m", "a change to a protected path, unsigned"]);
+    const head = git(dir, ["rev-parse", "HEAD"]).trim();
+
+    const ungrafted = check(dir);
+
+    mkdirSync(join(dir, ".git", "info"), { recursive: true });
+    writeFileSync(join(dir, ".git", "info", "grafts"), `${head}\n`, "utf8");
+
+    assert.equal(
+      git(dir, ["log", "--format=%H", "--diff-filter=A", "--", "badf/signing-policy.yaml"]).trim(),
+      head,
+      "the graft file must actually move the anchor to HEAD when git honours it " +
+        "(git itself, not the check, is asked here), or there is no bypass to be closed",
+    );
+    assert.equal(
+      git(dir, ["rev-parse", "--is-shallow-repository"]).trim(),
+      "false",
+      "the point of this control is that the shallow guard answers `false` here, " +
+        "so a fixture git called shallow would be testing the other refusal",
+    );
+
+    const grafted = check(dir);
+    assert.equal(grafted.code, 1, `a grafted .git/info/grafts must not turn an unsigned commit into a pass:\n${grafted.output}`);
+    assert.match(grafted.output, /SIGNING_CHECK FAIL 1 of 1 commit\(s\)/, grafted.output);
+    assert.ok(
+      !grafted.output.includes("SIGNING_CHECK PASS"),
+      `.git/info/grafts must not be able to buy a pass line - it is the same ` +
+        `bypass refs/replace was closed against, through the mechanism ` +
+        `--no-replace-objects does not reach:\n${grafted.output}`,
+    );
+    assert.deepEqual(
+      grafted,
+      ungrafted,
+      "a graft an agent can write with nothing but .git/ write access must not " +
+        "change this check's output at all, not merely avoid a pass line",
+    );
+  });
+});
+
 test("a policy no commit has added is refused rather than resolved to something", () => {
   fixture((dir) => {
     writePolicy(dir, POLICY); // present in the tree, never committed
