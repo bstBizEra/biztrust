@@ -1,0 +1,230 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biztrust.local/schemas/current-state.schema.json",
+  "title": "BizTrust platform current state",
+  "description": "Exactly one authoritative active state. AGENTS.md section 4 names this file the source of truth for current operational state.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "project_id",
+    "repository",
+    "updated_at",
+    "active_work_package",
+    "source",
+    "gates",
+    "authority",
+    "latest_checkpoint",
+    "primary_next_action_id",
+    "resume_decision"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "project_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "repository": {
+      "type": "string",
+      "minLength": 1
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "active_work_package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "state",
+        "objective",
+        "owner_role",
+        "scope"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^BIZTRUST-WP-[0-9]{3}$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "state": {
+          "enum": [
+            "DRAFT",
+            "READY",
+            "AUTHORIZED",
+            "IN_PROGRESS",
+            "VALIDATING",
+            "ENGINEERING_READY",
+            "ACCEPTED",
+            "CLOSED",
+            "BLOCKED",
+            "WAIT_FOR_AUTHORITY",
+            "RECOVERY_REQUIRED",
+            "REJECTED",
+            "CANCELLED"
+          ]
+        },
+        "objective": {
+          "type": "string",
+          "minLength": 1
+        },
+        "issue_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "owner_role": {
+          "type": "string",
+          "minLength": 1
+        },
+        "scope": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "branch",
+        "baseline_commit",
+        "baseline_kind",
+        "expected_remote"
+      ],
+      "properties": {
+        "branch": {
+          "type": "string",
+          "minLength": 1
+        },
+        "baseline_commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "baseline_kind": {
+          "enum": [
+            "main",
+            "branch",
+            "tag"
+          ]
+        },
+        "expected_remote": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "gates": {
+      "description": "Every gate and instrument, enumerated. A bare {\"type\":\"object\"} here let a peer review erase every gate and still get exit 0. The delivery gates are pinned to UNRECORDED: recording one is a human decision, so it takes a reviewed change to this schema and cannot be a one-word edit to a data file.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "BT-G0",
+        "BT-G1",
+        "BT-G2",
+        "BT-G3",
+        "BT-G4",
+        "boundary_check",
+        "migration_lint",
+        "record_validation",
+        "typecheck",
+        "mutation_check",
+        "branch_protection"
+      ],
+      "properties": {
+        "BT-G0": { "enum": ["UNRECORDED"] },
+        "BT-G1": { "enum": ["UNRECORDED"] },
+        "BT-G2": { "enum": ["UNRECORDED"] },
+        "BT-G3": { "enum": ["UNRECORDED"] },
+        "BT-G4": { "enum": ["UNRECORDED"] },
+        "boundary_check": { "enum": ["PASS", "FAIL", "NOT_RUN"] },
+        "migration_lint": { "enum": ["PASS", "FAIL", "NOT_RUN"] },
+        "record_validation": { "enum": ["PASS", "FAIL", "NOT_RUN"] },
+        "typecheck": { "enum": ["PASS", "FAIL", "NOT_RUN"] },
+        "mutation_check": { "enum": ["PASS", "FAIL", "NOT_RUN"] },
+        "branch_protection": {
+          "enum": ["NOT_RECORDED_REQUIRES_REPOSITORY_ADMIN", "RECORDED"]
+        }
+      }
+    },
+    "authority": {
+      "description": "What is and is not granted, enumerated. Unconstrained, this block accepted three forged grants including the one this package waits on. Each key is pinned to the values legal today; widening one is a reviewed schema change, which is what an authority record should cost.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository_scaffold",
+        "architecture_contract_freeze",
+        "p0_implementation",
+        "adr_acceptance",
+        "production_deployment",
+        "main_branch_protection",
+        "wp_001_acceptance"
+      ],
+      "properties": {
+        "repository_scaffold": {
+          "enum": ["GRANTED_BY_OPERATOR_INSTRUCTION_2026_09_08"]
+        },
+        "architecture_contract_freeze": { "enum": ["NOT_GRANTED"] },
+        "p0_implementation": { "enum": ["NOT_GRANTED"] },
+        "adr_acceptance": { "enum": ["NOT_GRANTED"] },
+        "production_deployment": { "enum": ["NOT_GRANTED"] },
+        "main_branch_protection": {
+          "enum": ["NOT_RECORDED_REQUIRES_REPOSITORY_ADMIN", "RECORDED"]
+        },
+        "wp_001_acceptance": {
+          "enum": [
+            "NOT_GRANTED_AWAITING_INDEPENDENT_VERIFIER",
+            "REVISION_REQUIRED_BY_INDEPENDENT_VERIFIER",
+            "ACCEPTED_BY_INDEPENDENT_VERIFIER"
+          ]
+        }
+      }
+    },
+    "latest_checkpoint": {
+      "description": "Checked for existence AND shape. Existence alone accepted \"README.md\" as a checkpoint.",
+      "type": ["string", "null"],
+      "pattern": "^sessions/checkpoints/[A-Za-z0-9._-]+\\.json$"
+    },
+    "latest_handoff": {
+      "type": ["string", "null"],
+      "pattern": "^sessions/handoffs/[A-Za-z0-9._-]+\\.json$"
+    },
+    "primary_next_action_id": {
+      "type": "string",
+      "pattern": "^NS-[0-9]{3}$"
+    },
+    "resume_decision": {
+      "enum": [
+        "CONTINUE",
+        "BLOCKED",
+        "WAIT_FOR_AUTHORITY",
+        "RECOVERY_REQUIRED",
+        "COMPLETE"
+      ]
+    },
+    "stop_reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "known_divergence": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

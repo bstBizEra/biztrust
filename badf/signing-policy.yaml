@@ -1,0 +1,90 @@
+# The signature policy: which paths carry a human decision, and whose
+# signature counts as that human's.
+#
+# WHY THIS FILE EXISTS. Every guard in this repository constrains what a
+# record may SAY. None of them constrains who WROTE it. A forgery that edits
+# badf/authority.yaml, badf/current-state.json and the checkpoint
+# consistently passes `pnpm verify` today - verified deliberately, not
+# assumed. No validator can close that, because the validator reads the same
+# files the forger writes. The only thing that can is a signature the acting
+# agent cannot produce.
+#
+# NOTHING HERE IS ENFORCED YET, AND `pnpm check:signing` SAYS SO OUT LOUD.
+# accepted_keys below is the literal NONE_ENROLLED. While it says that, the
+# check reports SIGNING_CHECK NOT_ENFORCED, never SIGNING_CHECK PASS, and
+# every commit touching the paths below is recorded as unverified. It does
+# not fail the build, because no agent can make it pass and a gate an agent
+# cannot pass is a gate an agent routes around; it does not stay quiet
+# either, because an unenforced control that prints nothing is
+# indistinguishable from an enforced one.
+#
+# WHAT A HUMAN MUST DO to turn this check into a binding. Every one of these
+# is reserved to a person, and badf/skills.yaml records enroll-a-signing-key
+# as FORBIDDEN_TO_AGENTS:
+#
+#   1. Generate or nominate a key, and publish its public half to the forge.
+#   2. Replace NONE_ENROLLED below with one entry per accepted identity,
+#      recording who enrolled it. Only the four seats no agent may occupy
+#      may appear in enrolled_by.
+#   3. Enable required_signatures branch protection on main, so the forge
+#      refuses an unsigned commit rather than this check merely noticing one
+#      after the fact.
+#
+# Step 2 alone flips this check from NOT_ENFORCED to enforcing, with no code
+# change: the moment accepted_keys names an identity, an unverified commit
+# touching a protected path fails `pnpm verify`.
+
+version: "0.1.0"
+updated_at: "2026-09-10T00:00:00Z"
+
+# Where the policy starts applying, EXCLUSIVE. No commit before it is ever
+# required to carry a signature: no commit on this branch is signed, there is
+# no signing key configured, and rewriting history is not a repair.
+#
+# FIRST_COMMIT_OF_THIS_POLICY resolves to the commit that added this file,
+# which is the earliest point at which a policy could have been known. It is
+# resolved from git rather than written here because the sha cannot be known
+# before the commit that contains it. A human may replace it with an explicit
+# 40-character sha to move the enforcement point forward; nothing accepts any
+# other value.
+enforcement_point: FIRST_COMMIT_OF_THIS_POLICY
+
+# A change to any path below is a human decision. A directory covers
+# everything under it. These are git pathspecs, and the reader refuses
+# anything that is not a plain relative path, so none of them can be read as
+# a git option.
+#
+# The set is a FLOOR, not a list: scripts/validate_continuity.py pins every
+# path below in PINNED_PROTECTED_PATHS and refuses this file if one is
+# missing. Adding a path here is allowed and widens protection; removing one
+# is a reviewed change to the validator, under a Work Package that says why.
+protected_paths:
+  - badf/authority.yaml
+  - badf/gates.yaml
+  - badf/current-state.json
+  - badf/lifecycle.yaml
+  - badf/agents.yaml
+  - badf/skills.yaml
+  - badf/signing-policy.yaml
+  - sessions/checkpoints
+
+# The identities whose signature counts as a human decision on the paths
+# above. NONE_ENROLLED is not a placeholder to be tidied away by an agent: it
+# is the accurate statement that no human identity is bound to this
+# repository yet. An agent that replaces it has exceeded its authority
+# whatever the entry says, because the key material it would name is not
+# something an agent can hold.
+#
+# When a human enrols one, the shape is:
+#
+#   accepted_keys:
+#     - identity: "A Name <name@example.com>"
+#       kind: gpg
+#       enrolled_by: repository-administrator
+#       note: "optional prose"
+#
+# identity is matched against git's own %GS (the signer) and %GK (the key),
+# exactly, with no normalisation. kind is gpg or ssh and nothing else.
+# enrolled_by must name one of the four seats badf/agents.yaml records as
+# may_be_an_agent: false.
+accepted_keys: NONE_ENROLLED

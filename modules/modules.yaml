@@ -1,0 +1,321 @@
+# The module registry.
+#
+# This file is the ONE list of modules. The boundary rule, the schema list and
+# the migration lint are generated from it, so a module that is not registered
+# here cannot import, be imported, or own a table.
+#
+# Source of the initial rows: BIZTRUST-ARCH-001 section 6, "Capability map",
+# whose candidate modules are grouped platform / brokerage / financial /
+# integration. The contract says that list "must not be used to justify
+# premature service extraction"; it is used here only as a list of boundaries
+# to test. Whether a candidate is a bounded context, a subdomain or an
+# aggregate is the BIZTRUST-DOMAIN-001 decision (guide issue #113), not the
+# decision of this file.
+#
+# Fields, per the P0.2 design, "The module registry":
+#   name        package name @biztrust/<name>; also the PostgreSQL schema name
+#               with hyphens as underscores
+#   group       platform | brokerage | financial | integration
+#   owner_role  the role that answers for the module contract and schema
+#   contract    the module public entry; the only path another package may
+#               import
+#   schema      the PostgreSQL schema the module owns, or "none" for a module
+#               with no persisted state
+#   epic        the epic whose design fills the module; null means the row is a
+#               registry entry and nothing else
+#   source      "contract" for a candidate module of the capability map, or the
+#               design that introduced the module
+#   package     true when a package directory exists under modules/
+#
+# No module, package or path is ever named for a tenant. Tenant variation is
+# configuration under ADR-011; a tenant name in this registry is a review
+# finding.
+
+version: "0.1.0"
+
+modules:
+  # ---- Platform -----------------------------------------------------------
+  - name: tenancy
+    group: platform
+    owner_role: platform-engineer
+    contract: src/public/index.ts
+    schema: tenancy
+    epic: P0.6
+    source: contract
+    package: true
+
+  - name: identity-access
+    group: platform
+    owner_role: security-engineer
+    contract: src/public/index.ts
+    schema: identity_access
+    epic: P0.3
+    source: contract
+    package: true
+
+  - name: audit
+    group: platform
+    owner_role: security-engineer
+    contract: src/public/index.ts
+    schema: audit
+    epic: P0.10
+    source: contract
+    package: true
+
+  - name: platform-configuration
+    group: platform
+    owner_role: platform-engineer
+    contract: src/public/index.ts
+    schema: platform_configuration
+    epic: P0.12
+    source: "design:P0.12"
+    package: true
+
+  - name: distribution
+    group: platform
+    owner_role: platform-engineer
+    contract: src/public/index.ts
+    schema: distribution
+    epic: null
+    source: contract
+    package: false
+
+  - name: compliance
+    group: platform
+    owner_role: compliance-reviewer
+    contract: src/public/index.ts
+    schema: compliance
+    epic: null
+    source: contract
+    package: false
+
+  # ---- Brokerage ----------------------------------------------------------
+  - name: party
+    group: brokerage
+    owner_role: domain-engineer
+    contract: src/public/index.ts
+    schema: party
+    epic: null
+    source: contract
+    package: false
+
+  - name: client
+    group: brokerage
+    owner_role: domain-engineer
+    contract: src/public/index.ts
+    schema: client
+    epic: null
+    source: contract
+    package: false
+
+  - name: risk
+    group: brokerage
+    owner_role: domain-engineer
+    contract: src/public/index.ts
+    schema: risk
+    epic: null
+    source: contract
+    package: false
+
+  - name: distribution-product
+    group: brokerage
+    owner_role: domain-engineer
+    contract: src/public/index.ts
+    schema: distribution_product
+    epic: null
+    source: contract
+    package: false
+
+  - name: submission
+    group: brokerage
+    owner_role: domain-engineer
+    contract: src/public/index.ts
+    schema: submission
+    epic: null
+    source: contract
+    package: false
+
+  - name: placement
+    group: brokerage
+    owner_role: domain-engineer
+    contract: src/public/index.ts
+    schema: placement
+    epic: null
+    source: contract
+    package: false
+
+  - name: quote-indication
+    group: brokerage
+    owner_role: domain-engineer
+    contract: src/public/index.ts
+    schema: quote_indication
+    epic: null
+    source: contract
+    package: false
+
+  - name: recommendation
+    group: brokerage
+    owner_role: domain-engineer
+    contract: src/public/index.ts
+    schema: recommendation
+    epic: null
+    source: contract
+    package: false
+
+  - name: binding
+    group: brokerage
+    owner_role: domain-engineer
+    contract: src/public/index.ts
+    schema: binding
+    epic: null
+    source: contract
+    package: false
+
+  # RENAMED from the capability map, which calls this module "Policy".
+  #
+  # Two reasons, both recorded in badf/decision-log.jsonl as DEC-005. First,
+  # ARCH-001 section 9 is emphatic that a broker policy representation is not
+  # the insurer-authoritative issued contract, and the longer name keeps that
+  # distinction in the registry rather than only in prose. Second, the
+  # migration lint refuses a P0 table named for the word "policy", and
+  # allow-listing the very first row would weaken the rule before it had ever
+  # fired.
+  #
+  # A reader diffing this registry against ARCH-001 section 6 will see one name
+  # that does not match. This comment is that difference, declared.
+  - name: policy-record
+    group: brokerage
+    owner_role: domain-engineer
+    contract: src/public/index.ts
+    schema: policy_record
+    epic: null
+    source: contract
+    package: false
+
+  - name: claims
+    group: brokerage
+    owner_role: domain-engineer
+    contract: src/public/index.ts
+    schema: claims
+    epic: null
+    source: contract
+    package: false
+
+  - name: renewal
+    group: brokerage
+    owner_role: domain-engineer
+    contract: src/public/index.ts
+    schema: renewal
+    epic: null
+    source: contract
+    package: false
+
+  # ---- Financial ----------------------------------------------------------
+  - name: billing
+    group: financial
+    owner_role: finance-engineer
+    contract: src/public/index.ts
+    schema: billing
+    epic: null
+    source: contract
+    package: false
+
+  - name: payment
+    group: financial
+    owner_role: finance-engineer
+    contract: src/public/index.ts
+    schema: payment
+    epic: null
+    source: contract
+    package: false
+
+  - name: ledger
+    group: financial
+    owner_role: finance-engineer
+    contract: src/public/index.ts
+    schema: ledger
+    epic: null
+    source: contract
+    package: false
+
+  - name: commission
+    group: financial
+    owner_role: finance-engineer
+    contract: src/public/index.ts
+    schema: commission
+    epic: null
+    source: contract
+    package: false
+
+  - name: settlement
+    group: financial
+    owner_role: finance-engineer
+    contract: src/public/index.ts
+    schema: settlement
+    epic: null
+    source: contract
+    package: false
+
+  - name: reconciliation
+    group: financial
+    owner_role: finance-engineer
+    contract: src/public/index.ts
+    schema: reconciliation
+    epic: null
+    source: contract
+    package: false
+
+  # ---- Integration --------------------------------------------------------
+  - name: insurer
+    group: integration
+    owner_role: integration-engineer
+    contract: src/public/index.ts
+    schema: insurer
+    epic: null
+    source: contract
+    package: false
+
+  - name: payment-provider
+    group: integration
+    owner_role: integration-engineer
+    contract: src/public/index.ts
+    schema: payment_provider
+    epic: null
+    source: contract
+    package: false
+
+  - name: bank
+    group: integration
+    owner_role: integration-engineer
+    contract: src/public/index.ts
+    schema: bank
+    epic: null
+    source: contract
+    package: false
+
+  - name: partner-api
+    group: integration
+    owner_role: integration-engineer
+    contract: src/public/index.ts
+    schema: partner_api
+    epic: null
+    source: contract
+    package: false
+
+  - name: documents
+    group: integration
+    owner_role: integration-engineer
+    contract: src/public/index.ts
+    schema: documents
+    epic: null
+    source: contract
+    package: false
+
+  - name: notifications
+    group: integration
+    owner_role: integration-engineer
+    contract: src/public/index.ts
+    schema: notifications
+    epic: null
+    source: contract
+    package: false

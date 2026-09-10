@@ -1,0 +1,61 @@
+{
+  "schema_version": "1.0.0",
+  "work_package": "BIZTRUST-WP-001",
+  "generated_at": "2026-09-08T00:00:00Z",
+  "actions": [
+    {
+      "id": "NS-001",
+      "priority": 1,
+      "primary": true,
+      "title": "Fill the repository administrator seat and record branch protection on main",
+      "owner_role": "repository-administrator",
+      "blocked_by": [],
+      "acceptance": "A named human holds the seat in badf/agents.yaml. main is protected with the CI jobs required, force-push and deletion blocked, and one independent approval per merge. Negative control 6 of the P0.2 design is then observed: a direct push is refused and a pull request with a failing boundary check cannot merge, with the refusal message and a protection settings export recorded as evidence."
+    },
+    {
+      "id": "NS-002",
+      "priority": 2,
+      "primary": false,
+      "title": "Independent review of WP-001 by a verifier who is not the implementer",
+      "owner_role": "peer-reviewer",
+      "blocked_by": ["NS-001"],
+      "acceptance": "A fresh-context review of the branch head against the P0.2 design acceptance criteria, recorded on the Work Package. It confirms the registry lists every candidate module of the ARCH-001 capability map, the rules are generated and not hand-written, and the controls were observed failing before passing. Only then may WP-001 move to ACCEPTED, and only the verifier may move it."
+    },
+    {
+      "id": "NS-003",
+      "priority": 3,
+      "primary": false,
+      "title": "Complete FOUNDATION_SEQUENCE slice S01, the tenant authority, jurisdiction and money-regime input contract",
+      "owner_role": "business-authority",
+      "blocked_by": [],
+      "acceptance": "One authority profile per initial tenant arrangement, with contract-conclusion authority answered REQUEST_ONLY, DELEGATED_AUTHORITY, MASTER_POLICY_CERTIFICATE, another defined value, or UNKNOWN_BLOCKING. All five review seats record ACCEPT, REVISION_REQUIRED or NOT_APPLICABLE with rationale. This blocks everything downstream and no agent may prepare it beyond assembling the questions."
+    },
+    {
+      "id": "NS-004",
+      "priority": 4,
+      "primary": false,
+      "title": "Resolve ADR-001, ADR-004, ADR-005, ADR-010 and ADR-011",
+      "owner_role": "architecture-authority",
+      "blocked_by": ["NS-003"],
+      "acceptance": "Each ADR states context, decision, alternatives, consequences, risks, implementation implications and validation requirements, and is recorded ACCEPTED. ADR-001 decides whether the seven dependency rules and one-schema-per-module stand as written; if it narrows or widens them, modules/modules.yaml and the generator are revised in the same package and the boundary suite re-run."
+    },
+    {
+      "id": "NS-005",
+      "priority": 5,
+      "primary": false,
+      "title": "Record BT-G0, the architecture contract freeze",
+      "owner_role": "architecture-authority",
+      "blocked_by": ["NS-003", "NS-004"],
+      "acceptance": "Slices S01 to S11 accepted in order, every critical finding closed or owned by an explicit expiring risk acceptance, and the BT-G0 result recorded in badf/gates.yaml by the architecture authority. Until this exists no P0 epic may be implemented, which is the single constraint holding this repository at a skeleton."
+    },
+    {
+      "id": "NS-006",
+      "priority": 6,
+      "primary": false,
+      "title": "Cut Work Package P0.2-B, the migration layout and lint as a required check",
+      "owner_role": "platform-engineer",
+      "blocked_by": ["NS-005"],
+      "acceptance": "The lint runs as a required check on main rather than only in the test suite, and the first tenancy schema is created once P0.6 names its tables. Controls 4, 5, 11 and 12 are re-observed against the required check, verified by the data reviewer and not the implementer."
+    }
+  ]
+}

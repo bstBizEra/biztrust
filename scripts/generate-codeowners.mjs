@@ -1,0 +1,214 @@
+#!/usr/bin/env node
+/**
+ * Generates .github/CODEOWNERS FROM the routing block of badf/agents.yaml.
+ *
+ *   node scripts/generate-codeowners.mjs           write the file
+ *   node scripts/generate-codeowners.mjs --check   fail if it is stale
+ *
+ * Same shape as scripts/generate-boundary-rules.mjs --check: the registry is
+ * the source of the file, the checker is not, and a hand edit of the
+ * generated file fails --check.
+ *
+ * badf/agents.yaml names a role, not a person, as the owner and verifier of
+ * a path - "a role is a seat, not a person and not an agent" (that file's
+ * own header). Every seat's held_by is null (task 6; see
+ * badf/agents.yaml roles), so this generator does not, and cannot honestly,
+ * name a human reviewer. What it emits instead is a GitHub TEAM SLUG,
+ * @<org>/<role-id>, for every routing entry whose owner or verifier is a
+ * literal role id in badf/agents.yaml. A team is an organisational
+ * structure, not an occupant: it can exist with zero members, exactly as
+ * every seat here does today. Naming a person, a handle or an agent id here
+ * would be exactly the forgery this repository exists to refuse.
+ *
+ * One routing entry - "modules/**" - names its owner as prose ("the
+ * owner_role of the module in modules/modules.yaml"), because it varies per
+ * module and is not one fixed seat. That cannot become a CODEOWNERS team, so
+ * it is emitted as a comment naming the routing entry's own text, not
+ * silently dropped.
+ *
+ * IMPORTANT - read before treating this file as a working control. It is
+ * not one yet, on two independent axes, and generating it does not close
+ * either:
+ *
+ *   1. Branch protection on `main` is APPLIED - see
+ *      evidence/security-proof/negative-control-6.md: one required
+ *      approving review, enforce_admins: true, negative control 6
+ *      observed. What is NOT enabled is GitHub's separate "require review
+ *      from code owners" setting on that protection, which is what makes a
+ *      CODEOWNERS file bite at all. Turning that setting on is the
+ *      repository administrator's record, not this script's, and it has
+ *      not been made.
+ *   2. Every @<org>/<role-id> team named below must exist in the GitHub
+ *      organisation and have at least one human member. Creating and
+ *      populating one is the same human act badf/agents.yaml's held_by
+ *      field is waiting on (NS-001).
+ *
+ * Until both are true, this file documents the P0.2 design's intended
+ * routing. It enforces nothing.
+ *
+ * Exit codes: 0 written or fresh; 1 stale under --check, or the registry is
+ * invalid; 2 an unforeseen defect in this script.
+ */
+
+import { readFileSync, writeFileSync, realpathSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { ROOT } from "./registry.mjs";
+import { loadAgentsRegistry, RegistryError } from "./agents-registry.mjs";
+
+// TEST-ONLY seam, read by tests/boundaries/generate-codeowners.test.mjs.
+// Round four finding I9: 389 new lines, in `verify` and in CI, and zero
+// tests - so `--check` quietly accepting a stale file, or the renderer
+// emitting nothing at all, would have gone unnoticed. Witnessing the
+// staleness branch needs a stale file, and the repository's own tracked
+// CODEOWNERS must not be made stale to produce one - that would dirty the
+// working tree, which `check:mutations` then refuses. A normal run never
+// sets this and reads and writes .github/CODEOWNERS exactly as before.
+const OUT = process.env.CODEOWNERS_TEST_OUT ?? join(ROOT, ".github", "CODEOWNERS");
+
+// The GitHub organisation this repository lives under (badf/current-state.json
+// "repository": "bstBizEra/biztrust"). A role maps to a team under this org;
+// it does not assert the team exists.
+const ORG = "bstBizEra";
+
+function stripQuotes(value) {
+  const v = value.trim();
+  if (v.length >= 2 && v.startsWith('"') && v.endsWith('"')) return v.slice(1, -1);
+  return v;
+}
+
+export function renderCodeowners(registry) {
+  const roleIds = new Set(registry.roles.map((r) => r.id));
+  const lines = [];
+
+  for (const entry of registry.routing) {
+    const path = stripQuotes(entry.path ?? "");
+    const teams = [];
+    const notes = [];
+
+    for (const [label, raw] of [
+      ["owner", entry.owner],
+      ["verifier", entry.verifier],
+    ]) {
+      if (raw === undefined || raw.trim() === "") {
+        throw new RegistryError(`routing entry ${path || "?"} records no ${label}`);
+      }
+      const value = stripQuotes(raw);
+      if (roleIds.has(value)) {
+        teams.push(`@${ORG}/${value}`);
+      } else {
+        notes.push(`${label} is "${value}", not a fixed seat`);
+      }
+    }
+
+    const uniqueTeams = [...new Set(teams)];
+    if (notes.length > 0) {
+      lines.push(`# ${path}: ${notes.join("; ")}`);
+    }
+    if (uniqueTeams.length > 0) {
+      lines.push(`${path} ${uniqueTeams.join(" ")}`);
+    } else {
+      lines.push(`# ${path}: no fixed seat, so no CODEOWNERS line is emitted`);
+    }
+  }
+
+  const header =
+    [
+      "# GENERATED FILE - DO NOT EDIT.",
+      "#",
+      "# Generated by scripts/generate-codeowners.mjs from the routing block of",
+      "# badf/agents.yaml. A hand edit fails",
+      "# `node scripts/generate-codeowners.mjs --check`.",
+      "#",
+      `# Each entry below names a GitHub TEAM SLUG (@${ORG}/<role-id>), never a`,
+      "# person. Every role in badf/agents.yaml currently records held_by: null:",
+      "# no human occupies any seat, and this file does not assert that any",
+      `# @${ORG}/<role-id> team exists in the GitHub organisation either -`,
+      "# creating and populating one is the same human act held_by waits on.",
+      "#",
+      "# This file is NOT a working review mechanism by itself. Branch",
+      "# protection on main IS applied (evidence/security-proof/",
+      "# negative-control-6.md: one required approving review,",
+      "# enforce_admins: true, negative control 6 observed), but this file",
+      "# bites only once both of the following are also true, and neither is",
+      "# this file's to record:",
+      "#   1. GitHub's separate \"require review from code owners\" setting",
+      "#      is turned on for that protection - the repository",
+      "#      administrator's record, not recorded yet;",
+      `#   2. each @${ORG}/<role-id> team named below exists and has a human`,
+      "#      member (badf/agents.yaml held_by - unfilled for every seat).",
+      "#",
+      "# Registry:         badf/agents.yaml",
+      `# Registry version: ${registry.version}`,
+      `# Routing entries:  ${registry.routing.length}`,
+      "",
+    ].join("\n") + "\n";
+
+  return `${header}${lines.join("\n")}\n`;
+}
+
+function readOrNull(path) {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return null;
+  }
+}
+
+function main() {
+  const check = process.argv.includes("--check");
+
+  let registry;
+  let content;
+  try {
+    registry = loadAgentsRegistry();
+    content = renderCodeowners(registry);
+  } catch (error) {
+    if (error instanceof RegistryError) {
+      process.stderr.write(`CODEOWNERS_GENERATION FAIL ${error.message}\n`);
+      return 1;
+    }
+    throw error;
+  }
+
+  if (check) {
+    const found = readOrNull(OUT);
+    if (found !== content) {
+      process.stderr.write(
+        `CODEOWNERS_GENERATION FAIL .github/CODEOWNERS is ` +
+          `${found === null ? "missing" : "stale"}. ` +
+          `Run: node scripts/generate-codeowners.mjs\n`,
+      );
+      return 1;
+    }
+    process.stdout.write(
+      `CODEOWNERS_GENERATION PASS ${registry.routing.length} routing entries, ` +
+        `.github/CODEOWNERS is current\n`,
+    );
+    return 0;
+  }
+
+  writeFileSync(OUT, content, "utf8");
+  process.stdout.write("wrote .github/CODEOWNERS\n");
+  return 0;
+}
+
+// Run only when invoked as a command - the same guard
+// scripts/migration-lint.mjs carries, for the same reason: the tests import
+// `renderCodeowners` above to exercise the rendering rules directly against
+// hand-built registries, and an import that regenerated .github/CODEOWNERS
+// as a side effect could not do that.
+const invokedDirectly =
+  process.argv[1] !== undefined &&
+  realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+
+if (invokedDirectly) {
+  try {
+    process.exitCode = main();
+  } catch (error) {
+    process.stderr.write(
+      `CODEOWNERS_GENERATION FAIL validator defect: ${error?.stack ?? error}\n`,
+    );
+    process.exitCode = 2;
+  }
+}

@@ -1,0 +1,166 @@
+name: CI
+
+# The CI skeleton of the P0.2 design. Every job below is intended to be a
+# REQUIRED check on main; making them required is the repository
+# administrator's record, not this file's, and it has not been made yet
+# (badf/authority.yaml, main_branch_protection).
+#
+# A later job does not run if an earlier one fails. The order is deliberate:
+# the record validator runs before the code checks, because it is the
+# instrument every other gate is read through, and an instrument never observed
+# failing is indistinguishable from one that passed.
+#
+# Jobs the design names that are NOT here, each with its owner:
+#   Contract lint over openapi/ and events/ ......... epics P0.8 and P0.9
+#   Observability tests ............................. epic P0.11
+#   Security proof suite over tests/security/ ....... P0.SECURITY-PROOF, needs BT-G0
+# They are absent because the work they check does not exist, not because they
+# were forgotten.
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history. The signing check (step 2c) asks git which commits
+          # touched a governed path since the policy landed, and a shallow
+          # clone cannot answer: its grafted root has no parent, so every file
+          # reads as ADDED there and the enforcement point would resolve to
+          # HEAD - a check that verifies nothing and says so in a pass line.
+          #
+          # This line is a CONVENIENCE, not the control. Review of the task
+          # that added it demonstrated the whole bypass in a real
+          # `git clone --depth 1` and showed that deleting this line made
+          # nothing go red. The check now refuses a shallow repository outright
+          # (`git rev-parse --is-shallow-repository`, exit 2), witnessed by
+          # tests/signing/enforcement.test.mjs and by a mutation. Without this
+          # line CI would fail honestly; with it, CI can answer the question.
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # 1. Install. A changed lockfile the pull request did not commit fails here.
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # 2. Validate records. The state file, the actions, the decision log, every
+      #    checkpoint and the five registries, against schemas/ and the
+      #    cross-record rules. Runs before the code checks by design.
+      - name: Validate records
+        run: pnpm validate:records
+
+      - name: Prove the validator fails closed
+        run: pnpm test:validator
+
+      # 2c. Who WROTE the records, rather than what they say. This is the only
+      #     check here that no agent can make pass: badf/signing-policy.yaml
+      #     enrols no key, so it reports SIGNING_CHECK NOT_ENFORCED and exits 0.
+      #     That status is the point of the step - a control that binds nothing
+      #     and prints nothing is indistinguishable from one that is enforced.
+      #     It becomes a gate, with no change here, the day a human enrols a key.
+      - name: Who wrote the governance records
+        run: pnpm check:signing
+
+      # 3. Typecheck.
+      - name: Typecheck
+        run: pnpm typecheck
+
+      # 4. Boundary check. Fails if a generated file drifted from the registry,
+      #    or if one named rule was broken by one named file.
+      - name: Boundary check
+        run: pnpm boundaries:check
+
+      # 4b. CODEOWNERS check. Fails if .github/CODEOWNERS drifted from the
+      #     routing block of badf/agents.yaml. Note: generating this file is
+      #     not the same as it doing anything - see the header this step's
+      #     generator writes into the file itself.
+      - name: CODEOWNERS is current
+        run: pnpm codeowners:check
+
+      # 5. Migration lint. One schema per module; the audit schema append-only;
+      #    no P0 domain table; tenant_id on every tenant-owned table.
+      - name: Migration lint
+        run: pnpm lint:migrations
+
+      # 6. The boundary and migration-lint suites. Each control is a deliberate
+      #    violation that must be reported by the rule it was built to break,
+      #    and each conforming case must be reported by nothing. A fixture that
+      #    passes the checker is itself a failure.
+      - name: Boundary and migration test suites
+        run: pnpm test:boundaries
+
+      # 6b. The signature check's git plumbing, against real histories: a
+      #     shallow clone, an unresolvable anchor, a delete-and-re-add, an
+      #     unsigned commit under an enrolled key. Separate from step 6 because
+      #     each control builds a repository and the mutation sweep runs a
+      #     suite once per mutation.
+      - name: The signing check against real git histories
+        run: pnpm test:signing
+
+      # 7. Mutation check: loosen each rule in turn and require the suite to
+      #    go red. A suite that passes whether or not the rule works is worth
+      #    nothing, and a green run cannot tell you which of the two it is.
+      #    Added after a peer review found four loosenings the suite ignored.
+      - name: Mutation check the rules
+        run: pnpm check:mutations
+
+      # 8. No module directory without a registry row, and no registry row
+      #    claiming a package that is absent. The generation step of the
+      #    P0.2 design's negative control 7.
+      - name: Every module package is registered
+        run: pnpm check:modules
+
+      # 9. Coverage gate: a protection this repository NAMES must be witnessed
+      #    by a fixture asserting its own message. Three review rounds each
+      #    found the same defect in a different instrument - the suite was
+      #    green while a rule did nothing - so this asks the question one level
+      #    up, and derives the list from the code rather than from a list kept
+      #    beside it. Adding an audit verb, a domain word or a module without a
+      #    fixture fails here.
+      - name: Every named protection has a control
+        run: pnpm check:coverage
+
+  # A reminder in the checks list, not a gate. It cannot pass or fail on its
+  # own; it prints what a reader of this repository must not assume.
+  scope:
+    name: Scope boundary
+    runs-on: ubuntu-latest
+    steps:
+      - name: State the scope boundary
+        run: |
+          echo "BT-G0 is UNRECORDED. No P0 epic is authorised."
+          echo "Every module contract in this repository throws."
+          echo "A green CI run proves the boundaries hold. It proves nothing"
+          echo "about insurance, money or tenancy behaviour, because none exists."
+          echo "See docs/architecture/STATUS.md and badf/authority.yaml."

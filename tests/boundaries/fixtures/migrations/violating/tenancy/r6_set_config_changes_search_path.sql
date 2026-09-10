@@ -1,0 +1,13 @@
+-- Round four residual 2: the C1 class, reached by a third spelling.
+-- `set_config('search_path', 'audit', false)` IS `SET search_path TO audit`,
+-- written as a function call, and with is_local = false it is session-scoped
+-- exactly as the statement form is. The search_path check never matched
+-- (scrub() blanks the literal), the session-SET check is start-anchored, and
+-- deny-by-default did not fire because the INSERT resolves a target of its
+-- own - so this whole file linted PASS with exit 0 under db/migrations/tenancy/:
+--
+--   CREATE TABLE tenancy.bootstrap (v text);
+--   INSERT INTO tenancy.bootstrap (v) SELECT set_config('search_path', 'audit', false);
+--   CREATE TABLE tenancy.shadow (id uuid, tenant_id uuid, code status_code);
+--   CREATE INDEX shadow_code_idx ON tenancy.shadow (normalise_code(code));
+INSERT INTO tenancy.bootstrap (v) SELECT set_config('search_path', 'audit', false);

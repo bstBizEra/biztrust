@@ -1,0 +1,124 @@
+# The authority registry.
+#
+# AGENTS.md section 4: approval comes from an explicit authority record and is
+# NEVER inferred. This file is where the implementation grant for a Work
+# Package, with its expiry, is recorded before any code lands.
+#
+# Read the two blocks below in order. The first says what this repository is
+# NOT authorised to do; nothing in the second widens it.
+
+version: "0.1.0"
+updated_at: "2026-09-08T00:00:00Z"
+
+# ---------------------------------------------------------------------------
+# Not granted. Each of these is a human decision that no agent may record.
+# ---------------------------------------------------------------------------
+not_granted:
+  architecture_contract_freeze:
+    what: "Acceptance of BIZTRUST-ARCH-001 v0.1; the BT-G0 result"
+    status: NOT_GRANTED
+    held_by: "architecture authority seat"
+    why: >-
+      ARCH-001 is DRAFT FOR CONTRACT FREEZE and states that implementation
+      authority is NOT GRANTED BY THIS DOCUMENT. FOUNDATION_SEQUENCE.md
+      requires slices S01 to S11 accepted in order before BT-G0 is recorded.
+      S01, the tenant authority, jurisdiction and money-regime input contract,
+      needs five human review seats and has not been completed.
+
+  p0_implementation:
+    what: "Authority to implement any P0 epic, P0.2 to P0.13"
+    status: NOT_GRANTED
+    held_by: "business authority seat"
+    why: >-
+      The P0 design pack states that P0 implementation waits for BT-G0 and a
+      Work Package with explicit, expiring authority. BT-G0 has not been
+      recorded, so no P0 epic may be implemented.
+
+  adr_acceptance:
+    what: "Acceptance of ADR-001 to ADR-020"
+    status: NOT_GRANTED
+    held_by: "architecture authority seat"
+    why: >-
+      Every ADR the P0.2 design depends on is DRAFT_REQUIRED: ADR-001 modular
+      monolith, ADR-004 PostgreSQL and RLS, ADR-005 contract-first APIs,
+      ADR-010 durable workflows, ADR-011 tenant packs. The boundary rules in
+      this repository are the PROPOSAL of the P0.2 design, not an accepted
+      decision.
+
+  production_deployment:
+    what: "Any deployment of this repository to any environment"
+    status: NOT_GRANTED
+    held_by: "repository administrator and business authority seat"
+    why: >-
+      Nothing here is implemented. There is no runnable service, no database
+      and no configuration. Validation success does not grant deployment
+      authority (AGENTS.md section 8).
+
+  wp_001_acceptance:
+    what: "Acceptance of BIZTRUST-WP-001, the repository skeleton"
+    status: NOT_GRANTED
+    held_by: "peer reviewer, who is not the implementer"
+    why: >-
+      An independent review returned REVISION_REQUIRED twice: four blockers on
+      the first pass, three more on the second. All seven are addressed, but the
+      reviewer decides whether they close, not the implementer. AGENTS.md
+      section 5: work is never marked accepted on the assertion of the
+      implementing agent alone. This entry exists because the state file
+      asserted an acceptance status that this registry did not record, which a
+      cross-check found.
+
+  main_branch_protection:
+    what: "Protection of main with the required checks and force-push blocking"
+    status: NOT_RECORDED
+    held_by: "repository administrator, a human role"
+    why: >-
+      Protecting a branch is not something an agent can do. Negative control 6
+      of the P0.2 design - a push straight to main is refused, and a pull
+      request with a failing check cannot merge - CANNOT be observed until a
+      human records this protection. Until then the gate is convention, not
+      mechanism, exactly as the guide repository records for itself.
+
+# ---------------------------------------------------------------------------
+# Granted. The one instruction this repository was created under.
+# ---------------------------------------------------------------------------
+granted:
+  repository_scaffold:
+    what: >-
+      Create the platform repository skeleton described by the P0.2 design:
+      the workspace and layout, the module registry, the dependency rule
+      generated from it, the migration lint, the boundary test suite, the
+      charter and these records, and the CI skeleton.
+    status: GRANTED
+    granted_by: "operator, direct instruction"
+    granted_at: "2026-09-08"
+    expires_at: "UNBOUNDED_PENDING_REVIEW"
+    recorded_by: "agent"
+    scope_limit: >-
+      The scaffold ONLY. It creates no domain table, implements no epic,
+      accepts no ADR and asserts no gate result. Every module contract throws.
+      This grant does not become P0.2-A acceptance: the design names a verifier
+      who is not the implementer, and no such verification has happened.
+    honest_status: >-
+      This grant is an operator instruction recorded by an agent. It is NOT the
+      expiring implementation grant from the business authority seat that the
+      P0.2 design requires, and it must not be read as one. A reviewer treating
+      this repository as an accepted P0.2-A delivery would be wrong.
+
+# ---------------------------------------------------------------------------
+# Tool authority. What an agent operating in this repository may do.
+# ---------------------------------------------------------------------------
+tool_authority:
+  may:
+    - "Read every file"
+    - "Run the validators, the lint, the boundary check and the test suite"
+    - "Open a branch and a pull request under a Work Package"
+    - "Append to badf/decision-log.jsonl"
+    - "Write a session checkpoint"
+  may_not:
+    - "Push to main"
+    - "Record a gate result"
+    - "Mark a design or an ADR ACCEPTED"
+    - "Grant, extend or infer authority, including its own"
+    - "Create a domain table or implement a P0 epic"
+    - "Claim that any capability is implemented, secure, compliant or production-ready"
+    - "Place a secret, a credential, client data or regulated data in this repository"
