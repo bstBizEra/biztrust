@@ -1185,14 +1185,15 @@ def validate_agents_registry(errors: list[str], seated: dict[str, str]) -> None:
                     f"badf/agents.yaml: role {role_id} has held_by "
                     f"{held_by!r}, and badf/bootstrap.yaml records no valid "
                     f"bootstrap seating naming that seat and that principal. "
-                    f"Every seat in this "
-                    f"registry stays null; a human filling one is a Work "
-                    f"Package that changes validate_agents_registry in "
-                    f"scripts/validate_continuity.py in the same pull "
-                    f"request, under a Work Package that says why - the "
-                    f"same doctrine scripts/agents-registry.mjs states for "
-                    f"this file. It is never a one-line edit to "
-                    f"badf/agents.yaml alone"
+                    f"Every seat in this registry stays null unless "
+                    f"badf/bootstrap.yaml records the one-time act that seated "
+                    f"it AND badf/current-state.json records that act, the "
+                    f"seats it was spent on, and the digest of its frozen "
+                    f"region. Filling a seat is a consistent, simultaneous "
+                    f"change to three governed records under a Work Package "
+                    f"that says why - the same doctrine "
+                    f"scripts/agents-registry.mjs states for this file. It is "
+                    f"never a one-line edit to badf/agents.yaml alone"
                 )
 
     for role_id in AGENT_FORBIDDEN_ROLES:

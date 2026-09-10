@@ -2121,6 +2121,18 @@ const MUTATIONS = [
   {
     file: RECORDS,
     suite: "validator",
+    // The fail-closed hinge. schemas/current-state.schema.json requires the
+    // block too, so the run goes red either way - which is exactly why this
+    // refusal needs a mutation and a control of its own, or it could be
+    // deleted with the sweep still printing a full house.
+    name: "records: stop reporting a state file that carries no consumption ledger",
+    witness: "test_a_state_file_with_no_consumption_ledger_is_reported",
+    from: "        errors.append(\n            \"badf/current-state.json: records no bootstrap block, so nothing outside \"",
+    to: "        _no_ledger = (\n            \"badf/current-state.json: records no bootstrap block, so nothing outside \"",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
     // The persistent bypass, which is constraint 1 exactly: the capability is
     // consumed by its own use or it is a standing one.
     name: "records: let a second bootstrap act be written after the first was spent",

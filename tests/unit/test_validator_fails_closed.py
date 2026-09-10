@@ -2020,6 +2020,18 @@ class BootstrapSeatingClosed(unittest.TestCase):
             state=ledger,
         )
 
+    def test_a_state_file_with_no_consumption_ledger_is_reported(self):
+        """Deleting the ledger is how the record becomes its own only witness.
+
+        schemas/current-state.schema.json requires the block, so the run fails
+        either way - which is precisely why this refusal needs a control of its
+        own. Without one it could be deleted and the sweep would still be
+        green, and the fail-closed `return {}` underneath it would go with it.
+        """
+        state = copy.deepcopy(STATE)
+        del state["bootstrap"]
+        self._refused("records no bootstrap block", bootstrap=BOOTSTRAP_YAML, state=state)
+
     def test_a_second_bootstrap_act_is_reported(self):
         """The persistent bypass. One act was spent; this is a second one,
         written into the same file with the same ceremony and no operator
