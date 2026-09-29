@@ -58,7 +58,11 @@ export const ENFORCEMENT_POINT_LITERAL = "FIRST_COMMIT_OF_THIS_POLICY";
  * as an OPTION. A policy that could name `--all` as a protected path would be
  * a policy that could rewrite the question this check asks.
  */
-const PLAIN_PATH = /^[A-Za-z0-9_][A-Za-z0-9._/-]*$/;
+// One leading dot is allowed, and only when a name follows it, so `.github`
+// (the workflow that runs this check) is a plain path while `.`, `..` and
+// `./x` are not: `.` is a pathspec for the whole tree. The same shape as
+// PROTECTED_PATH in scripts/validate_continuity.py.
+const PLAIN_PATH = /^\.?[A-Za-z0-9_][A-Za-z0-9._/-]*$/;
 
 /** The enforcement point: the declared literal, or an explicit 40-character sha. */
 const SAFE_REVISION = /^(FIRST_COMMIT_OF_THIS_POLICY|[0-9a-f]{40})$/;

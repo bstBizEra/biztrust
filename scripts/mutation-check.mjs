@@ -2593,6 +2593,61 @@ const MUTATIONS = [
     from: "        if WEB_FLOW_COMMITTER_EMAIL in identity:",
     to: "        if False:",
   },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // M5. The instrument paths, dropped from the floor the validator pins. The
+    // narrower witness than the existing floor mutation: it is killed by the
+    // instrument-path test alone, where dropping the whole floor also kills
+    // the older badf/authority.yaml one.
+    name: "records: stop pinning the signing instrument and its inputs as protected paths",
+    witness: "test_dropping_a_pinned_instrument_path_is_reported",
+    from: lines(
+      '    "scripts/check-signing.mjs",',
+      '    "scripts/signing-policy.mjs",',
+      '    "scripts/validate_continuity.py",',
+      '    "schemas",',
+      '    "package.json",',
+      '    ".github",',
+    ),
+    to: "    # (the instrument paths are no longer pinned)",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // M5, the shape. Allowing a bare dot would make `.` a protected path: a
+    // pathspec for the whole tree, which git reads as everything.
+    name: "records: accept a bare dot as a plain protected path",
+    witness: "test_a_protected_path_that_is_only_a_dot_is_reported",
+    from: 'PROTECTED_PATH = re.compile(r"^\\.?[A-Za-z0-9_][A-Za-z0-9._/-]*$")',
+    to: 'PROTECTED_PATH = re.compile(r"^[A-Za-z0-9_.][A-Za-z0-9._/-]*$")',
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // M5, the other direction. `.github` could not be spelled, so the workflow
+    // that runs the check could not be a protected path.
+    name: "records: refuse a protected path that begins with a dot",
+    witness: "test_a_dot_directory_is_a_plain_protected_path",
+    from: 'PROTECTED_PATH = re.compile(r"^\\.?[A-Za-z0-9_][A-Za-z0-9._/-]*$")',
+    to: 'PROTECTED_PATH = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._/-]*$")',
+  },
+  {
+    file: SIGNING_POLICY,
+    // M5, the second reader. The shape must agree with the Python one, or the
+    // two readers disagree about which paths are protected.
+    name: "signing: refuse a protected path that begins with a dot in the second reader",
+    witness: "the policy protects the signing instrument and what it stands on",
+    from: "const PLAIN_PATH = /^\\.?[A-Za-z0-9_][A-Za-z0-9._/-]*$/;",
+    to: "const PLAIN_PATH = /^[A-Za-z0-9_][A-Za-z0-9._/-]*$/;",
+  },
+  {
+    file: SIGNING_POLICY,
+    name: "signing: accept a bare dot as a plain protected path in the second reader",
+    witness: "a protected path may begin with one dot when a name follows it, and is never only a dot",
+    from: "const PLAIN_PATH = /^\\.?[A-Za-z0-9_][A-Za-z0-9._/-]*$/;",
+    to: "const PLAIN_PATH = /^[A-Za-z0-9_.][A-Za-z0-9._/-]*$/;",
+  },
 ];
 
 // TEST-ONLY seam, read by tests/boundaries/mutation-check-guard.test.mjs.

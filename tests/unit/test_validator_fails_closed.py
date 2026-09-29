@@ -567,6 +567,12 @@ protected_paths:
   - badf/skills.yaml
   - badf/signing-policy.yaml
   - sessions/checkpoints
+  - scripts/check-signing.mjs
+  - scripts/signing-policy.mjs
+  - scripts/validate_continuity.py
+  - schemas
+  - package.json
+  - .github
 
 accepted_keys: NONE_ENROLLED
 """
@@ -1796,6 +1802,50 @@ class SigningPolicyClosed(unittest.TestCase):
             "is pinned in scripts/validate_continuity.py (PINNED_PROTECTED_PATHS)",
             SIGNING_POLICY_YAML.replace("  - badf/authority.yaml" + NL, "", 1),
         )
+
+    # ---- review finding M5: the instrument is inside its own protected set --
+    #
+    # A one-line edit to scripts/check-signing.mjs (`|| true`) turned an
+    # enforcing check into a false PASS, and that file was not a protected
+    # path. Typed here rather than imported, so the test does not agree with
+    # the pin by construction.
+
+    INSTRUMENT_PATHS = (
+        "scripts/check-signing.mjs",
+        "scripts/signing-policy.mjs",
+        "scripts/validate_continuity.py",
+        "schemas",
+        "package.json",
+        ".github",
+    )
+
+    def test_dropping_a_pinned_instrument_path_is_reported(self):
+        for path in self.INSTRUMENT_PATHS:
+            with self.subTest(path=path):
+                policy = SIGNING_POLICY_YAML.replace("  - " + path + NL, "", 1)
+                self.assertNotEqual(policy, SIGNING_POLICY_YAML, "the replace target did not match")
+                self._refused(
+                    "'" + path + "' is pinned in scripts/validate_continuity.py "
+                    "(PINNED_PROTECTED_PATHS)",
+                    policy,
+                )
+
+    def test_a_dot_directory_is_a_plain_protected_path(self):
+        """`.github` has to be spellable, and the fixture carries it."""
+        result = self._run(SIGNING_POLICY_YAML)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("  - .github" + NL, SIGNING_POLICY_YAML)
+
+    def test_a_protected_path_that_is_only_a_dot_is_reported(self):
+        """One leading dot is allowed when a name follows it. `.` is the whole tree."""
+        for path in (".", ".."):
+            with self.subTest(path=path):
+                self._refused(
+                    "is not a plain relative path",
+                    SIGNING_POLICY_YAML.replace(
+                        "  - sessions/checkpoints", "  - sessions/checkpoints" + NL + "  - " + path, 1
+                    ),
+                )
 
     def test_a_protected_path_git_would_read_as_an_option_is_reported(self):
         self._refused(
