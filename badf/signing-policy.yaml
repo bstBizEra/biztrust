@@ -33,6 +33,24 @@
 # Step 2 alone flips this check from NOT_ENFORCED to enforcing, with no code
 # change: the moment accepted_keys names an identity, an unverified commit
 # touching a protected path fails `pnpm verify`.
+#
+# SQUASH MERGES AND THIS CHECK ARE INCOMPATIBLE AS THINGS STAND. Main is
+# written by GitHub's own merge: its recent commits are committed by
+# `GitHub <noreply@github.com>` and signed by GitHub's web-flow key
+# B5690EEEBB952194. A squash merge made in the web UI replaces the author's
+# commit with a new one, so the author's own signature does not survive it.
+# The two ways to make this check pass are both bad:
+#
+#   - Enrol a human's key, and every change merged by squash fails the check.
+#   - Enrol the web-flow key, and every change merged in the web UI passes,
+#     an agent-authored one included. That signature binds nothing to a person.
+#
+# scripts/validate_continuity.py therefore refuses to accept the web-flow key
+# id or the `GitHub <noreply@github.com>` identity, whatever this file says.
+# WHICH MERGE STRATEGY RESOLVES IT IS A HUMAN DECISION and this file does not
+# make it. It has to be made before step 2 above, and whether merge commits or
+# rebase merges keep an author's signature on the governed commits has to be
+# tried on this repository, not assumed: nothing here has tested either.
 
 version: "0.1.0"
 updated_at: "2026-09-10T00:00:00Z"

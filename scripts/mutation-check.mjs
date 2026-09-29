@@ -2573,6 +2573,26 @@ const MUTATIONS = [
     from: "        if pinned_computed != BOOTSTRAP_PINNED_DIGEST:",
     to: "        if False:",
   },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // M4, the key. GitHub's web-flow key signs every squash merge on main;
+    // enrolling it would make the check pass changes no human signed.
+    name: "records: stop refusing GitHub's web-flow key as an accepted signing key",
+    witness: "test_enrolling_githubs_web_flow_key_is_reported",
+    from: "        if WEB_FLOW_KEY_ID.casefold() in identity:",
+    to: "        if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // M4, the committer. git reports the signer and the key separately, so a
+    // policy can name either; each refusal has a control of its own.
+    name: "records: stop refusing GitHub's web-flow committer identity as an accepted signer",
+    witness: "test_enrolling_githubs_web_flow_committer_identity_is_reported",
+    from: "        if WEB_FLOW_COMMITTER_EMAIL in identity:",
+    to: "        if False:",
+  },
 ];
 
 // TEST-ONLY seam, read by tests/boundaries/mutation-check-guard.test.mjs.

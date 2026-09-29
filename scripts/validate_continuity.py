@@ -2252,6 +2252,25 @@ PINNED_PROTECTED_PATHS = (
     "sessions/checkpoints",
 )
 
+#: The identity that signs every commit GitHub's own merge writes, and that
+#: no policy may ever accept (review finding M4).
+#:
+#: Main is written by GitHub's merge button: the last commits on it are
+#: committed by `GitHub <noreply@github.com>` and signed by GitHub's web-flow
+#: key. Enrolling THAT key turns this check green for every change merged in
+#: the web UI - including one an agent authored and a human never read - so the
+#: signature would bind nothing to a person. A person's own signature does not
+#: survive a squash merge through the UI, which is the incompatibility
+#: badf/signing-policy.yaml states. Which merge strategy resolves it is a human
+#: decision this validator does not make; what it does is refuse the one
+#: "solution" that makes the check pass while meaning nothing.
+#:
+#: Two literals and two separate rules below, so each has a control and a
+#: mutation of its own: git reports the signer (%GS) and the key (%GK)
+#: separately, and a policy can name either.
+WEB_FLOW_KEY_ID = "B5690EEEBB952194"
+WEB_FLOW_COMMITTER_EMAIL = "noreply@github.com"
+
 #: What an accepted-key entry must record, as one alternation rather than three
 #: hand-written conditions, for the reason VERDICT_TERMS in
 #: scripts/mutation-attribution.mjs is one: a rule written as a table entry is
@@ -2505,6 +2524,29 @@ def validate_signing_policy(errors: list[str]) -> None:
                 f"badf/signing-policy.yaml: accepted key {position} (line "
                 f"{key.get('__line__', '?')}) records {field} as {value!r}, and it "
                 f"must be {expectation}"
+            )
+
+        # Review finding M4. Compared with case and spacing folded, and by
+        # containment: git's %GK may print a 16-hex key id or a 40-hex
+        # fingerprint that ends in it, and an identity may carry a 0x prefix.
+        identity = "".join(key.get("identity", "").split()).casefold()
+        line = key.get("__line__", "?")
+        if WEB_FLOW_KEY_ID.casefold() in identity:
+            errors.append(
+                f"badf/signing-policy.yaml: accepted key {position} (line {line}) names "
+                f"GitHub's web-flow signing key {WEB_FLOW_KEY_ID}. That key signs every "
+                f"commit GitHub's merge writes, so accepting it makes the check pass any "
+                f"change merged in the web UI, an agent-authored one included, and binds "
+                f"nothing to a human. It is pinned in scripts/validate_continuity.py as "
+                f"never acceptable"
+            )
+        if WEB_FLOW_COMMITTER_EMAIL in identity:
+            errors.append(
+                f"badf/signing-policy.yaml: accepted key {position} (line {line}) names "
+                f"GitHub's web-flow committer identity (GitHub <{WEB_FLOW_COMMITTER_EMAIL}>). "
+                f"That identity is the committer of every squash merge made in the web UI "
+                f"and stands for no person. It is pinned in scripts/validate_continuity.py "
+                f"as never acceptable"
             )
 
 
