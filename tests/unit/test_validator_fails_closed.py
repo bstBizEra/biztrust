@@ -627,7 +627,61 @@ def build(tmp: Path, *, state=None, actions=None, decision_lines=None, checkpoin
     return tmp
 
 
-def run(tmp: Path) -> subprocess.CompletedProcess:
+BOOTSTRAP_PIN_NAMES = ("ACT", "STATE", "SEATS", "DIGEST")
+
+
+def bootstrap_pins_for(record: str, seats=("repository-administrator",)) -> dict:
+    """The four bootstrap pins a validator would carry for THIS spent act."""
+    is_seated = (NL + "state: SEATED" + NL) in record
+    act = re.search(r"^act_id: (\S+)$", record, re.MULTILINE)
+    return {
+        "ACT": act.group(1) if act else "BOOTSTRAP-001",
+        "STATE": "SEATED" if is_seated else "AWAITING_OPERATOR_INSTRUCTION",
+        "SEATS": list(seats),
+        "DIGEST": digest_of(record) if is_seated else None,
+    }
+
+
+def _pins_following_the_fixture(tmp: Path) -> dict | None:
+    """Pins that simply agree with whatever bootstrap fixture is on disk.
+
+    The bootstrap pins in scripts/validate_continuity.py name ONE real act. The
+    older tests here exercise the record's other rules against many invented
+    acts, and would otherwise all trip the pin. So the copy of the validator
+    they run has its pins set to what the fixture itself records, which makes
+    the pin trivially satisfied there. Tests of the pin itself pass explicit
+    pins instead (see BootstrapIsSingleUse), and never rely on this.
+    """
+    try:
+        record = (tmp / "badf" / "bootstrap.yaml").read_text(encoding="utf-8")
+        ledger = json.loads((tmp / "badf" / "current-state.json").read_text(encoding="utf-8"))
+        seats = ledger["bootstrap"]["seats"]
+        digest = ledger["bootstrap"]["historical_digest"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    pins = bootstrap_pins_for(record, seats if isinstance(seats, list) else [])
+    pins["DIGEST"] = digest
+    return pins
+
+
+def patch_bootstrap_pins(tmp: Path, pins: dict) -> None:
+    """Rewrites the four single-line pin constants in the temporary copy."""
+    path = tmp / "scripts" / "validate_continuity.py"
+    text = path.read_text(encoding="utf-8")
+    for name in BOOTSTRAP_PIN_NAMES:
+        pattern = re.compile(r"^BOOTSTRAP_PINNED_" + name + r" = .*$", re.MULTILINE)
+        assert len(pattern.findall(text)) == 1, (
+            "the validator must define BOOTSTRAP_PINNED_" + name + " exactly once, on one line"
+        )
+        replacement = "BOOTSTRAP_PINNED_" + name + " = " + repr(pins[name])
+        text = pattern.sub(lambda _match: replacement, text)
+    path.write_text(text, encoding="utf-8")
+
+
+def run(tmp: Path, pins: dict | None = None) -> subprocess.CompletedProcess:
+    pins = _pins_following_the_fixture(tmp) if pins is None else pins
+    if pins is not None:
+        patch_bootstrap_pins(tmp, pins)
     return subprocess.run(
         [sys.executable, str(tmp / "scripts" / "validate_continuity.py")],
         capture_output=True, text=True, cwd=tmp, check=False,
@@ -2408,6 +2462,91 @@ class BootstrapSeatingClosed(unittest.TestCase):
             "the sentences must still be PRESENT as prose, or this proves nothing",
         )
         self._refused("declares no top-level succession: key", agents=agents)
+
+
+class BootstrapIsSingleUse(unittest.TestCase):
+    """Review finding M3: the ledger is data, so the pin has to be code.
+
+    Each test below is a forgery that is CONSISTENT across the three files
+    (bootstrap.yaml, agents.yaml, current-state.json): the record, the
+    held_by values and the ledger all agree, and the digest is recomputed. Only
+    the pins in scripts/validate_continuity.py stand between it and a pass.
+
+    The pins are passed EXPLICITLY, and each test moves exactly one of them
+    out of agreement with the forgery while keeping the others in agreement
+    with it. That is what lets deleting one pin turn exactly one test red: a
+    forgery that also broke a second pin would leave the first unwitnessed.
+    """
+
+    SPENT = bootstrap_record(state="SEATED", seatings=(ADMIN_SEAT,))
+
+    def _forged(self, record, agents, seats, pins):
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = build(Path(directory), state=state_for(record, seats=seats))
+            (tmp / "badf" / "bootstrap.yaml").write_text(record, encoding="utf-8")
+            (tmp / "badf" / "agents.yaml").write_text(agents, encoding="utf-8")
+            return run(tmp, pins=pins)
+
+    def test_the_spent_act_passes_under_its_own_pins(self):
+        """The positive control: the pins accept the one act they describe."""
+        result = self._forged(
+            self.SPENT, agents_seated(ADMIN_SEAT), ("repository-administrator",),
+            bootstrap_pins_for(self.SPENT),
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_second_seating_by_the_spent_act_is_reported_even_when_the_ledger_agrees(self):
+        """An agent identifier seated in human-only business-authority."""
+        agent = ("business-authority", "claude-code/motor")
+        record = bootstrap_record(state="SEATED", seatings=(ADMIN_SEAT, agent))
+        pins = bootstrap_pins_for(record)  # act, state and digest follow the forgery
+        pins["SEATS"] = ["repository-administrator"]
+        result = self._forged(
+            record, agents_seated(ADMIN_SEAT, agent),
+            ("repository-administrator", "business-authority"), pins,
+        )
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("seated exactly", result.stderr)
+        self.assertIn("business-authority", result.stderr)
+
+    def test_a_second_bootstrap_act_is_reported_even_when_the_ledger_agrees(self):
+        record = bootstrap_record(
+            state="SEATED", act_id="BOOTSTRAP-002",
+            seatings=(("repository-administrator", OTHER_PRINCIPAL),),
+        )
+        pins = bootstrap_pins_for(record)
+        pins["ACT"] = "BOOTSTRAP-001"
+        result = self._forged(
+            record, agents_seated(("repository-administrator", OTHER_PRINCIPAL)),
+            ("repository-administrator",), pins,
+        )
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("BOOTSTRAP-001 is the only bootstrap act", result.stderr)
+        self.assertIn("BOOTSTRAP-002", result.stderr)
+
+    def test_a_rewritten_historical_record_is_reported_even_when_the_ledger_digest_is_repaired(self):
+        record = bootstrap_record(
+            state="SEATED", seatings=(("repository-administrator", OTHER_PRINCIPAL),)
+        )
+        pins = bootstrap_pins_for(record)
+        pins["DIGEST"] = digest_of(self.SPENT)
+        result = self._forged(
+            record, agents_seated(("repository-administrator", OTHER_PRINCIPAL)),
+            ("repository-administrator",), pins,
+        )
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("frozen historical region hashes to", result.stderr)
+        self.assertIn("pinned in scripts/validate_continuity.py", result.stderr)
+
+    def test_reverting_the_spent_act_to_awaiting_is_reported_even_when_the_ledger_agrees(self):
+        """Un-spending the act makes every other pin vacuous."""
+        record = bootstrap_record()
+        pins = bootstrap_pins_for(record)
+        pins["STATE"] = "SEATED"
+        result = self._forged(record, AGENTS_YAML, (), pins)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("records state 'AWAITING_OPERATOR_INSTRUCTION'", result.stderr)
+        self.assertIn("pinned as SEATED", result.stderr)
 
 
 class ValidatorRunsAgainstThisRepository(unittest.TestCase):

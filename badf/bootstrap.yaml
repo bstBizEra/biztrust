@@ -26,8 +26,14 @@
 #
 #   1. NO PERSISTENT BYPASS. The capability is single-use and is consumed by
 #      its own use. badf/current-state.json records which act was spent and on
-#      which seats; a second act, or this act extended to a seat it did not
-#      seat, is refused.
+#      which seats, but that ledger is DATA and edits as easily as this file
+#      does, so it is not what makes the act single-use. The pins are:
+#      scripts/validate_continuity.py fixes BOOTSTRAP-001 as the only act, SEATED
+#      as its state, exactly `repository-administrator` as the seat it seated,
+#      and the sha256 of the frozen block below. A second act, another seat, or
+#      a rewritten record is refused even when this file, badf/agents.yaml and
+#      the ledger are edited to agree. A legitimate later change is therefore a
+#      reviewed change to that validator, not a data edit.
 #   2. NON-SELF-AMENDING. The seat this record seats may not be the owner or
 #      the verifier of the routing entry for this file. The administrator this
 #      act creates cannot rewrite the record that created its authority.
@@ -51,9 +57,10 @@
 #   - badf/current-state.json bootstrap: state SEATED, act_id, seats, and
 #     historical_digest set to the sha256 of the frozen block below
 #
-# All six change together or the validator refuses the set. That is deliberate:
-# a forgery has to be consistent across three files and two schemas, and two of
-# the three are covered by badf/signing-policy.yaml.
+# All six change together or the validator refuses the set. That is deliberate,
+# but it is not what stops a second seating: a forger can make three files
+# agree, and no signature binds any of them while badf/signing-policy.yaml
+# enrols no key. What stops one is the pin in the validator, described above.
 
 version: "0.1.0"
 updated_at: "2026-09-30T00:00:00Z"
