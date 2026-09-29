@@ -73,6 +73,21 @@ An agent must not continue from chat recollection alone.
 
 If sources disagree, record the conflict and stop the affected transition.
 
+### Method, not authority
+
+These pages say how the work is done. None of them grants anything, and none
+overrides the table above.
+
+| Question | Page |
+|---|---|
+| What the platform is, and what is blocked | [`docs/architecture/SYSTEM-DESIGN.md`](docs/architecture/SYSTEM-DESIGN.md) |
+| What is decided today | [`docs/architecture/STATUS.md`](docs/architecture/STATUS.md) |
+| The order of stages, and what each may not do | [`docs/operations/DELIVERY-WORKFLOWS.md`](docs/operations/DELIVERY-WORKFLOWS.md) |
+| How a review is conducted | [`docs/operations/REVIEW-METHOD.md`](docs/operations/REVIEW-METHOD.md) |
+| When a package is done | [`docs/operations/DEFINITION-OF-DONE.md`](docs/operations/DEFINITION-OF-DONE.md) |
+| What context to keep, and what to do when it is lost | [`docs/operations/CONTEXT-POLICY.md`](docs/operations/CONTEXT-POLICY.md) |
+| Where a fact lives, and what promotes it | [`docs/operations/KNOWLEDGE-POLICY.md`](docs/operations/KNOWLEDGE-POLICY.md) |
+
 ## 5. Work constraints
 
 - **No ticket, no work.** Every material change references one Work Package ID.
