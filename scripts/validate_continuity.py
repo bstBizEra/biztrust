@@ -2229,7 +2229,11 @@ COMMIT_SHA = re.compile(r"^[0-9a-f]{40}$")
 #: nothing a shell or `git log` could read as an option. The check hands these
 #: to git as pathspecs, so the shape is a security boundary and not a tidiness
 #: rule.
-PROTECTED_PATH = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._/-]*$")
+#:
+#: One leading dot is allowed, and only when a name follows it, so `.github` is
+#: a plain path while `.`, `..` and `./x` are not. `.` would be a pathspec for
+#: the whole tree. scripts/signing-policy.mjs carries the same shape.
+PROTECTED_PATH = re.compile(r"^\.?[A-Za-z0-9_][A-Za-z0-9._/-]*$")
 
 #: The paths whose protection is PINNED here, in the same doctrine as
 #: PINNED_SKILL_STATUS and PINNED_ROUTING: the data file is a FLOOR the records
@@ -2250,6 +2254,19 @@ PINNED_PROTECTED_PATHS = (
     "badf/signing-policy.yaml",
     "badf/bootstrap.yaml",
     "sessions/checkpoints",
+    # Review finding M5: the instrument. A one-line edit to
+    # scripts/check-signing.mjs (`if (verdict.verified || true) continue;`)
+    # turned an enforcing check into a false PASS, because the checker ships
+    # inside the change it judges and CI runs the PR's own copy. The checker,
+    # its reader, this validator (which holds every pin), the schemas the state
+    # is validated against, the scripts that run all of it and the workflow
+    # that calls them are governance, not tooling.
+    "scripts/check-signing.mjs",
+    "scripts/signing-policy.mjs",
+    "scripts/validate_continuity.py",
+    "schemas",
+    "package.json",
+    ".github",
 )
 
 #: The identity that signs every commit GitHub's own merge writes, and that

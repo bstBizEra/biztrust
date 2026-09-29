@@ -30,9 +30,22 @@
 #      refuses an unsigned commit rather than this check merely noticing one
 #      after the fact.
 #
-# Step 2 alone flips this check from NOT_ENFORCED to enforcing, with no code
-# change: the moment accepted_keys names an identity, an unverified commit
-# touching a protected path fails `pnpm verify`.
+# Step 2 alone changes what this check REPORTS, and that is all it does. The
+# moment accepted_keys names an identity the check stops printing NOT_ENFORCED
+# and fails on every governed commit after the enforcement point that a listed
+# identity did not sign. An earlier version of this comment said that step
+# alone makes the check enforcing. It does not, in two ways:
+#
+#   - It turns CI red and keeps it red. Every governed commit already on main
+#     is unsigned or signed by GitHub's web-flow key, so the check fails until
+#     a human also moves enforcement_point forward to an explicit sha.
+#   - It does not make the check binding. The checker is code inside the same
+#     change it judges, and CI runs the pull request's own copy of it: a
+#     one-line edit to scripts/check-signing.mjs produced a false PASS with a
+#     key enrolled. The instrument paths below are protected for that reason,
+#     but a check cannot verify its own instrument on its own run. What binds
+#     it is step 3, GitHub's required_signatures on main, together with code
+#     owner review by seats that people, and not agents, occupy.
 #
 # SQUASH MERGES AND THIS CHECK ARE INCOMPATIBLE AS THINGS STAND. Main is
 # written by GitHub's own merge: its recent commits are committed by
@@ -86,6 +99,16 @@ protected_paths:
   - badf/skills.yaml
   - badf/signing-policy.yaml
   - sessions/checkpoints
+  # The instrument that decides whether the paths above are signed, and
+  # everything it stands on. `.github` is the workflow that runs it, `schemas`
+  # is what the state files are validated against (widening an enum there
+  # forged a gate in review), and package.json is the order the checks run in.
+  - scripts/check-signing.mjs
+  - scripts/signing-policy.mjs
+  - scripts/validate_continuity.py
+  - schemas
+  - package.json
+  - .github
 
 # The identities whose signature counts as a human decision on the paths
 # above. NONE_ENROLLED is not a placeholder to be tidied away by an agent: it
