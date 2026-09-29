@@ -133,9 +133,20 @@ function main() {
     throw error;
   }
 
+  // --out-dir <dir> reads and writes the two generated files there instead of
+  // the repository root. It exists so the staleness comparison below can be
+  // witnessed against copies (tests/boundaries/generate-boundary-rules.test.mjs);
+  // it is an argument and not an environment variable, per DEC-026.
+  const at = process.argv.indexOf("--out-dir");
+  const outDir = at === -1 ? null : process.argv[at + 1];
+  if (at !== -1 && !outDir) {
+    process.stderr.write("BOUNDARY_GENERATION FAIL --out-dir needs a directory\n");
+    return 1;
+  }
+  const where = (defaultPath, label) => (outDir ? join(outDir, label) : defaultPath);
   const outputs = [
-    [DEPCRUISE_OUT, renderDepcruise(registry, buildRules(registry)), ".dependency-cruiser.cjs"],
-    [PATHS_OUT, renderPaths(registry), "tsconfig.paths.json"],
+    [where(DEPCRUISE_OUT, ".dependency-cruiser.cjs"), renderDepcruise(registry, buildRules(registry)), ".dependency-cruiser.cjs"],
+    [where(PATHS_OUT, "tsconfig.paths.json"), renderPaths(registry), "tsconfig.paths.json"],
   ];
 
   if (check) {

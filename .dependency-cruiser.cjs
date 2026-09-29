@@ -58,6 +58,54 @@ module.exports = {
       }
     },
     {
+      "name": "rule-1-internals-private-by-name-tenancy",
+      "comment": "Rule 1 by package name: @biztrust/tenancy/src/internal/... from outside modules/tenancy/. The exports field refuses it at resolution; this rule makes the refusal a named violation instead of a silent unresolved import.",
+      "severity": "error",
+      "from": {
+        "pathNot": "^modules/tenancy/"
+      },
+      "to": {
+        "couldNotResolve": true,
+        "path": "^@biztrust/tenancy/src/internal/"
+      }
+    },
+    {
+      "name": "rule-1-internals-private-by-name-identity-access",
+      "comment": "Rule 1 by package name: @biztrust/identity-access/src/internal/... from outside modules/identity-access/. The exports field refuses it at resolution; this rule makes the refusal a named violation instead of a silent unresolved import.",
+      "severity": "error",
+      "from": {
+        "pathNot": "^modules/identity-access/"
+      },
+      "to": {
+        "couldNotResolve": true,
+        "path": "^@biztrust/identity-access/src/internal/"
+      }
+    },
+    {
+      "name": "rule-1-internals-private-by-name-audit",
+      "comment": "Rule 1 by package name: @biztrust/audit/src/internal/... from outside modules/audit/. The exports field refuses it at resolution; this rule makes the refusal a named violation instead of a silent unresolved import.",
+      "severity": "error",
+      "from": {
+        "pathNot": "^modules/audit/"
+      },
+      "to": {
+        "couldNotResolve": true,
+        "path": "^@biztrust/audit/src/internal/"
+      }
+    },
+    {
+      "name": "rule-1-internals-private-by-name-platform-configuration",
+      "comment": "Rule 1 by package name: @biztrust/platform-configuration/src/internal/... from outside modules/platform-configuration/. The exports field refuses it at resolution; this rule makes the refusal a named violation instead of a silent unresolved import.",
+      "severity": "error",
+      "from": {
+        "pathNot": "^modules/platform-configuration/"
+      },
+      "to": {
+        "couldNotResolve": true,
+        "path": "^@biztrust/platform-configuration/src/internal/"
+      }
+    },
+    {
       "name": "rule-2-contracts-only-tenancy",
       "comment": "Rule 2: modules/tenancy may import another module only through @biztrust/<module>, which resolves to that module's contract, src/public/index.ts. Never a repository, a table or a connection.",
       "severity": "error",
@@ -106,6 +154,54 @@ module.exports = {
       }
     },
     {
+      "name": "rule-2-contracts-only-by-name-tenancy",
+      "comment": "Rule 2 by package name: modules/tenancy imports another module by a deep path, @biztrust/<module>/<path>, instead of its bare contract.",
+      "severity": "error",
+      "from": {
+        "path": "^modules/tenancy/"
+      },
+      "to": {
+        "couldNotResolve": true,
+        "path": "^@biztrust/(?!tenancy/)(tenancy|identity-access|audit|platform-configuration|distribution|compliance|party|client|risk|distribution-product|submission|placement|quote-indication|recommendation|binding|policy-record|claims|renewal|billing|payment|ledger|commission|settlement|reconciliation|insurer|payment-provider|bank|partner-api|documents|notifications)/.+"
+      }
+    },
+    {
+      "name": "rule-2-contracts-only-by-name-identity-access",
+      "comment": "Rule 2 by package name: modules/identity-access imports another module by a deep path, @biztrust/<module>/<path>, instead of its bare contract.",
+      "severity": "error",
+      "from": {
+        "path": "^modules/identity-access/"
+      },
+      "to": {
+        "couldNotResolve": true,
+        "path": "^@biztrust/(?!identity-access/)(tenancy|identity-access|audit|platform-configuration|distribution|compliance|party|client|risk|distribution-product|submission|placement|quote-indication|recommendation|binding|policy-record|claims|renewal|billing|payment|ledger|commission|settlement|reconciliation|insurer|payment-provider|bank|partner-api|documents|notifications)/.+"
+      }
+    },
+    {
+      "name": "rule-2-contracts-only-by-name-audit",
+      "comment": "Rule 2 by package name: modules/audit imports another module by a deep path, @biztrust/<module>/<path>, instead of its bare contract.",
+      "severity": "error",
+      "from": {
+        "path": "^modules/audit/"
+      },
+      "to": {
+        "couldNotResolve": true,
+        "path": "^@biztrust/(?!audit/)(tenancy|identity-access|audit|platform-configuration|distribution|compliance|party|client|risk|distribution-product|submission|placement|quote-indication|recommendation|binding|policy-record|claims|renewal|billing|payment|ledger|commission|settlement|reconciliation|insurer|payment-provider|bank|partner-api|documents|notifications)/.+"
+      }
+    },
+    {
+      "name": "rule-2-contracts-only-by-name-platform-configuration",
+      "comment": "Rule 2 by package name: modules/platform-configuration imports another module by a deep path, @biztrust/<module>/<path>, instead of its bare contract.",
+      "severity": "error",
+      "from": {
+        "path": "^modules/platform-configuration/"
+      },
+      "to": {
+        "couldNotResolve": true,
+        "path": "^@biztrust/(?!platform-configuration/)(tenancy|identity-access|audit|platform-configuration|distribution|compliance|party|client|risk|distribution-product|submission|placement|quote-indication|recommendation|binding|policy-record|claims|renewal|billing|payment|ledger|commission|settlement|reconciliation|insurer|payment-provider|bank|partner-api|documents|notifications)/.+"
+      }
+    },
+    {
       "name": "rule-3-no-cycles",
       "comment": "Rule 3: the module dependency graph is acyclic. A pair of modules that need each other is one module or a missing contract.",
       "severity": "error",
@@ -148,6 +244,18 @@ module.exports = {
       },
       "to": {
         "path": "^(services|apps)/"
+      }
+    },
+    {
+      "name": "rule-5-entry-points-see-contracts-only-by-name",
+      "comment": "Rule 5 by package name: services/* and apps/* import a module by a deep path, @biztrust/<module>/<path>, which bypasses its contract.",
+      "severity": "error",
+      "from": {
+        "path": "^(services|apps)/"
+      },
+      "to": {
+        "couldNotResolve": true,
+        "path": "^@biztrust/(tenancy|identity-access|audit|platform-configuration|distribution|compliance|party|client|risk|distribution-product|submission|placement|quote-indication|recommendation|binding|policy-record|claims|renewal|billing|payment|ledger|commission|settlement|reconciliation|insurer|payment-provider|bank|partner-api|documents|notifications)/.+"
       }
     },
     {

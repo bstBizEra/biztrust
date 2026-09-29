@@ -397,6 +397,7 @@ const CODEOWNERS = join(WT_ROOT, "scripts", "generate-codeowners.mjs");
 const RECORDS = join(WT_ROOT, "scripts", "validate_continuity.py");
 const ATTRIBUTION = join(WT_ROOT, "scripts", "mutation-attribution.mjs");
 const SIGNING_POLICY = join(WT_ROOT, "scripts", "signing-policy.mjs");
+const GENERATOR = join(WT_ROOT, "scripts", "generate-boundary-rules.mjs");
 const SIGNING_CHECK = join(WT_ROOT, "scripts", "check-signing.mjs");
 // Not a script. The ORDER of the verify chain is a control - the JS signing
 // policy reader is fail-closed only because validate:records runs before
@@ -414,6 +415,41 @@ const BT = String.fromCharCode(96);
 const DOLLAR = String.fromCharCode(36);
 
 const MUTATIONS = [
+  // ---- found by the WP-001 independent review, issue #8 ------------------
+  {
+    file: GENERATOR,
+    name: "generator: stop comparing the generated files (A2)",
+    witness: "--check fails on a hand-edited .dependency-cruiser.cjs, naming it stale",
+    from: "      if (found !== wanted) {",
+    to: "      if (false && found !== wanted) {",
+  },
+  {
+    file: RULES,
+    name: "rule 1 by package name: stop matching unresolved internal imports (A1)",
+    witness:
+      "control 1: a module reaches into another's internals by package name is reported as " +
+      "rule-1-internals-private-by-name-alpha",
+    from: "      to: { couldNotResolve: true, path: " + BT + "^@biztrust/" + DOLLAR + "{rx(m.name)}/src/internal/" + BT + " },",
+    to: "      to: { couldNotResolve: false, path: " + BT + "^@biztrust/" + DOLLAR + "{rx(m.name)}/src/internal/" + BT + " },",
+  },
+  {
+    file: RULES,
+    name: "rule 2 by package name: stop matching unresolved deep imports (A1)",
+    witness:
+      "control 2: a module imports another by a deep package path, not its contract is reported as " +
+      "rule-2-contracts-only-by-name-beta",
+    from: "        couldNotResolve: true,",
+    to: "        couldNotResolve: false,",
+  },
+  {
+    file: RULES,
+    name: "rule 5 by package name: stop matching unresolved deep imports (A1)",
+    witness:
+      "control 5: an entry point reaches past a contract by package name is reported as " +
+      "rule-5-entry-points-see-contracts-only-by-name",
+    from: '    to: { couldNotResolve: true, path: "^@biztrust/" + anyModule + "/.+" },',
+    to: '    to: { couldNotResolve: false, path: "^@biztrust/" + anyModule + "/.+" },',
+  },
   // ---- the dependency rules ----------------------------------------------
   {
     file: RULES,
