@@ -66,7 +66,7 @@ An agent must not continue from chat recollection alone.
 | Delivery scope | Active Work Package |
 | Architecture contract | `BIZTRUST-ARCH-001` in the guide repository — a **draft** |
 | Architecture decision | An **accepted** ADR. None is accepted. |
-| Code | Git commit on `main` — **not branch-protected**; the gate is convention, not mechanism, until the repository administrator records protection |
+| Code | Git commit on `main`. Protection is **applied and not recorded**. It refuses a direct push and an unreviewed merge (`evidence/security-proof/negative-control-6.md`). The record stays `NOT_RECORDED` until a named human holds the repository administrator seat |
 | Test result | CI run bound to a commit SHA |
 | Session recovery | Latest valid checkpoint plus handoff |
 | Approval | An explicit authority record; never inferred |
