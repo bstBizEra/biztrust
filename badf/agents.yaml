@@ -50,8 +50,9 @@ roles:
     may_be_an_agent: false
     held_by: null
     note: >-
-      A human role. Negative control 6 of the P0.2 design cannot be observed
-      until this seat is filled and the protection recorded. Unfilled.
+      A human role. The protection on main exists and negative control 6 is
+      observed, but the protection is not recorded until this seat is filled.
+      Unfilled.
 
   - id: architecture-authority
     owns: ["ARCH-001 acceptance", "ADR acceptance", "BT-G0"]

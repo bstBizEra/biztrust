@@ -106,9 +106,12 @@ as a decision. This list grew from seven items to twelve after an independent
 review, and the growth is the point: the earlier list was honest in tone and
 incomplete in fact.
 
-- **Negative control 6 of the P0.2 design** cannot be observed. `main` is
-  unprotected, and protecting it is a human record no agent can write. This is
-  the primary next action.
+- **The record of negative control 6 of the P0.2 design.** The control itself
+  is observed. Protection on `main` refuses a direct push and an unreviewed
+  merge ([evidence](evidence/security-proof/negative-control-6.md)). An agent
+  applied it on an operator instruction, and that is not a record. Recording it
+  is a human act, and no named person holds the repository administrator seat.
+  This is the primary next action.
 - **Every runtime control.** Nothing runs.
 - **Human-identity binding is NOT ENFORCED.** Nothing in this repository
   distinguishes a record written by a human from one written by an agent, and a
