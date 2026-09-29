@@ -657,16 +657,24 @@ def _pins_following_the_fixture(tmp: Path) -> dict | None:
     they run has its pins set to what the fixture itself records, which makes
     the pin trivially satisfied there. Tests of the pin itself pass explicit
     pins instead (see BootstrapIsSingleUse), and never rely on this.
+
+    The pins follow the RECORD (bootstrap.yaml) and never the ledger in
+    current-state.json. A pin that followed the ledger would duplicate the
+    ledger rules it sits beside, so deleting one of THOSE rules would leave the
+    pin to report the same defect and the older mutation would survive: the
+    first sweep after these pins were added showed exactly that, for the
+    historical-digest comparison.
     """
     try:
         record = (tmp / "badf" / "bootstrap.yaml").read_text(encoding="utf-8")
-        ledger = json.loads((tmp / "badf" / "current-state.json").read_text(encoding="utf-8"))
-        seats = ledger["bootstrap"]["seats"]
-        digest = ledger["bootstrap"]["historical_digest"]
-    except (OSError, ValueError, KeyError, TypeError):
+    except OSError:
         return None
-    pins = bootstrap_pins_for(record, seats if isinstance(seats, list) else [])
-    pins["DIGEST"] = digest
+    seats = re.findall(r"^  - seat: (\S+)[ ]*$", record, re.MULTILINE)
+    pins = bootstrap_pins_for(record, seats)
+    try:
+        pins["DIGEST"] = digest_of(record) if pins["STATE"] == "SEATED" else None
+    except ValueError:
+        pins["DIGEST"] = None
     return pins
 
 
