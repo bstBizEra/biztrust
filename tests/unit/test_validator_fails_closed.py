@@ -1893,6 +1893,47 @@ class SigningPolicyClosed(unittest.TestCase):
             ),
         )
 
+    # ---- review finding M4: the identity that signs every squash merge -----
+    #
+    # Main is written by GitHub's merge, signed by GitHub's web-flow key. Enrol
+    # that key and the check would pass any change merged in the web UI,
+    # including an agent-authored one: the signature binds nothing to a human.
+    # Those two literals are typed here, not imported from the validator.
+
+    WEB_FLOW_KEY_ID = "B5690EEEBB952194"
+
+    def _enrolled(self, identity):
+        return SIGNING_POLICY_WITH_KEY.replace(
+            '  - identity: "A Human <human@example.invalid>"',
+            '  - identity: "' + identity + '"',
+            1,
+        )
+
+    def test_enrolling_githubs_web_flow_key_is_reported(self):
+        for identity in (
+            self.WEB_FLOW_KEY_ID,
+            self.WEB_FLOW_KEY_ID.lower(),
+            "0x" + self.WEB_FLOW_KEY_ID,
+            "F" * 24 + self.WEB_FLOW_KEY_ID,  # a 40-hex fingerprint ending in it
+        ):
+            with self.subTest(identity=identity):
+                self._refused("GitHub's web-flow signing key", self._enrolled(identity))
+
+    def test_enrolling_githubs_web_flow_committer_identity_is_reported(self):
+        for identity in (
+            "GitHub <noreply@github.com>",
+            "github <NOREPLY@GitHub.com>",
+        ):
+            with self.subTest(identity=identity):
+                self._refused(
+                    "GitHub's web-flow committer identity", self._enrolled(identity)
+                )
+
+    def test_a_key_that_merely_resembles_the_web_flow_key_is_allowed(self):
+        """The refusal is not a blanket one: a different 16-hex key id passes."""
+        result = self._run(self._enrolled("B5690EEEBB952195"))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
 
 class BootstrapSeatingClosed(unittest.TestCase):
     """badf/bootstrap.yaml: the one-time act that seats the first human-only seat.
