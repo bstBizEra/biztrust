@@ -2504,6 +2504,28 @@ const MUTATIONS = [
     from: "pnpm validate:records && pnpm test:validator && pnpm check:signing",
     to: "pnpm check:signing && pnpm validate:records && pnpm test:validator",
   },
+
+  // ---- review fixes for BIZTRUST-WP-001, issue #8: validator hardening ------
+  {
+    file: RECORDS,
+    suite: "validator",
+    // M1, first half. Without it a forbidden power can be deleted from
+    // may_not, in one file, and the registry still passes.
+    name: "records: stop requiring every pinned forbidden tool power to stay in may_not",
+    witness: "test_a_pinned_tool_power_missing_from_may_not_is_reported",
+    from: "        if _normalised(pinned) not in forbidden:",
+    to: "        if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // M1, second half. Without it a forbidden power is granted by listing it
+    // under may while it is still (falsely) recorded as forbidden.
+    name: "records: stop refusing a pinned forbidden tool power listed under may",
+    witness: "test_a_pinned_tool_power_listed_under_may_is_reported",
+    from: "        if _normalised(pinned) in permitted:",
+    to: "        if False:",
+  },
 ];
 
 // TEST-ONLY seam, read by tests/boundaries/mutation-check-guard.test.mjs.

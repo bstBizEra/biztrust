@@ -170,9 +170,45 @@ REGISTRIES = (
 #: so it has to carry the same keys the state file asserts. Hardening only the
 #: state file left this one checked for nothing but a version line, and a
 #: review appended a forged section to it and got a pass.
+#: What an agent may and may not do, copied VERBATIM from badf/authority.yaml
+#: and deliberately not imported from the validator: a fixture that took the
+#: pinned list from the code under test would prove the list equals itself.
+TOOL_MAY = (
+    "Read every file",
+    "Run the validators, the lint, the boundary check and the test suite",
+    "Open a branch and a pull request under a Work Package",
+    "Append to badf/decision-log.jsonl",
+    "Write a session checkpoint",
+)
+TOOL_MAY_NOT = (
+    "Push to main",
+    "Record a gate result",
+    "Mark a design or an ADR ACCEPTED",
+    "Grant, extend or infer authority, including its own",
+    "Create a domain table or implement a P0 epic",
+    "Claim that any capability is implemented, secure, compliant or production-ready",
+    "Place a secret, a credential, client data or regulated data in this repository",
+)
+
+
+def tool_authority_yaml(may=TOOL_MAY, may_not=TOOL_MAY_NOT) -> str:
+    """A tool_authority block with the given lists."""
+    text = "tool_authority:" + NL + "  may:" + NL
+    for item in may:
+        text += "    - " + chr(34) + item + chr(34) + NL
+    text += "  may_not:" + NL
+    for item in may_not:
+        text += "    - " + chr(34) + item + chr(34) + NL
+    return text
+
+
+#: The block sits BEFORE not_granted in the fixture, unlike the shipped file.
+#: Several tests below append text to the end of AUTHORITY_YAML expecting to
+#: land inside `granted`, so the last section has to stay `granted`.
 AUTHORITY_YAML = """version: "0.1.0"
 updated_at: "2026-01-01T00:00:00Z"
 
+""" + tool_authority_yaml() + """
 not_granted:
   architecture_contract_freeze:
     status: NOT_GRANTED
@@ -848,6 +884,77 @@ class ValidatorFailsClosed(unittest.TestCase):
             result = run(tmp)
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("production_deployment", result.stderr)
+
+    # ---- tool_authority: what an agent may NOT do is pinned ----------------
+    #
+    # Review finding M1. The block was never read: list items under it were
+    # skipped, so moving "Grant, extend or infer authority, including its own"
+    # from may_not into may passed, with one file edited.
+
+    def _with_tool_authority(self, may=TOOL_MAY, may_not=TOOL_MAY_NOT):
+        text = AUTHORITY_YAML.replace(
+            tool_authority_yaml(), tool_authority_yaml(may, may_not)
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = build(Path(directory))
+            (tmp / "badf" / "authority.yaml").write_text(text, encoding="utf-8")
+            return run(tmp)
+
+    def test_the_tool_authority_fixture_passes(self):
+        result = self._with_tool_authority()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_forbidden_tool_power_moved_into_may_is_reported(self):
+        item = "Grant, extend or infer authority, including its own"
+        result = self._with_tool_authority(
+            may=TOOL_MAY + (item,),
+            may_not=tuple(entry for entry in TOOL_MAY_NOT if entry != item),
+        )
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn(item, result.stderr)
+
+    def test_a_pinned_tool_power_missing_from_may_not_is_reported(self):
+        for item in TOOL_MAY_NOT:
+            with self.subTest(item=item):
+                result = self._with_tool_authority(
+                    may_not=tuple(entry for entry in TOOL_MAY_NOT if entry != item)
+                )
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn(
+                    "tool_authority.may_not no longer lists " + repr(item), result.stderr
+                )
+
+    def test_a_pinned_tool_power_listed_under_may_is_reported(self):
+        for item in TOOL_MAY_NOT:
+            with self.subTest(item=item):
+                # Still present under may_not: only the may-side rule can fire.
+                result = self._with_tool_authority(may=TOOL_MAY + (item,))
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn(
+                    "tool_authority.may lists " + repr(item), result.stderr
+                )
+
+    def test_a_pinned_tool_power_under_may_with_other_case_is_reported(self):
+        result = self._with_tool_authority(may=TOOL_MAY + ("  PUSH  to   MAIN ",))
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("tool_authority.may lists", result.stderr)
+
+    def test_a_registry_with_no_tool_authority_block_is_reported(self):
+        text = AUTHORITY_YAML.replace(tool_authority_yaml(), "")
+        self.assertNotEqual(text, AUTHORITY_YAML)
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = build(Path(directory))
+            (tmp / "badf" / "authority.yaml").write_text(text, encoding="utf-8")
+            result = run(tmp)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("tool_authority.may_not no longer lists", result.stderr)
+
+    def test_a_forbidden_tool_power_added_beyond_the_pinned_ones_is_allowed(self):
+        """The pin is a floor. Forbidding MORE is never a loosening."""
+        result = self._with_tool_authority(
+            may_not=TOOL_MAY_NOT + ("Deploy to any environment",)
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_a_credential_in_the_tree_is_reported(self):
         result = self._broken(

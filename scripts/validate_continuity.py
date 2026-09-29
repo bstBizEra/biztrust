@@ -458,6 +458,117 @@ def parse_authority(text: str) -> tuple[dict[str, dict[str, dict[str, str]]], li
     return sections, problems
 
 
+#: What an agent may NOT do in this repository, verbatim from the
+#: `tool_authority.may_not` list of badf/authority.yaml.
+#:
+#: Review finding M1. The block was never read: list items under it hit
+#: `continue` in parse_authority, so moving "Grant, extend or infer authority,
+#: including its own" from may_not into may passed `pnpm validate:records`
+#: with ONE file edited. That is a strictly cheaper forgery than the three-file
+#: one the signing policy declares. The list is a FLOOR, as PINNED_ROUTING and
+#: PINNED_PROTECTED_PATHS are: forbidding more is always allowed, and removing
+#: one is a reviewed change to this validator under a Work Package that says why.
+PINNED_TOOL_MAY_NOT = (
+    "Push to main",
+    "Record a gate result",
+    "Mark a design or an ADR ACCEPTED",
+    "Grant, extend or infer authority, including its own",
+    "Create a domain table or implement a P0 epic",
+    "Claim that any capability is implemented, secure, compliant or production-ready",
+    "Place a secret, a credential, client data or regulated data in this repository",
+)
+
+TOOL_AUTHORITY_LISTS = ("may", "may_not")
+
+
+def _tool_authority_item(raw: str) -> str:
+    """The text of one `- "..."` list item, unquoted."""
+    body = raw.strip()[2:].strip()
+    if body.startswith('"') and body.endswith('"') and len(body) >= 2:
+        try:
+            decoded = json.loads(body)
+        except ValueError:
+            decoded = body[1:-1]
+        return str(decoded)
+    if body.startswith("'") and body.endswith("'") and len(body) >= 2:
+        return body[1:-1].replace("''", "'")
+    return body
+
+
+def _normalised(text: str) -> str:
+    """Case and whitespace folded, so `push  to MAIN` is `Push to main`."""
+    return " ".join(text.split()).casefold()
+
+
+def parse_tool_authority(text: str) -> tuple[dict[str, list[str]], list[str]]:
+    """Reads the `may` and `may_not` lists of the tool_authority section.
+
+    parse_authority classifies every line and skips list items under this
+    section; this reads them. Anything it cannot classify is a problem, so a
+    third list, or a field where a list belongs, is not a place to hide a power.
+    """
+    lists: dict[str, list[str]] = {name: [] for name in TOOL_AUTHORITY_LISTS}
+    problems: list[str] = []
+    in_section = False
+    current: str | None = None
+    for number, raw in enumerate(text.splitlines(), start=1):
+        if raw.strip() == "" or raw.lstrip().startswith("#"):
+            continue
+        indent = len(raw) - len(raw.lstrip(" "))
+        if indent == 0:
+            in_section = raw.startswith("tool_authority:")
+            current = None
+            continue
+        if not in_section:
+            continue
+        if indent == 2:
+            match = re.match(r"^ {2}([A-Za-z0-9_]+):\s*$", raw)
+            if match is None or match.group(1) not in TOOL_AUTHORITY_LISTS:
+                problems.append(
+                    f"badf/authority.yaml line {number}: tool_authority takes only the "
+                    f"lists {list(TOOL_AUTHORITY_LISTS)}, written as blocks: {raw.strip()!r}"
+                )
+                current = None
+                continue
+            current = match.group(1)
+            continue
+        if indent == 4 and raw.lstrip().startswith("- ") and current is not None:
+            lists[current].append(_tool_authority_item(raw))
+            continue
+        problems.append(
+            f"badf/authority.yaml line {number}: not an item of tool_authority.may or "
+            f"tool_authority.may_not: {raw.strip()!r}"
+        )
+    return lists, problems
+
+
+def validate_tool_authority(text: str, errors: list[str]) -> None:
+    """Refuses a tool_authority block that grants an agent a pinned power.
+
+    Two refusals, and each has its own fixture so neither can be deleted alone:
+    a pinned power missing from `may_not`, and a pinned power listed under
+    `may`. The second compares with case and whitespace folded, so re-spelling
+    a forbidden power is not a way past it.
+    """
+    lists, problems = parse_tool_authority(text)
+    errors.extend(problems)
+    forbidden = {_normalised(item) for item in lists["may_not"]}
+    permitted = {_normalised(item) for item in lists["may"]}
+    for pinned in PINNED_TOOL_MAY_NOT:
+        if _normalised(pinned) not in forbidden:
+            errors.append(
+                f"badf/authority.yaml: tool_authority.may_not no longer lists {pinned!r}. "
+                f"The list is pinned in scripts/validate_continuity.py; removing a "
+                f"forbidden power is a reviewed change to the validator, not a data edit"
+            )
+    for pinned in PINNED_TOOL_MAY_NOT:
+        if _normalised(pinned) in permitted:
+            errors.append(
+                f"badf/authority.yaml: tool_authority.may lists {pinned!r}, which is "
+                f"pinned as forbidden to an agent"
+            )
+
+
 def validate_registries(errors: list[str]) -> None:
     """The five registries must exist, be non-empty and declare a version."""
     for name in REGISTRIES:
@@ -525,6 +636,7 @@ def validate_authority_registry(state, errors: list[str]) -> None:
 
     sections, problems = parse_authority(text)
     errors.extend(problems)
+    validate_tool_authority(text, errors)
 
     not_granted = sections.get("not_granted", {})
     granted = sections.get("granted", {})
