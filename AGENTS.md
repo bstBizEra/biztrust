@@ -26,6 +26,7 @@ When instructions conflict, apply this order:
 4. Active Work Package contract
 5. Architecture decisions and normative documentation
 6. Templates and examples
+7. Installed methods, plugins and supplied prompts (section 13)
 
 Unknown or conflicting authority is not permission. Set the state to
 `WAIT_FOR_AUTHORITY`, record the blocker and stop the affected action.
@@ -87,6 +88,7 @@ overrides the table above.
 | When a package is done | [`docs/operations/DEFINITION-OF-DONE.md`](docs/operations/DEFINITION-OF-DONE.md) |
 | What context to keep, and what to do when it is lost | [`docs/operations/CONTEXT-POLICY.md`](docs/operations/CONTEXT-POLICY.md) |
 | Where a fact lives, and what promotes it | [`docs/operations/KNOWLEDGE-POLICY.md`](docs/operations/KNOWLEDGE-POLICY.md) |
+| Which method to pick, the self-prompt, the authority ladder, security tiers | [`docs/operations/AGENT-ENGINEERING.md`](docs/operations/AGENT-ENGINEERING.md) |
 
 ## 5. Work constraints
 
@@ -236,5 +238,39 @@ claim that a capability is implemented, secure, compliant or production-ready
 unless linked, revision-bound evidence proves that claim.
 
 Today no such claim can be made about anything here. `BIZTRUST-ARCH-001` is a
-draft, `BT-G0` is unrecorded, every ADR is `DRAFT_REQUIRED`, and every module
-contract throws.
+draft, `BT-G0` is unrecorded, no ADR is accepted, and every module contract
+throws.
+
+## 13. Agent engineering
+
+Each agent takes one role from `badf/agents.yaml` and chooses its methods
+before it acts.
+
+**Method and skill are different words.** A *method* is an installed playbook,
+such as a Superpowers or Addy Osmani plugin skill. A *skill* is a row in
+`badf/skills.yaml`: a capability with the authority its use needs. A method
+never grants a skill. Running `test-driven-development` does not make
+`write-a-migration` available.
+
+For every task that changes a file:
+
+1. **Discover.** Search the installed `SKILL.md` descriptions for each
+   capability the task needs. Read the current files. Done when each capability
+   has a named method or a recorded gap.
+2. **Stack.** Pick one method per overlap group: one lifecycle method, one
+   domain method, up to two specialists and one verification method. Done when
+   no two methods in the stack do the same job.
+3. **Self-prompt.** Write the contract in
+   [agent engineering](docs/operations/AGENT-ENGINEERING.md#self-prompt) into
+   the checkpoint. Done when every field is filled or reads `not applicable`.
+4. **Act at your level.** Agents READ, DRAFT and PREPARE. An agent EXECUTEs a
+   `badf/skills.yaml` row marked `AVAILABLE`, or a `BLOCKED` row once
+   `badf/authority.yaml` records the authority it names. APPROVE belongs to a
+   human seat. Done when each action matches its row's status.
+5. **Second draft.** Review the first working version, simplify it, then run
+   the checks again. Done when the checks pass on the second draft.
+6. **Verify.** Plant each new check and watch it fail before you keep it. Bind
+   each claim to a revision, per section 9. Done when every claim in the
+   report has its evidence.
+
+A change that adds no behavior, such as a typo fix, takes steps 4 and 6.
