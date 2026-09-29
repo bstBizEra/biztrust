@@ -5,7 +5,7 @@ implemented, decided or safe.
 
 | Field | Value |
 |---|---|
-| Read at | 2026-09-08 |
+| Read at | 2026-09-29 |
 | Source of truth | [`bstBizEra/biztrust_guide`](https://github.com/bstBizEra/biztrust_guide) |
 | Recorded by | agent, from the guide records; no status here is an agent decision |
 
@@ -36,15 +36,20 @@ activated early.
 
 ## The ADRs this repository depends on
 
-Every one is `DRAFT_REQUIRED`. None is accepted.
+Three are `PROPOSED` and two still need a draft. **None is accepted**, which is
+the only part of this section that governs anything.
 
 | ADR | Decides | Status | What depends on it here |
 |---|---|---|---|
-| ADR-001 | Modular monolith, the boundary rule, extraction criteria | `DRAFT_REQUIRED` | The seven dependency rules and one schema per module |
-| ADR-004 | Shared PostgreSQL with row-level security | `DRAFT_REQUIRED` | The migration lint and the schema-per-module rule |
+| ADR-001 | Modular monolith, the boundary rule, extraction criteria | `PROPOSED` | The seven dependency rules and one schema per module |
+| ADR-004 | Shared PostgreSQL with row-level security | `PROPOSED` | The migration lint and the schema-per-module rule |
 | ADR-005 | Contract-first HTTP APIs | `DRAFT_REQUIRED` | `openapi/` and `events/` being reserved and empty |
-| ADR-010 | Durable workflow architecture | `DRAFT_REQUIRED` | Where a workflow lives; assumed to be a module calling contracts |
+| ADR-010 | Durable workflow architecture | `PROPOSED` | Where a workflow lives; assumed to be a module calling contracts |
 | ADR-011 | Tenant packs instead of tenant forks | `DRAFT_REQUIRED` | The rule that nothing is named for a tenant |
+
+What moved since this page was read at 2026-09-08: ADR-001, ADR-004 and ADR-010
+went from `DRAFT_REQUIRED` to `PROPOSED`. ADR-005 and ADR-011 did not move.
+`BT-G0` did not move and is still unrecorded.
 
 The rules in this repository are therefore the **proposal** of a design that is
 itself `IN_REVIEW`. If ADR-001 narrows or widens them, `modules/modules.yaml`
