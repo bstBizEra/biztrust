@@ -251,7 +251,7 @@ module.exports = {
       "comment": "Rule 5 by package name: services/* and apps/* import a module by a deep path, @biztrust/<module>/<path>, which bypasses its contract.",
       "severity": "error",
       "from": {
-        "path": "^(services|apps)/"
+        "path": "^(apps|services)/"
       },
       "to": {
         "couldNotResolve": true,

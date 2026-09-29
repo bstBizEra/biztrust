@@ -47,7 +47,7 @@ export function buildRules(registry) {
         `modules/${m.name}/. The exports field refuses it at resolution; this rule ` +
         `makes the refusal a named violation instead of a silent unresolved import.`,
       severity: "error",
-      from: { pathNot: `^modules/${rx(m.name)}/` },
+      from: { pathNot: "^modules/" + rx(m.name) + "/" },
       to: { couldNotResolve: true, path: `^@biztrust/${rx(m.name)}/src/internal/` },
     });
   }
@@ -135,7 +135,7 @@ export function buildRules(registry) {
       "Rule 5 by package name: services/* and apps/* import a module by a deep " +
       "path, @biztrust/<module>/<path>, which bypasses its contract.",
     severity: "error",
-    from: { path: "^(services|apps)/" },
+    from: { path: "^(apps|services)/" },
     to: { couldNotResolve: true, path: "^@biztrust/" + anyModule + "/.+" },
   });
 
