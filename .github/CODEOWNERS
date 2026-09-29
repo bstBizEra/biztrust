@@ -5,10 +5,10 @@
 # `node scripts/generate-codeowners.mjs --check`.
 #
 # Each entry below names a GitHub TEAM SLUG (@bstBizEra/<role-id>), never a
-# person. Every role in badf/agents.yaml currently records held_by: null:
-# no human occupies any seat, and this file does not assert that any
-# @bstBizEra/<role-id> team exists in the GitHub organisation either -
-# creating and populating one is the same human act held_by waits on.
+# person. 1 of 11 seats in badf/agents.yaml
+# record an occupant; none of them is named here, and this file does not
+# assert that any @bstBizEra/<role-id> team exists in the GitHub
+# organisation or has that occupant as a member.
 #
 # This file is NOT a working review mechanism by itself. Branch
 # protection on main IS applied (evidence/security-proof/
@@ -20,7 +20,7 @@
 #      is turned on for that protection - the repository
 #      administrator's record, not recorded yet;
 #   2. each @bstBizEra/<role-id> team named below exists and has a human
-#      member (badf/agents.yaml held_by - unfilled for every seat).
+#      member (badf/agents.yaml held_by - 1 seat(s) filled).
 #
 # Registry:         badf/agents.yaml
 # Registry version: "0.1.0"
