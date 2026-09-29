@@ -9,107 +9,125 @@
     "A1: rules 1, 2 and 5 gain by-name twins that name an unresolved @biztrust/<module>/<deep path> import. Four fixtures, one .js, seen failing with 'the checker reported nothing at all' before the rules; the reviewer's form in the real tree now exits 4.",
     "A2: generate-boundary-rules.mjs --check is witnessed through --out-dir by three tests; with the comparison disabled two go red.",
     "Four mutations registered for A1 and A2; mutation anchors kept unique after the first sweep failed on them.",
-    "C: records left stale by the BOOTSTRAP-001 seating corrected, issue_url set, DEC-037 and NS-007 recorded."
+    "C: records left stale by the BOOTSTRAP-001 seating corrected, issue_url set, DEC-037 and NS-007 recorded.",
+    "B1: tool_authority.may and may_not are read and pinned; moving a forbidden power into may is refused (re-checked independently on the integrated head).",
+    "B2: the rule refusing a registry-only grant is witnessed; disabling it turns exactly its own test red.",
+    "B3: BOOTSTRAP-001 is pinned in code (act, state SEATED, seats, digest); a consistent second seating across all three records is refused (re-checked independently).",
+    "B4: GitHub's web-flow key and committer are refused as signers; the squash-merge incompatibility is stated; no merge strategy is chosen (D3).",
+    "B5: the signing instrument, the validator, schemas/, package.json and .github/ are protected paths; the enrolment overclaim is corrected in the policy and in check-signing.mjs.",
+    "Four more credential shapes are scanned, built from parts at run time so no token shape is committed."
   ],
   "branch": "motor/p0.2/repository-and-boundaries",
   "baseline_commit": "ce989e7b356347d02f96a1d8f4ff94f279ea3c09",
   "files_changed": [
-    "Round six spans ce989e7..HEAD on motor/wp001/review-fixes:",
+    "Round six spans ce989e7..HEAD on motor/wp001/review-fixes, including B1 to B5 by a separate implementer agent (BST-Agent-Motor):",
     ".dependency-cruiser.cjs",
     "AGENTS.md",
     "CONTEXT.md",
     "badf/authority.yaml",
+    "badf/bootstrap.yaml",
     "badf/current-state.json",
     "badf/decision-log.jsonl",
     "badf/gates.yaml",
     "badf/next-actions.json",
+    "badf/signing-policy.yaml",
     "scripts/boundary-rules.mjs",
+    "scripts/check-signing.mjs",
     "scripts/generate-boundary-rules.mjs",
     "scripts/mutation-check.mjs",
+    "scripts/signing-policy.mjs",
+    "scripts/validate_continuity.py",
+    "sessions/checkpoints/BIZTRUST-WP-001-review-round-6.json",
     "tests/boundaries/boundary-rules.test.mjs",
     "tests/boundaries/fixtures/workspace/modules/beta/src/public/violates-rule-1-by-name-js.js",
     "tests/boundaries/fixtures/workspace/modules/beta/src/public/violates-rule-1-by-name.ts",
     "tests/boundaries/fixtures/workspace/modules/beta/src/public/violates-rule-2-by-name.ts",
     "tests/boundaries/fixtures/workspace/services/api/src/violates-rule-5-by-name.ts",
     "tests/boundaries/generate-boundary-rules.test.mjs",
-    "sessions/checkpoints/BIZTRUST-WP-001-review-round-6.json"
+    "tests/boundaries/signing-check.test.mjs",
+    "tests/unit/test_validator_fails_closed.py"
   ],
   "validation": [
     {
       "command": "pnpm typecheck",
       "exit_status": 0,
-      "observed_at": "2026-09-29T21:37:50Z",
-      "output_reference": "at 56f1c97. "
+      "observed_at": "2026-09-29T22:55:49Z",
+      "output_reference": "at cbc53b0. exit 0, no output"
     },
     {
       "command": "pnpm boundaries:check",
       "exit_status": 0,
-      "observed_at": "2026-09-29T21:37:51Z",
-      "output_reference": "at 56f1c97. BOUNDARY_GENERATION PASS 30 modules, generated files are current"
+      "observed_at": "2026-09-29T22:55:51Z",
+      "output_reference": "at cbc53b0. BOUNDARY_GENERATION PASS 30 modules, generated files are current"
     },
     {
       "command": "pnpm test:boundaries",
       "exit_status": 0,
-      "observed_at": "2026-09-29T21:37:55Z",
-      "output_reference": "at 56f1c97. ℹ pass 183 ℹ fail 0"
+      "observed_at": "2026-09-29T22:55:55Z",
+      "output_reference": "at cbc53b0. ℹ pass 185 ℹ fail 0"
     },
     {
       "command": "pnpm check:coverage",
       "exit_status": 0,
-      "observed_at": "2026-09-29T21:37:56Z",
-      "output_reference": "at 56f1c97. COVERAGE_GATE PASS 19 named protections, every one witnessed by a control"
+      "observed_at": "2026-09-29T22:55:55Z",
+      "output_reference": "at cbc53b0. COVERAGE_GATE PASS 19 named protections, every one witnessed by a control"
     },
     {
       "command": "pnpm check:modules",
       "exit_status": 0,
-      "observed_at": "2026-09-29T21:37:57Z",
-      "output_reference": "at 56f1c97. MODULE_PACKAGES PASS 30 registered, 4 with a package, every directory registered"
+      "observed_at": "2026-09-29T22:55:56Z",
+      "output_reference": "at cbc53b0. MODULE_PACKAGES PASS 30 registered, 4 with a package, every directory registered"
     },
     {
       "command": "pnpm lint:migrations",
       "exit_status": 0,
-      "observed_at": "2026-09-29T21:37:58Z",
-      "output_reference": "at 56f1c97. MIGRATION_LINT PASS 2 file(s), no violation"
+      "observed_at": "2026-09-29T22:55:57Z",
+      "output_reference": "at cbc53b0. MIGRATION_LINT PASS 2 file(s), no violation"
     },
     {
       "command": "pnpm validate:records",
       "exit_status": 0,
-      "observed_at": "2026-09-29T21:37:59Z",
-      "output_reference": "at 56f1c97. CONTINUITY_VALIDATION PASS"
+      "observed_at": "2026-09-29T22:55:59Z",
+      "output_reference": "at cbc53b0. CONTINUITY_VALIDATION PASS"
     },
     {
       "command": "pnpm test:validator",
       "exit_status": 0,
-      "observed_at": "2026-09-29T21:38:27Z",
-      "output_reference": "at 56f1c97. Ran 133 tests in 26.040s OK"
+      "observed_at": "2026-09-29T22:56:39Z",
+      "output_reference": "at cbc53b0. Ran 157 tests in 37.988s OK"
     },
     {
       "command": "pnpm codeowners:check",
       "exit_status": 0,
-      "observed_at": "2026-09-29T21:38:28Z",
-      "output_reference": "at 56f1c97. CODEOWNERS_GENERATION PASS 12 routing entries, .github/CODEOWNERS is current"
+      "observed_at": "2026-09-29T22:56:40Z",
+      "output_reference": "at cbc53b0. CODEOWNERS_GENERATION PASS 12 routing entries, .github/CODEOWNERS is current"
     },
     {
       "command": "pnpm check:signing",
       "exit_status": 0,
-      "observed_at": "2026-09-29T21:38:29Z",
-      "output_reference": "at 56f1c97. SIGNING_CHECK NOT_ENFORCED badf/signing-policy.yaml enrols no key, so nothing in this repository is bound to a human ide"
+      "observed_at": "2026-09-29T22:56:41Z",
+      "output_reference": "at cbc53b0. SIGNING_CHECK NOT_ENFORCED badf/signing-policy.yaml enrols no key, so nothing in this repository is bound to a human ide"
+    },
+    {
+      "command": "pnpm test:signing",
+      "exit_status": 0,
+      "observed_at": "2026-09-29T22:56:47Z",
+      "output_reference": "at cbc53b0. ℹ pass 10 ℹ fail 0"
     },
     {
       "command": "pnpm check:mutations",
       "exit_status": 0,
-      "observed_at": "2026-09-29T21:35:24Z",
-      "output_reference": "at 78420a7 (the records commit after it changes no code). MUTATION_CHECK PASS 197 mutations, every one caught by its declared witness, including the four new A1/A2 mutations. The first run, at a6f3ce6, FAILED with 2 defective anchors that the A1 rules introduced; fixed in 78420a7."
+      "observed_at": "2026-09-29T23:47:45Z",
+      "output_reference": "at cbc53b0. MUTATION_CHECK PASS 215 mutations, every one caught by its declared witness"
     }
   ],
   "decisions": [
     "DEC-037 the review is run by agents with skills; the operator records acceptance; fixes land on motor/wp001/review-fixes"
   ],
   "assumptions": [
-    "ASSUMED: B1 to B5 land from motor/wp001/validator-hardening, written test-first by a separate implementer agent, before the re-review (NS-007)."
+    "ASSUMED: the three reviewers of round seven (NS-007) work from the integrated head of this revision, not from ce989e7."
   ],
   "blockers": [
-    "B1 to B5 (validator and signing hardening) are in progress on a separate branch and not yet integrated.",
     "D1: WP-001's own authority. The design names it P0.2-A with an expiring grant; the scaffold grant is unbounded. Operator decision.",
     "D2: finding B6. The seated principal 'BizEra' equals the git identity every earlier agent commit used, and the succession rule's first-fill verification by a different human seat has not happened. Operator decision.",
     "D3: merge strategy before any signing key is enrolled (finding B4). Operator decision.",
@@ -120,8 +138,8 @@
   ],
   "authority_status": "Unchanged in kind: the scaffold rests on an operator instruction recorded by an agent (granted.repository_scaffold), not an expiring grant from the business authority seat. wp_001_acceptance is NOT_GRANTED. Per DEC-037 the operator, not an agent, records acceptance.",
   "next_action_id": "NS-007",
-  "next_action": "Integrate B1 to B5, then run the re-review (NS-007): three fresh-context reviewers on the revised head, results to issue 8. The operator decides D1 to D5.",
-  "recovery": "Read AGENTS.md, badf/authority.yaml, badf/current-state.json and badf/next-actions.json, then issue 8 for the review records and the D1 to D5 decisions. Round-six work is prepared on motor/wp001/review-fixes and lands on motor/p0.2/repository-and-boundaries, the Work Package branch; B1 to B5 are on motor/wp001/validator-hardening.",
+  "next_action": "Run the re-review (NS-007): three fresh-context reviewers on the revised head, results to issue 8. The operator decides D1 to D5 and records acceptance; no agent does.",
+  "recovery": "Read AGENTS.md, badf/authority.yaml, badf/current-state.json and badf/next-actions.json, then issue 8 for the review records and the D1 to D5 decisions. Round-six work is prepared on motor/wp001/review-fixes and lands on motor/p0.2/repository-and-boundaries, the Work Package branch; B1 to B5 were written on motor/wp001/validator-hardening and are integrated.",
   "declared_non_coverage": [
     "Control 6 is verified only by the human repository administrator; agents do not attempt it.",
     "Control 9's build-exclusion half cannot be exercised: CI has no build step.",
