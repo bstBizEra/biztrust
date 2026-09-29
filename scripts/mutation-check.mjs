@@ -2536,6 +2536,43 @@ const MUTATIONS = [
     from: "        if in_granted and withheld:",
     to: "        if False:",
   },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // M3, the act. A NEW act (BOOTSTRAP-002) recorded consistently in the
+    // record and the ledger is a second bootstrap; only the pin refuses it.
+    name: "records: stop pinning BOOTSTRAP-001 as the only bootstrap act",
+    witness: "test_a_second_bootstrap_act_is_reported_even_when_the_ledger_agrees",
+    from: '    if scalars.get("act_id", "").strip() != BOOTSTRAP_PINNED_ACT:',
+    to: "    if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // M3, the state. Reverting the spent act to AWAITING un-spends it.
+    name: "records: stop pinning the spent bootstrap act as SEATED",
+    witness: "test_reverting_the_spent_act_to_awaiting_is_reported_even_when_the_ledger_agrees",
+    from: "    if declared_state != BOOTSTRAP_PINNED_STATE:",
+    to: "    if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // M3, the seats. A second seating in the spent act, ledger edited to match.
+    name: "records: stop pinning the seats the spent bootstrap act seated",
+    witness: "test_a_second_seating_by_the_spent_act_is_reported_even_when_the_ledger_agrees",
+    from: "        if sorted(seats_named) != sorted(BOOTSTRAP_PINNED_SEATS):",
+    to: "        if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // M3, the text. A rewritten frozen region with the ledger digest repaired.
+    name: "records: stop pinning the digest of the spent bootstrap act's frozen record",
+    witness: "test_a_rewritten_historical_record_is_reported_even_when_the_ledger_digest_is_repaired",
+    from: "        if pinned_computed != BOOTSTRAP_PINNED_DIGEST:",
+    to: "        if False:",
+  },
 ];
 
 // TEST-ONLY seam, read by tests/boundaries/mutation-check-guard.test.mjs.

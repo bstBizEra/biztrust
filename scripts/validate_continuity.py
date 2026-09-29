@@ -1440,6 +1440,31 @@ BOOTSTRAP_STATEMENT = (
     "AUTHORITY PATH, AND IT IS SPENT BY ITS OWN USE."
 )
 
+# The bootstrap capability is single-use, and this is where that is PINNED.
+#
+# Review finding M3. badf/current-state.json carries a consumption ledger, but
+# a ledger is data: a second seating (business-authority seated by an agent
+# identifier) or a new BOOTSTRAP-002 act passed once the ledger was edited to
+# match and the digest recomputed. Nothing bound the ledger to what the first,
+# real act recorded. These four constants do, from code the data cannot reach:
+#
+#   - BOOTSTRAP-001 is the only act there is;
+#   - it is SEATED, and stays SEATED (reverting it to AWAITING would make the
+#     act unspent again, and every other pin would then be vacuous);
+#   - it seated exactly the repository administrator, and no other seat;
+#   - the frozen historical region hashes to the value recorded when it was
+#     seated.
+#
+# A later legitimate change - a second act, another seat - therefore needs a
+# reviewed change to THIS FILE, under a Work Package that says why, rather than
+# a consistent edit to three data files. tests/unit substitutes these four
+# lines in a temporary copy to exercise the older rules against other records;
+# each is a single line for that reason, so keep them single lines.
+BOOTSTRAP_PINNED_ACT = "BOOTSTRAP-001"
+BOOTSTRAP_PINNED_STATE = "SEATED"
+BOOTSTRAP_PINNED_SEATS = ["repository-administrator"]
+BOOTSTRAP_PINNED_DIGEST = "5989e6c2c7210c656bde85f0a57199816c881501cc2007e9427ca4628094d784"
+
 BOOTSTRAP_SCALARS = {
     "version",
     "updated_at",
@@ -1767,6 +1792,27 @@ def validate_bootstrap_record(state, errors: list[str]) -> dict[str, str]:
     trigger = scalars.get("separation_trigger", "").strip()
     exception = scalars.get("exception_type", "").strip()
 
+    # Review finding M3: the pins. Each is a separate rule with a separate
+    # control, because a check that four conditions share cannot be observed
+    # enforcing any one of them. See BOOTSTRAP_PINNED_ACT for why they are code.
+    if scalars.get("act_id", "").strip() != BOOTSTRAP_PINNED_ACT:
+        errors.append(
+            f"badf/bootstrap.yaml: records act {scalars.get('act_id', '')!r}, and "
+            f"{BOOTSTRAP_PINNED_ACT} is the only bootstrap act there is. The capability "
+            f"is single-use and was spent by that act; a second act is pinned out in "
+            f"scripts/validate_continuity.py because a ledger in a data file can be "
+            f"edited to agree with it. A legitimate later act is a reviewed change to "
+            f"that pin, under a Work Package that says why"
+        )
+
+    if declared_state != BOOTSTRAP_PINNED_STATE:
+        errors.append(
+            f"badf/bootstrap.yaml: records state {declared_state!r}, and the spent act "
+            f"is pinned as {BOOTSTRAP_PINNED_STATE} in scripts/validate_continuity.py. "
+            f"Reverting a spent act makes it unspent, which reopens the seating every "
+            f"other pin then guards nothing about"
+        )
+
     if declared_state == BOOTSTRAP_SEATED and not seatings:
         errors.append(
             f"badf/bootstrap.yaml: records state {BOOTSTRAP_SEATED} and no seating at "
@@ -1844,6 +1890,26 @@ def validate_bootstrap_record(state, errors: list[str]) -> dict[str, str]:
             )
             continue
         seated[seat] = principal
+
+    # M3, the seats and the frozen text of the one act that was spent.
+    if declared_state == BOOTSTRAP_SEATED:
+        if sorted(seats_named) != sorted(BOOTSTRAP_PINNED_SEATS):
+            errors.append(
+                f"badf/bootstrap.yaml: the record seats {sorted(seats_named)}, and "
+                f"{BOOTSTRAP_PINNED_ACT} seated exactly {sorted(BOOTSTRAP_PINNED_SEATS)}. "
+                f"That is pinned in scripts/validate_continuity.py, not in the ledger, "
+                f"because a ledger can be edited to agree with a second seating. Seating "
+                f"another office is a reviewed change to the pin, or the succession rule"
+            )
+        pinned_computed = bootstrap_digest(block) if block is not None else None
+        if pinned_computed != BOOTSTRAP_PINNED_DIGEST:
+            errors.append(
+                f"badf/bootstrap.yaml: the frozen historical region hashes to "
+                f"{pinned_computed!r}, and the digest pinned in "
+                f"scripts/validate_continuity.py for {BOOTSTRAP_PINNED_ACT} is "
+                f"{BOOTSTRAP_PINNED_DIGEST!r}. A digest recorded in badf/current-state.json "
+                f"can be repaired to match an edited record; this one cannot"
+            )
 
     # Constraint 4. DECLARED SEPARATION = ACTUAL SEPARATION, and the rule is
     # written in both directions on purpose: a dual seat that is not declared
