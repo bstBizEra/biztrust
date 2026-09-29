@@ -885,6 +885,37 @@ class ValidatorFailsClosed(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("production_deployment", result.stderr)
 
+    # ---- a grant written into the registry ALONE ---------------------------
+    #
+    # Review finding M2. `badf/authority.yaml` is the source of record, so a
+    # grant written there while badf/current-state.json still reads NOT_* is
+    # the cheapest P0 forgery there is: one file. Exactly one rule stops it,
+    # and deleting that rule left every test green.
+
+    def test_a_registry_grant_the_state_file_still_reads_as_withheld_is_reported(self):
+        text = AUTHORITY_YAML.replace(
+            "  p0_implementation:\n    status: NOT_GRANTED\n", ""
+        ) + (
+            "  p0_implementation:\n"
+            "    status: GRANTED\n"
+            '    granted_by: "business authority seat"\n'
+            '    recorded_by: "business-authority"\n'
+            '    expires_at: "2099-01-01"\n'
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = build(Path(directory))
+            (tmp / "badf" / "authority.yaml").write_text(text, encoding="utf-8")
+            result = run(tmp)
+        self.assertEqual(
+            result.returncode, 1,
+            f"a P0 grant in the registry alone must be refused:\n{result.stdout}{result.stderr}",
+        )
+        self.assertIn(
+            "authority.p0_implementation: badf/authority.yaml records it under granted "
+            "but badf/current-state.json says 'NOT_GRANTED'",
+            result.stderr,
+        )
+
     # ---- tool_authority: what an agent may NOT do is pinned ----------------
     #
     # Review finding M1. The block was never read: list items under it were

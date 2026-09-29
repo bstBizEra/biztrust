@@ -2526,6 +2526,16 @@ const MUTATIONS = [
     from: "        if _normalised(pinned) in permitted:",
     to: "        if False:",
   },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // M2. The only rule between a P0 grant written into authority.yaml alone
+    // and a passing validate:records. Deleting it turned nothing red.
+    name: "records: stop refusing a registry grant the state file still reads as withheld",
+    witness: "test_a_registry_grant_the_state_file_still_reads_as_withheld_is_reported",
+    from: "        if in_granted and withheld:",
+    to: "        if False:",
+  },
 ];
 
 // TEST-ONLY seam, read by tests/boundaries/mutation-check-guard.test.mjs.
