@@ -2648,6 +2648,40 @@ const MUTATIONS = [
     from: "const PLAIN_PATH = /^\\.?[A-Za-z0-9_][A-Za-z0-9._/-]*$/;",
     to: "const PLAIN_PATH = /^[A-Za-z0-9_.][A-Za-z0-9._/-]*$/;",
   },
+  // Review finding m5: credential shapes the scan for secrets in the tree
+  // missed. One mutation per shape, each rewriting only that shape's regex.
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: stop scanning the tree for GitHub server and user tokens",
+    witness: "test_a_github_server_or_user_token_in_the_tree_is_reported",
+    from: 're.compile(r"gh[su]_[A-Za-z0-9]{20,}")',
+    to: 're.compile(r"NEVERMATCHES")',
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: stop scanning the tree for Stripe live keys",
+    witness: "test_a_stripe_live_key_in_the_tree_is_reported",
+    from: 're.compile(r"sk_live_[A-Za-z0-9]{20,}")',
+    to: 're.compile(r"NEVERMATCHES")',
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: stop scanning the tree for Google API keys",
+    witness: "test_a_google_api_key_in_the_tree_is_reported",
+    from: 're.compile(r"AIza[0-9A-Za-z_-]{35}")',
+    to: 're.compile(r"NEVERMATCHES")',
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: stop scanning the tree for npm access tokens",
+    witness: "test_an_npm_token_in_the_tree_is_reported",
+    from: 're.compile(r"npm_[A-Za-z0-9]{30,}")',
+    to: 're.compile(r"NEVERMATCHES")',
+  },
 ];
 
 // TEST-ONLY seam, read by tests/boundaries/mutation-check-guard.test.mjs.
