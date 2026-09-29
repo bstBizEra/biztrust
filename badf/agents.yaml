@@ -48,11 +48,11 @@ roles:
   - id: repository-administrator
     owns: ["branch protection", "required checks", "CI secrets"]
     may_be_an_agent: false
-    held_by: null
+    held_by: "BizEra"
     note: >-
-      A human role. The protection on main exists and negative control 6 is
-      observed, but the protection is not recorded until this seat is filled.
-      Unfilled.
+      A human role, held by BizEra since 2026-09-30 through BOOTSTRAP-001.
+      The protection on main exists and negative control 6 is observed.
+      Recording that protection is this seat's own act, and it is not done.
 
   - id: architecture-authority
     owns: ["ARCH-001 acceptance", "ADR acceptance", "BT-G0"]

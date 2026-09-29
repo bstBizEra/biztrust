@@ -56,7 +56,7 @@
 # the three are covered by badf/signing-policy.yaml.
 
 version: "0.1.0"
-updated_at: "2026-09-10T10:00:00Z"
+updated_at: "2026-09-30T00:00:00Z"
 
 # ---- BEGIN HISTORICAL RECORD ----
 # Everything between these two markers is hashed. Once state is SEATED the
@@ -65,11 +65,11 @@ updated_at: "2026-09-10T10:00:00Z"
 # the grammar, not decoration: a record with no frozen block can never be
 # frozen, so it is refused outright.
 act_id: BOOTSTRAP-001
-state: AWAITING_OPERATOR_INSTRUCTION
+state: SEATED
 established_by: OPERATOR_INSTRUCTION_ADOPTING_THE_SUCCESSION_RULE
 standing_authority_path: false
-instruction_date: null
-instruction_origin: null
+instruction_date: "2026-09-30"
+instruction_origin: "operator instruction in a Claude Code session, recorded by an agent - verbatim text in DEC-036"
 temporary_dual_seat: false
 exception_type: null
 expiry: null
@@ -80,7 +80,7 @@ establishment_statement: >-
   AUTHORITY PATH, AND IT IS SPENT BY ITS OWN USE.
 seatings:
   - seat: repository-administrator
-    principal: null
+    principal: "BizEra"
     note: >-
       The seat the loop blocks. principal stays null until an operator names a
       human; nothing else in this record is missing.
