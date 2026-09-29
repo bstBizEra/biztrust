@@ -1073,6 +1073,45 @@ class ValidatorFailsClosed(unittest.TestCase):
         )
         self.assertIn("blob.bin", result.stderr)
 
+    # ---- credential shapes the scan used to miss (review finding m5) --------
+    #
+    # Every token below is assembled at RUN TIME from parts, so no literal with
+    # the shape of a credential is committed: GitHub push protection would
+    # refuse the push, and this scan would refuse the tree.
+
+    def _leaks(self, token):
+        return self._broken(extra_files={"docs/leak.md": "note: " + token + NL})
+
+    def test_a_github_server_or_user_token_in_the_tree_is_reported(self):
+        for prefix in ("ghs", "ghu"):
+            with self.subTest(prefix=prefix):
+                result = self._leaks(prefix + "_" + "A" * 36)
+                self.assertIn("docs/leak.md: contains what looks like a GitHub", result.stderr)
+
+    def test_a_stripe_live_key_in_the_tree_is_reported(self):
+        result = self._leaks("sk" + "_live_" + "a1B2" * 6)
+        self.assertIn("docs/leak.md: contains what looks like a Stripe live key", result.stderr)
+
+    def test_a_google_api_key_in_the_tree_is_reported(self):
+        result = self._leaks("AI" + "za" + "Sy" + "A" * 33)
+        self.assertIn("docs/leak.md: contains what looks like a Google API key", result.stderr)
+
+    def test_an_npm_token_in_the_tree_is_reported(self):
+        result = self._leaks("npm" + "_" + "a1B2c3" * 6)
+        self.assertIn("docs/leak.md: contains what looks like an npm access token", result.stderr)
+
+    def test_words_that_only_resemble_a_credential_prefix_are_allowed(self):
+        """The scan is not a substring ban: short and separated forms pass."""
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = build(Path(directory), extra_files={
+                "docs/prose.md": (
+                    "npm_config_user_agent and ghs_short and sk_live_ and AIza are names, "
+                    "not credentials." + NL
+                ),
+            })
+            result = run(tmp)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     # ---- a schema defect must be exit 2, not a quiet pass ------------------
 
     def test_an_unimplemented_schema_keyword_is_a_validator_defect(self):

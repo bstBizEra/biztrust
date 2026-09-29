@@ -2787,6 +2787,13 @@ def validate_no_secrets(errors: list[str]) -> None:
         (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"), "a private key"),
         (re.compile(r"AKIA[0-9A-Z]{16}"), "an AWS access key id"),
         (re.compile(r"xox[baprs]-[A-Za-z0-9-]{10,}"), "a Slack token"),
+        # Review finding m5. The four above missed these shapes: a review
+        # planted each and the scan said nothing. Each is its own line so each
+        # can carry its own control and its own mutation.
+        (re.compile(r"gh[su]_[A-Za-z0-9]{20,}"), "a GitHub server or user token"),
+        (re.compile(r"sk_live_[A-Za-z0-9]{20,}"), "a Stripe live key"),
+        (re.compile(r"AIza[0-9A-Za-z_-]{35}"), "a Google API key"),
+        (re.compile(r"npm_[A-Za-z0-9]{30,}"), "an npm access token"),
     ]
     # Build output and dependencies are not repository content. Everything else
     # is scanned, binaries included.
