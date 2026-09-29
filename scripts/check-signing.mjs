@@ -33,9 +33,12 @@
  * construction. A gate that no legitimate action can make green is a gate the
  * next agent deletes, weakens or works around, and this branch already has one
  * finding per round of an instrument quietly neutered to keep a suite green.
- * So it nags, loudly, in a word no other status uses, and it becomes a gate
- * the moment a human enrols a key - with no code change, because the
- * enforcement is driven by the policy data and not by an edit here.
+ * So it nags, loudly, in a word no other status uses. Enrolling a key turns
+ * enforcement on from the policy data, with no edit here, but that alone does
+ * not make it a working gate: main is written by squash merges that GitHub
+ * signs with its own web-flow key, which the validator refuses as a signer
+ * (review finding B4). It binds a human only once main's merges keep the
+ * author's signature - a merge-strategy decision recorded in the policy.
  *
  * WHAT MAKES IT BITE THE DAY A KEY IS ENROLLED. accepted_keys stops saying
  * NONE_ENROLLED, and every commit at or after the enforcement point that
@@ -396,8 +399,10 @@ function main() {
         `no longer claims they are: one is a judgement and one happens on ` +
         `GitHub, so neither is a thing this check can observe. What it can say ` +
         `is that no agent may do the first, so this check reports rather than ` +
-        `fails, and becomes a gate with no code change the moment a key is ` +
-        `enrolled.\n`,
+        `fails. Enrolling a key turns enforcement on with no code change, but ` +
+        `it binds a human only once main's merges keep the author's signature: ` +
+        `a squash merge is signed by GitHub's web-flow key, which is refused ` +
+        `as a signer (see badf/signing-policy.yaml).\n`,
     );
     return 0;
   }
