@@ -2,7 +2,7 @@
   "schema_version": "1.0.0",
   "project_id": "BIZTRUST",
   "repository": "bstBizEra/biztrust",
-  "updated_at": "2026-09-30T12:00:00Z",
+  "updated_at": "2026-09-29T21:39:22Z",
   "active_work_package": {
     "id": "BIZTRUST-WP-001",
     "title": "Platform repository skeleton from the P0.2 design",
@@ -76,7 +76,7 @@
     ],
     "historical_digest": "5989e6c2c7210c656bde85f0a57199816c881501cc2007e9427ca4628094d784"
   },
-  "latest_checkpoint": "sessions/checkpoints/BIZTRUST-WP-001-engineering-ready.json",
+  "latest_checkpoint": "sessions/checkpoints/BIZTRUST-WP-001-review-round-6.json",
   "latest_handoff": null,
   "primary_next_action_id": "NS-001",
   "resume_decision": "WAIT_FOR_AUTHORITY",
