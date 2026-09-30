@@ -141,6 +141,27 @@ test("the policy protects the signing instrument and what it stands on", () => {
   }
 });
 
+test("the policy protects the launcher, the witnesses and the two records an agent writes", () => {
+  // Round seven N2. `validate:records` and `test:validator` run through
+  // scripts/python.mjs; with it unprotected, one injected line printed PASS for
+  // both. The tests that witness the signing check, and the sweep that
+  // witnesses the tests, were editable in the change they judge. Typed here.
+  const { protectedPaths } = loadSigningPolicy();
+  for (const path of [
+    "scripts/python.mjs",
+    "scripts/mutation-check.mjs",
+    "tests/unit",
+    "tests/signing",
+    "badf/decision-log.jsonl",
+    "badf/next-actions.json",
+  ]) {
+    assert.ok(
+      protectedPaths.includes(path),
+      `${path} must be a protected path; got ${protectedPaths.join(", ")}`,
+    );
+  }
+});
+
 test("a protected path may begin with one dot when a name follows it, and is never only a dot", () => {
   // `.github` has to be spellable. `.` is a pathspec for the whole tree and
   // `..` leaves it, so neither is a shape this reader hands to git.

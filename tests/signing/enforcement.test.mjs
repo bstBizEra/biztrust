@@ -39,7 +39,11 @@ import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSy
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { parseLogRecords } from "../../scripts/check-signing.mjs";
+import {
+  parseLogRecords,
+  PROTECTED_PATH_FLOOR,
+  protectedPathsBelowFloor,
+} from "../../scripts/check-signing.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..", "..");
@@ -354,6 +358,108 @@ test("an unsigned commit touching a protected path fails once an identity is enr
       `a run with an unverified commit must not also print a pass line:\n${output}`,
     );
   });
+});
+
+/**
+ * The policy with its protected set cut to two paths no governed commit touches.
+ *
+ * Round seven N2, `shrink.py`. The check took its protected set from the very
+ * file under judgement, with no floor of its own, so a change that shortened
+ * `protected_paths` chose which of its own commits were examined.
+ */
+function shrunkPolicy(text) {
+  const shrunk = text
+    .split("\n")
+    .filter((line) => !/^ {2}- \S+$/.test(line))
+    .join("\n")
+    .replace(
+      "protected_paths:\n",
+      "protected_paths:\n  - badf/lifecycle.yaml\n  - badf/skills.yaml\n",
+    );
+  assert.notEqual(shrunk, text, "the shrinking replace did not match anything");
+  assert.ok(
+    !shrunk.includes("  - badf/authority.yaml"),
+    "the shrunk policy must no longer protect the authority record",
+  );
+  return shrunk;
+}
+
+test("a policy that shortens its own protected set is refused, not read as the set to check", () => {
+  // Reproduces round seven N2 (`shrink.py`). With a key enrolled, the unsigned
+  // commit below touches badf/authority.yaml and the unshrunk policy FAILS on
+  // it (the test above). Shrink the set in the policy the check itself reads
+  // and it printed `SIGNING_CHECK PASS 0 commit(s)` over the same commit.
+  for (const [label, base] of [
+    ["a key enrolled", POLICY_WITH_KEY],
+    ["no key enrolled", POLICY],
+  ]) {
+    fixture((dir) => {
+      commitPolicy(dir, shrunkPolicy(base));
+      writeFileSync(join(dir, "badf", "authority.yaml"), "version: \"0.1.0\"\n", "utf8");
+      git(dir, ["add", "-A"]);
+      git(dir, ["commit", "-q", "-m", "forge a grant"]);
+
+      const { code, output } = check(dir);
+      assert.equal(code, 1, `(${label}) a shortened protected set must be refused:\n${output}`);
+      assert.match(output, /SIGNING_CHECK FAIL PROTECTED_PATH_FLOOR/, `(${label}) ${output}`);
+      assert.match(output, /badf\/authority\.yaml/, `(${label}) the omitted path must be named:\n${output}`);
+      assert.ok(
+        !output.includes("SIGNING_CHECK PASS") && !output.includes("SIGNING_CHECK NOT_ENFORCED"),
+        `(${label}) a shortened set must reach neither a pass nor an unenforced line:\n${output}`,
+      );
+    });
+  }
+});
+
+/**
+ * The floor, typed here on purpose and NOT imported from the script or from the
+ * validator's pin: a control that read its expected value from the code under
+ * test would prove the list equals itself. Lowering the floor is a reviewed
+ * change to check-signing.mjs, to validate_continuity.py AND to this list.
+ */
+const TYPED_FLOOR = [
+  "badf/authority.yaml",
+  "badf/gates.yaml",
+  "badf/current-state.json",
+  "badf/lifecycle.yaml",
+  "badf/agents.yaml",
+  "badf/skills.yaml",
+  "badf/signing-policy.yaml",
+  "badf/bootstrap.yaml",
+  "sessions/checkpoints",
+  "scripts/check-signing.mjs",
+  "scripts/signing-policy.mjs",
+  "scripts/validate_continuity.py",
+  "schemas",
+  "package.json",
+  ".github",
+  "scripts/python.mjs",
+  "scripts/mutation-check.mjs",
+  "tests/unit",
+  "tests/signing",
+  "badf/decision-log.jsonl",
+  "badf/next-actions.json",
+];
+
+test("the floor this check holds is exactly the floor recorded in this test", () => {
+  assert.deepEqual([...PROTECTED_PATH_FLOOR].sort(), [...TYPED_FLOOR].sort());
+});
+
+test("a protected set missing any one floor path is reported as missing exactly that path", () => {
+  assert.deepEqual(protectedPathsBelowFloor(TYPED_FLOOR), [], "a policy at the floor is not below it");
+  assert.deepEqual(
+    protectedPathsBelowFloor([...TYPED_FLOOR, "docs"]),
+    [],
+    "widening the set is allowed and is never reported",
+  );
+  for (const path of TYPED_FLOOR) {
+    assert.deepEqual(
+      protectedPathsBelowFloor(TYPED_FLOOR.filter((entry) => entry !== path)),
+      [path],
+      `dropping ${path} must be reported, and only ${path}`,
+    );
+  }
+  assert.deepEqual(protectedPathsBelowFloor([]), [...PROTECTED_PATH_FLOOR]);
 });
 
 test("a policy the reader cannot read fails the check rather than passing it", () => {

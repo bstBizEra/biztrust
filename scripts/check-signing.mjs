@@ -117,6 +117,59 @@ import { loadSigningPolicy, SigningPolicyError, ENFORCEMENT_POINT_LITERAL } from
  */
 const GOOD_SIGNATURE = "G";
 
+/**
+ * The protected paths this check will not run without, whatever the policy says.
+ *
+ * Round seven finding N2. This check took its protected set from
+ * badf/signing-policy.yaml and from nothing else, so a change that shortened
+ * `protected_paths` in that file chose which of its own commits were
+ * examined: with a key enrolled and `protected_paths` cut to two paths no
+ * commit touched, it printed `SIGNING_CHECK PASS 0 commit(s)` over the same
+ * unsigned commits it fails on with the list intact. The only floor lived in
+ * scripts/validate_continuity.py (PINNED_PROTECTED_PATHS), which runs through a
+ * launcher that was itself unprotected.
+ *
+ * So the floor is DUPLICATED here, deliberately, and the duplication is the
+ * point: the two copies must both be edited to lower it, in a reviewed change.
+ * tests/signing/enforcement.test.mjs types the same list independently and
+ * compares it, so adding or removing an entry here without saying so is red.
+ *
+ * WHAT THIS DOES NOT DO. The policy and this file are both read from the
+ * working tree, which in a pull request is the change under review. A change
+ * that edits this list together with the policy is judged by its own edit.
+ * Reading both from the base ref is not implemented; see the note on
+ * `protected_paths` in badf/signing-policy.yaml.
+ */
+export const PROTECTED_PATH_FLOOR = Object.freeze([
+  "badf/authority.yaml",
+  "badf/gates.yaml",
+  "badf/current-state.json",
+  "badf/lifecycle.yaml",
+  "badf/agents.yaml",
+  "badf/skills.yaml",
+  "badf/signing-policy.yaml",
+  "badf/bootstrap.yaml",
+  "sessions/checkpoints",
+  "scripts/check-signing.mjs",
+  "scripts/signing-policy.mjs",
+  "scripts/validate_continuity.py",
+  "schemas",
+  "package.json",
+  ".github",
+  "scripts/python.mjs",
+  "scripts/mutation-check.mjs",
+  "tests/unit",
+  "tests/signing",
+  "badf/decision-log.jsonl",
+  "badf/next-actions.json",
+]);
+
+/** The floor paths a policy does not protect, in floor order. Empty when it meets the floor. */
+export function protectedPathsBelowFloor(protectedPaths) {
+  const held = new Set(protectedPaths);
+  return PROTECTED_PATH_FLOOR.filter((path) => !held.has(path));
+}
+
 /** What %x1f in the log format below writes between the four fields. */
 const UNIT_SEPARATOR = "\u001f";
 
@@ -349,6 +402,21 @@ function main() {
       return 1;
     }
     throw error;
+  }
+
+  // Before any git call and before any status line, so a policy that protects
+  // less than the floor can reach neither a pass nor an unenforced report.
+  const omitted = protectedPathsBelowFloor(policy.protectedPaths);
+  if (omitted.length > 0) {
+    process.stderr.write(
+      `SIGNING_CHECK FAIL PROTECTED_PATH_FLOOR badf/signing-policy.yaml protects ` +
+        `${policy.protectedPaths.length} path(s) and omits ${omitted.length} that ` +
+        `scripts/check-signing.mjs holds as a floor: ${omitted.join(", ")}. A ` +
+        `protected set the policy under judgement may shorten is a set that policy ` +
+        `chooses; widening it is allowed, narrowing it is a reviewed change to this ` +
+        `file and to PINNED_PROTECTED_PATHS in scripts/validate_continuity.py\n`,
+    );
+    return 1;
   }
 
   let point;
