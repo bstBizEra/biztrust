@@ -3,7 +3,7 @@
   "work_package": "BIZTRUST-WP-001",
   "state": "ENGINEERING_READY",
   "created_at": "2026-09-29T21:39:22Z",
-  "objective": "Create the platform repository skeleton described by the P0.2 design of the guide repository. Revised five times after independent peer review. Round five closed the two things the previous four could not: mutation coverage was not measurable, and no record was bound to a human identity.",
+  "objective": "Create the platform repository skeleton described by the P0.2 design of the guide repository. Revised six times after independent peer review. Round five closed the two things the previous four could not: mutation coverage was not measurable, and no record was bound to a human identity.",
   "completed_scope": [
     "Review round six (issue 8): three fresh-context agent reviewers, one clone each at ce989e7, all returned REVISION_REQUIRED. Records posted to issue 8.",
     "A1: rules 1, 2 and 5 gain by-name twins that name an unresolved @biztrust/<module>/<deep path> import. Four fixtures, one .js, seen failing with 'the checker reported nothing at all' before the rules; the reviewer's form in the real tree now exits 4.",

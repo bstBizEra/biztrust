@@ -1,0 +1,149 @@
+{
+  "schema_version": "1.0.0",
+  "work_package": "BIZTRUST-WP-001",
+  "state": "ENGINEERING_READY",
+  "created_at": "2026-09-30T05:49:24Z",
+  "objective": "Create the platform repository skeleton described by the P0.2 design of the guide repository. Reviewed by fresh-context agents in rounds six and seven (issue 8); this checkpoint records round eight, the fixes to round seven's findings.",
+  "completed_scope": [
+    "Round seven (issue 8): three fresh-context re-reviews of PR 9 at 7687501. Controls ACCEPT; spec and security REVISION_REQUIRED.",
+    "N1: a tool_authority item that is not one quoted scalar or one plain scalar, and a repeated top-level tool_authority key or repeated list, are refused instead of skipped. Both reproductions were re-run by the session agent and fail.",
+    "N2: check-signing.mjs holds its own protected-path floor and fails with PROTECTED_PATH_FLOOR when the policy under judgement is shorter; scripts/python.mjs, tests/unit, tests/signing, scripts/mutation-check.mjs, badf/decision-log.jsonl and badf/next-actions.json joined the protected set. The reviewer's shrink attack, which printed PASS, now exits 1 (re-run by the session agent). Base-ref evaluation of the policy is NOT implemented and the policy says so.",
+    "m1 to m4: the validator file is scanned for credentials like every other file; ghr_ and rk_live_ shapes are caught; two overclaims in ci.yml and one about main are corrected.",
+    "controls N1 and N3: every spelling of an internal by-name import is reported (dot-dot, dot-segment, no trailing slash); the generator's staleness check no longer depends on --out-dir and a test fails if the real-root check stops comparing.",
+    "spec F1: the bootstrap.yaml header says the seat is held and the seating is contested by finding B6; the frozen region is byte-identical. controls N2: the tenant-store comment names the errors Node raises. F2: stop_reason refreshed. F4: the round-six objective says six, not five.",
+    "DEC-038 records the round; NS-002 is annotated with DEC-037."
+  ],
+  "branch": "motor/p0.2/repository-and-boundaries",
+  "baseline_commit": "ce989e7b356347d02f96a1d8f4ff94f279ea3c09",
+  "files_changed": [
+    ".dependency-cruiser.cjs",
+    ".github/workflows/ci.yml",
+    "badf/bootstrap.yaml",
+    "badf/signing-policy.yaml",
+    "modules/tenancy/src/internal/tenant-store.ts",
+    "scripts/boundary-rules.mjs",
+    "scripts/check-signing.mjs",
+    "scripts/generate-boundary-rules.mjs",
+    "scripts/mutation-check.mjs",
+    "scripts/signing-policy.mjs",
+    "scripts/validate_continuity.py",
+    "sessions/checkpoints/BIZTRUST-WP-001-review-round-6.json",
+    "sessions/checkpoints/BIZTRUST-WP-001-review-round-8.json",
+    "tests/boundaries/boundary-rules.test.mjs",
+    "tests/boundaries/fixtures/workspace/packages/shared/src/violates-rule-1-by-name-dot-segment.ts",
+    "tests/boundaries/fixtures/workspace/packages/shared/src/violates-rule-1-by-name-dotdot.ts",
+    "tests/boundaries/fixtures/workspace/packages/shared/src/violates-rule-1-by-name-no-slash.ts",
+    "tests/boundaries/generate-boundary-rules.test.mjs",
+    "tests/boundaries/signing-check.test.mjs",
+    "tests/signing/enforcement.test.mjs",
+    "tests/unit/test_validator_fails_closed.py"
+  ],
+  "validation": [
+    {
+      "command": "pnpm typecheck",
+      "exit_status": 0,
+      "observed_at": "2026-09-30T04:36:00Z",
+      "output_reference": "at 96dd7d1. exit 0, no output"
+    },
+    {
+      "command": "pnpm boundaries:check",
+      "exit_status": 0,
+      "observed_at": "2026-09-30T04:36:03Z",
+      "output_reference": "at 96dd7d1. BOUNDARY_GENERATION PASS 30 modules, generated files are current"
+    },
+    {
+      "command": "pnpm test:boundaries",
+      "exit_status": 0,
+      "observed_at": "2026-09-30T04:36:07Z",
+      "output_reference": "at 96dd7d1. ℹ pass 191 ℹ fail 0"
+    },
+    {
+      "command": "pnpm check:coverage",
+      "exit_status": 0,
+      "observed_at": "2026-09-30T04:36:08Z",
+      "output_reference": "at 96dd7d1. COVERAGE_GATE PASS 19 named protections, every one witnessed by a control"
+    },
+    {
+      "command": "pnpm check:modules",
+      "exit_status": 0,
+      "observed_at": "2026-09-30T04:36:09Z",
+      "output_reference": "at 96dd7d1. MODULE_PACKAGES PASS 30 registered, 4 with a package, every directory registered"
+    },
+    {
+      "command": "pnpm lint:migrations",
+      "exit_status": 0,
+      "observed_at": "2026-09-30T04:36:10Z",
+      "output_reference": "at 96dd7d1. MIGRATION_LINT PASS 2 file(s), no violation"
+    },
+    {
+      "command": "pnpm validate:records",
+      "exit_status": 0,
+      "observed_at": "2026-09-30T04:36:12Z",
+      "output_reference": "at 96dd7d1. CONTINUITY_VALIDATION PASS"
+    },
+    {
+      "command": "pnpm test:validator",
+      "exit_status": 0,
+      "observed_at": "2026-09-30T04:36:58Z",
+      "output_reference": "at 96dd7d1. Ran 169 tests in 45.595s OK"
+    },
+    {
+      "command": "pnpm codeowners:check",
+      "exit_status": 0,
+      "observed_at": "2026-09-30T04:36:59Z",
+      "output_reference": "at 96dd7d1. CODEOWNERS_GENERATION PASS 12 routing entries, .github/CODEOWNERS is current"
+    },
+    {
+      "command": "pnpm check:signing",
+      "exit_status": 0,
+      "observed_at": "2026-09-30T04:37:01Z",
+      "output_reference": "at 96dd7d1. SIGNING_CHECK NOT_ENFORCED badf/signing-policy.yaml enrols no key, so nothing in this repository is bound to a human ide"
+    },
+    {
+      "command": "pnpm test:signing",
+      "exit_status": 0,
+      "observed_at": "2026-09-30T04:37:10Z",
+      "output_reference": "at 96dd7d1. ℹ pass 13 ℹ fail 0"
+    },
+    {
+      "command": "pnpm check:mutations",
+      "exit_status": 0,
+      "observed_at": "2026-09-30T05:46:45Z",
+      "output_reference": "at 96dd7d1. MUTATION_CHECK PASS 229 mutations, every one caught by its declared witness"
+    }
+  ],
+  "decisions": [
+    "DEC-037 review by agents, operator records acceptance",
+    "DEC-038 round eight fixes what agents can and leaves R7-4, F3, F5 and the decision-log conflict to the operator"
+  ],
+  "assumptions": [
+    "ASSUMED: round nine, if any, re-reviews the integrated head by three fresh-context reviewers and posts to issue 8."
+  ],
+  "blockers": [
+    "R7-4: a forger who edits scripts/validate_continuity.py defeats every pin, and scripts/** routes to seats an agent may occupy. Closes only by a human act: an enrolled key with required_signatures, or code-owner review from human-only seats. Operator decision.",
+    "D1: WP-001's own authority. The design names it P0.2-A with an expiring grant; the scaffold grant is unbounded. Operator decision.",
+    "D2 / finding B6: the seated principal 'BizEra' equals the git identity earlier agent commits used, and the succession rule's first-fill verification by a different human seat has not happened. Operator decision.",
+    "D3: merge strategy before any signing key is enrolled (finding B4). Operator decision.",
+    "D4: control 10b, the host allow-list, is not implemented. Operator decision.",
+    "D5: the policy-record rename (DEC-005) was made without the architecture seat. Operator decision.",
+    "F3: authority.yaml wp_001_acceptance names the peer reviewer; DEC-037 says the operator records acceptance. Operator's to narrow.",
+    "F5: modules/modules.yaml owner_role compliance-reviewer names no role. The architecture authority's to change.",
+    "badf/decision-log.jsonl is a protected path while tool_authority.may lets agents append to it; the conflict bites once a signing key is enrolled. Operator decision.",
+    "NS-001 is half done: the protection is applied and not recorded by the administrator.",
+    "PR 1 needs an approving review from an identity other than bstBizEra before it can merge to main."
+  ],
+  "authority_status": "Unchanged in kind: the scaffold rests on an operator instruction recorded by an agent (granted.repository_scaffold), not an expiring grant from the business authority seat. wp_001_acceptance is NOT_GRANTED. Per DEC-037 the operator, not an agent, records acceptance.",
+  "next_action_id": "NS-007",
+  "next_action": "Run the re-review of the round-eight head (NS-007): three fresh-context reviewers, results to issue 8. The operator decides D1 to D5, R7-4, F3, F5 and the decision-log conflict, and records acceptance; no agent does.",
+  "recovery": "Read AGENTS.md, badf/authority.yaml, badf/current-state.json and badf/next-actions.json, then issue 8 for the review records and open decisions. Work is on motor/wp001/review-fixes (PR 9), stacked on motor/p0.2/repository-and-boundaries, the Work Package branch.",
+  "declared_non_coverage": [
+    "Control 6 is verified only by the human repository administrator; agents do not attempt it.",
+    "Control 9's build-exclusion half cannot be exercised: CI has no build step.",
+    "Control 10b, the host allow-list, is not implemented (D4).",
+    "Signing is NOT_ENFORCED; no key is enrolled, and while main is squash-merged under GitHub's web-flow key, enrolment cannot bind a human (B4).",
+    "The signing policy is read from the working tree; evaluating it from the base ref is not implemented.",
+    "While signing is NOT_ENFORCED, editing scripts/validate_continuity.py defeats every pin; nothing in this repository makes that edit harder than a data edit (R7-4).",
+    "This validation ran locally on Windows; no CI run identifiers are cited.",
+    "The round-five and round-six checkpoints are kept as history."
+  ]
+}

@@ -19,7 +19,7 @@
       "title": "Independent review of WP-001 by a verifier who is not the implementer",
       "owner_role": "peer-reviewer",
       "blocked_by": ["NS-001"],
-      "acceptance": "A fresh-context review of the branch head against the P0.2 design acceptance criteria, recorded on the Work Package. It confirms the registry lists every candidate module of the ARCH-001 capability map, the rules are generated and not hand-written, and the controls were observed failing before passing. Only then may WP-001 move to ACCEPTED, and only the verifier may move it."
+      "acceptance": "A fresh-context review of the branch head against the P0.2 design acceptance criteria, recorded on the Work Package. It confirms the registry lists every candidate module of the ARCH-001 capability map, the rules are generated and not hand-written, and the controls were observed failing before passing. Only then may WP-001 move to ACCEPTED, and only the verifier may move it. NOTE (DEC-037, 2026-09-30): the operator has decided the reviewers return a verdict and the operator records ACCEPTED, so the last clause is narrowed for this package; badf/authority.yaml wp_001_acceptance still names the peer reviewer and is the operator's to change."
     },
     {
       "id": "NS-003",
