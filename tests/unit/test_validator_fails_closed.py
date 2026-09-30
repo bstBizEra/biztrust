@@ -2291,7 +2291,9 @@ class SigningPolicyClosed(unittest.TestCase):
 
     # ---- review finding M4: the identity that signs every squash merge -----
     #
-    # Main is written by GitHub's merge, signed by GitHub's web-flow key. Enrol
+    # A squash merge INTO main is written by GitHub's merge and signed by
+    # GitHub's web-flow key (main itself still holds only its "Initial commit";
+    # the five squash merges seen, #4 to #7 and #9, are on PR #1's branch). Enrol
     # that key and the check would pass any change merged in the web UI,
     # including an agent-authored one: the signature binds nothing to a human.
     # Those two literals are typed here, not imported from the validator.
@@ -3082,16 +3084,17 @@ class RegistryFieldsAreReadOnce(unittest.TestCase):
             "  p0_implementation:" + NL + "    status: NOT_GRANTED" + NL,
             "  p0_implementation:" + NL + "    status: NOT_GRANTED" + NL + "    status: NOT_GRANTED" + NL,
         )
-        self._refused(self.REPEAT, authority=forged)
+        self._refused("'status' " + self.REPEAT + " not_granted.p0_implementation", authority=forged)
 
     def test_a_repeated_entry_in_an_authority_section_is_refused(self):
         forged = self._replaced(
             AUTHORITY_YAML,
             "  p0_implementation:" + NL + "    status: NOT_GRANTED" + NL,
             "  p0_implementation:" + NL + "    status: NOT_GRANTED" + NL
-            + "  p0_implementation:" + NL + "    status: NOT_GRANTED" + NL,
+            + "  p0_implementation:" + NL + '    what: "a second entry of the same name"' + NL,
         )
-        self._refused(self.REPEAT, authority=forged)
+        # The second entry repeats no field, so only the ENTRY refusal can fire.
+        self._refused("'p0_implementation' " + self.REPEAT + " not_granted", authority=forged)
 
     def test_the_reviewers_S1_plant_in_authority_is_refused(self):
         """S1: PyYAML reads status GRANTED, the validator's last `status:` reads NOT_GRANTED."""

@@ -404,6 +404,9 @@ const SIGNING_CHECK = join(WT_ROOT, "scripts", "check-signing.mjs");
 // check:signing - and a control that lives in data rather than in code is
 // still a control, so it is mutated like one.
 const PACKAGE = join(WT_ROOT, "package.json");
+// Also data, and also a control: the compiler option that makes an unresolvable
+// side-effect import an error is the second layer under the boundary check.
+const TSCONFIG_BASE = join(WT_ROOT, "tsconfig.base.json");
 
 /** Joins anchor lines, so no source string carries an embedded newline. */
 const lines = (...parts) => parts.join("\n");
@@ -1464,7 +1467,8 @@ const MUTATIONS = [
     file: CODEOWNERS,
     // The forgery this generator exists to refuse: a bare @handle asserts that
     // some named account owns the path, where a team slug asserts only that a
-    // seat does - and every seat in badf/agents.yaml records held_by: null.
+    // seat does - and who holds a seat is a fact badf/agents.yaml records and
+    // badf/bootstrap.yaml alone may seat, not something a CODEOWNERS line asserts.
     // Caught by the never-a-person test.
     name: "codeowners: emit a bare handle instead of a team slug under the organisation",
     witness: "the generator never emits a person, only a team slug under the org",
@@ -2995,14 +2999,8 @@ const MUTATIONS = [
     suite: "validator",
     name: "records: keep the last of two equal fields in a routing entry (R10-S1)",
     witness: "test_a_repeated_field_in_a_routing_entry_is_refused",
-    from: lines(
-      "                if refuse_repeat(",
-      '                    "badf/agents.yaml", number, field,',
-    ),
-    to: lines(
-      "                if False and refuse_repeat(",
-      '                    "badf/agents.yaml", number, field,',
-    ),
+    from: "                    current_route, problems,",
+    to: "                    {}, problems,",
   },
   {
     file: RECORDS,
@@ -3454,6 +3452,15 @@ const MUTATIONS = [
       'const SCOPE = "^@" + caseless("biztrust") + SEP + "(?:' + BACKSLASH.repeat(2) +
       '." + SEP + "|" + SEP + ")*";',
     to: 'const SCOPE = "^@" + caseless("biztrust") + SEP;',
+  },
+  // ---- round ten, R9-m2: the compiler as a second layer ---------------------
+  {
+    file: TSCONFIG_BASE,
+    name: "tsconfig: stop failing an unresolvable side-effect import (R10-m2)",
+    witness:
+      "typecheck: a side-effect import of a path that resolves to nothing fails the compiler",
+    from: '    "noUncheckedSideEffectImports": true,',
+    to: '    "noUncheckedSideEffectImports": false,',
   },
 ];
 
