@@ -3096,6 +3096,31 @@ class RegistryFieldsAreReadOnce(unittest.TestCase):
         # The second entry repeats no field, so only the ENTRY refusal can fire.
         self._refused("'p0_implementation' " + self.REPEAT + " not_granted", authority=forged)
 
+    def test_a_quoted_field_name_that_repeats_a_plain_one_is_refused(self):
+        """Round ten. YAML reads status, "status" and 'status' as one key and keeps the last.
+
+        Found while auditing the repeated-field refusal, which compared keys as
+        written: `"status": GRANTED` under a plain `status: NOT_GRANTED` was two
+        fields here and one, GRANTED, to PyYAML. No quote is left open and
+        nothing is swallowed, so neither shape of S-1 sees it.
+        """
+        plain = "  p0_implementation:" + NL + "    status: NOT_GRANTED" + NL
+        for label, spelling in (
+            ("double-quoted", self.OPEN + "status" + self.OPEN),
+            ("single-quoted", self.Q1 + "status" + self.Q1),
+        ):
+            with self.subTest(form=label):
+                forged = self._replaced(AUTHORITY_YAML, plain, plain + "    " + spelling + ": GRANTED" + NL)
+                self._refused("is not a plain identifier", authority=forged)
+
+    def test_a_quoted_entry_name_that_repeats_a_plain_one_is_refused(self):
+        plain = "  p0_implementation:" + NL + "    status: NOT_GRANTED" + NL
+        forged = self._replaced(
+            AUTHORITY_YAML, plain,
+            plain + "  " + self.OPEN + "p0_implementation" + self.OPEN + ":" + NL + '    what: "again"' + NL,
+        )
+        self._refused("is not a plain identifier", authority=forged)
+
     def test_the_reviewers_S1_plant_in_authority_is_refused(self):
         """S1: PyYAML reads status GRANTED, the validator's last `status:` reads NOT_GRANTED."""
         forged = self._replaced(

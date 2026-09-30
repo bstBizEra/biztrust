@@ -479,6 +479,33 @@ def open_scalar_problems(name: str, text: str) -> list[str]:
     return problems
 
 
+#: A key a free-form registry may carry: a plain identifier.
+_PLAIN_KEY = re.compile(r"^[A-Za-z0-9_]+$")
+
+
+def refuse_key(name: str, number: int, key: str, problems: list[str]) -> bool:
+    """Records a problem, and returns True, when `key` is not a plain identifier.
+
+    Round ten. The repeated-field refusal compares keys as WRITTEN, and YAML
+    does not: `status`, `"status"` and `'status'` are one key, and the last of
+    them wins. badf/authority.yaml lets its entries carry any field name, so
+    `"status": GRANTED` written under a plain `status: NOT_GRANTED` was two
+    fields to this reader and one, GRANTED, to PyYAML: a repeat the check for
+    repeats never saw, with no quote left open and nothing swallowed. The other
+    readers accept only the field names they list, so a quoted spelling is
+    already refused there; this closes the one reader with no such list.
+    """
+    if _PLAIN_KEY.match(key):
+        return False
+    problems.append(
+        f"{name} line {number}: the key {key!r} is not a plain identifier. YAML reads "
+        f"status, \"status\" and 'status' as ONE key and keeps the last, and this reader "
+        f"would read three, so a quoted repeat of a key is a second value that the "
+        f"check for repeats never sees"
+    )
+    return True
+
+
 def refuse_repeat(
     name: str, number: int, field: str, where: str, seen, problems: list[str]
 ) -> bool:
@@ -610,6 +637,7 @@ def parse_authority(text: str) -> tuple[dict[str, dict[str, dict[str, str]]], li
                 )
                 continue
             key, rest = match.group(1), match.group(2).strip()
+            refuse_key("badf/authority.yaml", number, key, problems)
             refuse_repeat(
                 "badf/authority.yaml", number, key, section, sections[section], problems
             )
@@ -638,6 +666,8 @@ def parse_authority(text: str) -> tuple[dict[str, dict[str, dict[str, str]]], li
                 )
                 continue
             field, value = match.group(1), match.group(2).strip()
+            if refuse_key("badf/authority.yaml", number, field, problems):
+                continue
             if refuse_value("badf/authority.yaml", number, field, value, problems):
                 continue
             if refuse_repeat(

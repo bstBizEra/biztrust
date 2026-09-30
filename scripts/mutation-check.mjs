@@ -3466,6 +3466,23 @@ const MUTATIONS = [
     from: '    "noUncheckedSideEffectImports": true,',
     to: '    "noUncheckedSideEffectImports": false,',
   },
+  // ---- round ten: a quoted spelling of a key is a repeat the repeat check never saw ----
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: read a quoted field name in badf/authority.yaml as a different field (R10-S1)",
+    witness: "test_a_quoted_field_name_that_repeats_a_plain_one_is_refused",
+    from: '            if refuse_key("badf/authority.yaml", number, field, problems):',
+    to: "            if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: read a quoted entry name in badf/authority.yaml as a different entry (R10-S1)",
+    witness: "test_a_quoted_entry_name_that_repeats_a_plain_one_is_refused",
+    from: '            refuse_key("badf/authority.yaml", number, key, problems)',
+    to: "            pass",
+  },
 ];
 
 // TEST-ONLY seam, read by tests/boundaries/mutation-check-guard.test.mjs.
