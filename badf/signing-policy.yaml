@@ -36,9 +36,10 @@
 # identity did not sign. An earlier version of this comment said that step
 # alone makes the check enforcing. It does not, in two ways:
 #
-#   - It turns CI red and keeps it red. Every governed commit already on main
-#     is unsigned or signed by GitHub's web-flow key, so the check fails until
-#     a human also moves enforcement_point forward to an explicit sha.
+#   - It turns CI red and keeps it red. Every governed commit already on the
+#     branch under review (main itself holds only "Initial commit") is unsigned
+#     or signed by GitHub's web-flow key, so the check fails until a human also
+#     moves enforcement_point forward to an explicit sha.
 #   - It does not make the check binding. The checker is code inside the same
 #     change it judges, and CI runs the pull request's own copy of it: a
 #     one-line edit to scripts/check-signing.mjs produced a false PASS with a
@@ -47,10 +48,17 @@
 #     it is step 3, GitHub's required_signatures on main, together with code
 #     owner review by seats that people, and not agents, occupy.
 #
-# SQUASH MERGES AND THIS CHECK ARE INCOMPATIBLE AS THINGS STAND. Main is
-# written by GitHub's own merge: its recent commits are committed by
-# `GitHub <noreply@github.com>` and signed by GitHub's web-flow key
-# B5690EEEBB952194. A squash merge made in the web UI replaces the author's
+# SQUASH MERGES AND THIS CHECK ARE INCOMPATIBLE AS THINGS STAND. What is
+# observed, and where. `git ls-remote origin refs/heads/main` (run 2026-09-30)
+# gives 062a0f7c1b350e4af695978b238b28e323b7d0e0, and main holds exactly that
+# one commit, "Initial commit", committed by `GitHub <noreply@github.com>`.
+# Main does NOT yet hold any squash merge. The four squash merges #4 to #7
+# (cbaa950, 0e388ce, dbae365, ce989e7) are on PR #1's head branch,
+# motor/p0.2/repository-and-boundaries, not on main. Each is committed by
+# `GitHub <noreply@github.com>` and carries GitHub's web-flow key
+# B5690EEEBB952194. What follows is therefore a statement about what a squash
+# merge INTO main would do, seen in how those four behaved, and not a record of
+# what main contains. A squash merge made in the web UI replaces the author's
 # commit with a new one, so the author's own signature does not survive it.
 # The two ways to make this check pass are both bad:
 #

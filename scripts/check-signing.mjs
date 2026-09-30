@@ -35,10 +35,12 @@
  * finding per round of an instrument quietly neutered to keep a suite green.
  * So it nags, loudly, in a word no other status uses. Enrolling a key turns
  * enforcement on from the policy data, with no edit here, but that alone does
- * not make it a working gate: main is written by squash merges that GitHub
- * signs with its own web-flow key, which the validator refuses as a signer
- * (review finding B4). It binds a human only once main's merges keep the
- * author's signature - a merge-strategy decision recorded in the policy.
+ * not make it a working gate: a squash merge into main is signed by GitHub
+ * with its own web-flow key, which the validator refuses as a signer (review
+ * finding B4; main itself holds only its "Initial commit" so far, and the four
+ * squash merges seen are on PR #1's branch). It binds a human only once
+ * main's merges keep the author's signature - a merge-strategy decision
+ * recorded in the policy.
  *
  * WHAT MAKES IT BITE THE DAY A KEY IS ENROLLED. accepted_keys stops saying
  * NONE_ENROLLED, and every commit at or after the enforcement point that

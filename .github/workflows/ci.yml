@@ -83,12 +83,20 @@ jobs:
       - name: Prove the validator fails closed
         run: pnpm test:validator
 
-      # 2c. Who WROTE the records, rather than what they say. This is the only
-      #     check here that no agent can make pass: badf/signing-policy.yaml
-      #     enrols no key, so it reports SIGNING_CHECK NOT_ENFORCED and exits 0.
-      #     That status is the point of the step - a control that binds nothing
-      #     and prints nothing is indistinguishable from one that is enforced.
-      #     It becomes a gate, with no change here, the day a human enrols a key.
+      # 2c. Who WROTE the records, rather than what they say. It is NOT a gate
+      #     today: badf/signing-policy.yaml enrols no key, so it reports
+      #     SIGNING_CHECK NOT_ENFORCED and exits 0. That status is the point of
+      #     the step - a control that binds nothing and prints nothing is
+      #     indistinguishable from one that is enforced.
+      #
+      #     Nor does enrolling a key alone make it one. This job runs the pull
+      #     request's OWN copy of the check and of the policy it reads, so a
+      #     change can edit both (a one-line edit to the check gave a false
+      #     PASS with a key enrolled), and a key enrolled while main is
+      #     squash-merged under GitHub's web-flow key binds no person to
+      #     anything. What binds it is GitHub's required_signatures on main plus
+      #     code-owner review by seats people, not agents, occupy; see the
+      #     comments in badf/signing-policy.yaml.
       - name: Who wrote the governance records
         run: pnpm check:signing
 
