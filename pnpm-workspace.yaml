@@ -8,11 +8,15 @@ packages:
   - "modules/*"
   - "packages/*"
 
-# A transitive dependency held above its advisory (GHSA-hrr3-gc8f-f4qj, patched
-# in 3.1.8) and inside the major ajv asks for. fast-uri arrives through
-# dependency-cruiser > ajv, a dev dependency that reads only this repository's
-# own configuration, so the exposure is small; the override keeps `pnpm audit`
-# clean rather than carrying a known advisory. Remove it when dependency-cruiser
-# takes a release whose ajv range already resolves to 3.1.8 or later.
+# A transitive dependency held at its first patched version (GHSA-hrr3-gc8f-f4qj,
+# patched in 3.1.8), which is inside the major ajv asks for. fast-uri arrives
+# through dependency-cruiser > ajv, a dev dependency that reads only this
+# repository's own configuration, so the exposure is small; the override keeps
+# `pnpm audit` clean rather than carrying a known advisory. It is an EXACT
+# version, not a range (round ten, security S-8): a caret range would float to
+# any later 3.x the next time the lockfile is regenerated, and an override that
+# moves on its own is a dependency decision nobody made. Remove it when
+# dependency-cruiser takes a release whose ajv range already resolves to 3.1.8
+# or later. This override is a dependency decision taken by an agent: see DEC-040.
 overrides:
-  fast-uri: "^3.1.8"
+  fast-uri: "3.1.8"

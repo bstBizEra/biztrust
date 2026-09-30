@@ -137,8 +137,11 @@ incomplete in fact.
 - **The contract lint** over `openapi/` and `events/`, the **observability
   tests**, and the **security proof suite**. All three check work that does not
   exist yet.
-- No fixture proves the typecheck fails, so the compiler is an unwitnessed
-  instrument.
+- **The compiler is witnessed in one respect only.**
+  `tests/boundaries/typecheck-side-effects.test.mjs` proves `pnpm typecheck`
+  fails on an import of a path that resolves to nothing (round nine, R9-m2). No
+  fixture proves it fails on any other class of error, so for those the compiler
+  is an unwitnessed instrument.
 - **The mutation check does not cover everything.** It covers the dependency
   rules and their generator, the migration lint, the record validator, the
   signing check and the CODEOWNERS generator. The registry reader

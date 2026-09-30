@@ -49,12 +49,18 @@ places for that reason.
 
 `BT-G0`, the architecture contract freeze, is `UNRECORDED`. It requires
 `FOUNDATION_SEQUENCE.md` slices S01 to S11 accepted in order, and S01 alone
-needs five human review seats that are unfilled. When an architecture authority
-records `BT-G0`, the ADRs behind it land here.
+needs five human review seats, of which two are held (business authority and
+architecture, by the operator, on the operator's statement of 2026-09-28) and
+three are unfilled (insurance domain, legal and compliance, finance and
+accounting); that is the guide's count, in `docs/architecture/ADR_REGISTER.md`.
+It is not this repository's: the `architecture-authority` seat in
+`badf/agents.yaml`, the one that accepts an ADR, is a different seat and is
+still `held_by: null`. When an architecture authority records `BT-G0`, the
+ADRs behind it land here.
 
-Until then, an empty directory beside a 30-entry decision log is the honest
-picture: the engineering decisions are made and recorded, and the architecture
-decisions are not.
+Until then, an empty directory beside a decision log that holds the engineering
+decisions is the honest picture: the engineering decisions are made and
+recorded, and the architecture decisions are not.
 
 ## Format
 

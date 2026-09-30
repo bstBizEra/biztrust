@@ -141,8 +141,10 @@ test("a routing entry naming a declared role emits that role's TEAM slug", () =>
 test("the generator never emits a person, only a team slug under the org", () => {
   // The one thing this file must never do. Every non-comment line must name
   // owners of the form @<org>/<role>, never a bare @handle: a team can exist
-  // with zero members, which is exactly what every seat in badf/agents.yaml
-  // is today, while a handle would assert that a named human holds one.
+  // with zero members, which is what every seat in badf/agents.yaml but
+  // repository-administrator is today (that one is held by BizEra through
+  // BOOTSTRAP-001, and its seating is contested by review finding B6), while a
+  // handle would assert that a named human holds one.
   const out = renderCodeowners(loadAgentsRegistry());
   for (const line of out.split("\n")) {
     if (line.startsWith("#") || line.trim() === "") continue;

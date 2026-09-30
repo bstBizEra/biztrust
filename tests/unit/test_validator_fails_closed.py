@@ -2401,7 +2401,8 @@ class SigningPolicyClosed(unittest.TestCase):
     #
     # A squash merge INTO main is written by GitHub's merge and signed by
     # GitHub's web-flow key (main itself still holds only its "Initial commit";
-    # the five squash merges seen, #4 to #7 and #9, are on PR #1's branch). Enrol
+    # the four squash merges seen, #4 to #7, and the one merge commit, #9, are on
+    # PR #1's branch). Enrol
     # that key and the check would pass any change merged in the web UI,
     # including an agent-authored one: the signature binds nothing to a human.
     # Those two literals are typed here, not imported from the validator.

@@ -22,6 +22,19 @@
  * exactly the plants that option hides red, and the mutation sweep can say
  * which control caught which loosening.
  *
+ * Round eleven (controls C10-1 to C10-4). Round ten's eight plants all had a
+ * source in services/api/src, packages/ or one module's public directory, so
+ * `doNotFollow` widened by `/internal/`, `^tests/` or `^apps/` moved none of
+ * them while blinding every rule to the imports OF those files, and the claim
+ * above held for the options it named and not for the one it did not. There is
+ * now a plant whose source is in each source root (a module's internal and
+ * public directories, packages, apps, tests, services), one for each shape the
+ * old unanchored pattern swallowed (a file NAMED node_modules, a directory
+ * named node_modules, a nested dist/), and four for the backstop rule that
+ * reports an import which resolves to nothing. A plant that is green at the
+ * committed options is red under the loosening it guards; the mutations in
+ * scripts/mutation-check.mjs tagged C10-1 to C10-4 are those loosenings.
+ *
  * Declared non-coverage: `enhancedResolveOptions.exportsFields` and
  * `conditionNames`. Without them a deep by-name import resolves through a
  * workspace link and the path rules report it instead of the by-name rules, so

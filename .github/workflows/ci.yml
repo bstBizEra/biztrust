@@ -78,6 +78,13 @@ jobs:
           # tests/signing/enforcement.test.mjs and by a mutation. Without this
           # line CI would fail honestly; with it, CI can answer the question.
           fetch-depth: 0
+          # Round ten, security S-9. Checkout leaves the job's token in the
+          # repository's git config by default, where every later step can read
+          # it. Nothing here pushes or fetches after checkout (no script under
+          # scripts/ calls git fetch, pull, push or ls-remote), so the token is
+          # dropped. Full history, which the signing check needs, is fetched
+          # DURING checkout and is unaffected.
+          persist-credentials: false
 
       - name: Set up Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -188,6 +195,9 @@ jobs:
   scope:
     name: Scope boundary
     runs-on: ubuntu-latest
+    # It only prints. A bound keeps a wedged runner from holding the required
+    # check open for the six-hour default (round ten, security S-9).
+    timeout-minutes: 5
     steps:
       - name: State the scope boundary
         run: |

@@ -399,6 +399,8 @@ const ATTRIBUTION = join(WT_ROOT, "scripts", "mutation-attribution.mjs");
 const SIGNING_POLICY = join(WT_ROOT, "scripts", "signing-policy.mjs");
 const GENERATOR = join(WT_ROOT, "scripts", "generate-boundary-rules.mjs");
 const MODULE_CHECK = join(WT_ROOT, "scripts", "check-module-packages.mjs");
+const CI_WORKFLOW = join(WT_ROOT, ".github", "workflows", "ci.yml");
+const WORKSPACE = join(WT_ROOT, "pnpm-workspace.yaml");
 const SIGNING_CHECK = join(WT_ROOT, "scripts", "check-signing.mjs");
 // Not a script. The ORDER of the verify chain is a control - the JS signing
 // policy reader is fail-closed only because validate:records runs before
@@ -3648,6 +3650,43 @@ const MUTATIONS = [
     witness: "test_the_exempt_round_six_checkpoint_is_still_held_to_the_other_two_rules",
     from: "        if isinstance(named, str) and named not in known:",
     to: "        if isinstance(named, str) and named not in known and relative not in CHECKPOINT_ORDER_EXEMPT:",
+  },
+  // ---- round eleven, S-8 and S-9: the CI workflow and the dependency override ------
+  {
+    file: CI_WORKFLOW,
+    name: "ci: leave the job token in the checkout's git config (R11-S9)",
+    witness: "ci workflow: the checkout step does not leave the job token in the git config",
+    from: "          persist-credentials: false",
+    to: "          persist-credentials: true",
+  },
+  {
+    file: CI_WORKFLOW,
+    name: "ci: drop the scope job's timeout (R11-S9)",
+    witness: "ci workflow: every job has a timeout",
+    from: lines("    timeout-minutes: 5", "    steps:"),
+    to: "    steps:",
+  },
+  {
+    file: CI_WORKFLOW,
+    name: "ci: fetch a shallow history again (R11-S9)",
+    witness:
+      "ci workflow: the checkout step still fetches the whole history the signing check needs",
+    from: "          fetch-depth: 0",
+    to: "          fetch-depth: 1",
+  },
+  {
+    file: CI_WORKFLOW,
+    name: "ci: pin checkout by a movable tag again (R11-S9)",
+    witness: "ci workflow: every action is pinned by a full commit SHA",
+    from: "uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4",
+    to: "uses: actions/checkout@v4",
+  },
+  {
+    file: WORKSPACE,
+    name: "workspace: override fast-uri with a range instead of an exact version (R11-S8)",
+    witness: "workspace overrides: every override pins an exact version, not a range",
+    from: '  fast-uri: "3.1.8"',
+    to: '  fast-uri: "^3.1.8"',
   },
   // ---- round ten, S-2, S-4 and S-5: the secret scan and the tool powers ------
   {
