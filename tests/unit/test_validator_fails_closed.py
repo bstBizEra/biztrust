@@ -1202,6 +1202,40 @@ class ValidatorFailsClosed(unittest.TestCase):
                 result = self._leaks(prefix + "_" + "A" * 36)
                 self.assertIn("docs/leak.md: contains what looks like a GitHub", result.stderr)
 
+    def test_a_credential_planted_in_the_validator_itself_is_reported(self):
+        """Round seven m1. The whole validator file used to be exempt from the scan.
+
+        It is the file that carries every pin, and an exemption for a file
+        that "names the patterns" covered the file with the most room to hide a
+        token in a comment or a string. The patterns are regexes, and a regex
+        does not match itself, so the exemption bought nothing but the hole.
+        """
+        for label, token in (
+            ("ghp", "gh" + "p_" + "A" * 36),
+            ("sk_live", "sk" + "_live_" + "a1B2" * 6),
+        ):
+            with self.subTest(token=label):
+                with tempfile.TemporaryDirectory() as directory:
+                    tmp = build(Path(directory))
+                    validator = tmp / "scripts" / "validate_continuity.py"
+                    validator.write_text(
+                        validator.read_text(encoding="utf-8") + NL + "# " + token + NL,
+                        encoding="utf-8",
+                    )
+                    result = run(tmp)
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn(
+                    "scripts/validate_continuity.py: contains what looks like",
+                    result.stderr,
+                )
+
+    def test_the_unmodified_validator_holds_no_credential_shape(self):
+        """The other half of m1: with the exemption gone, the file must scan clean."""
+        with tempfile.TemporaryDirectory() as directory:
+            result = run(build(Path(directory)))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("validate_continuity.py: contains", result.stderr)
+
     def test_a_stripe_live_key_in_the_tree_is_reported(self):
         result = self._leaks("sk" + "_live_" + "a1B2" * 6)
         self.assertIn("docs/leak.md: contains what looks like a Stripe live key", result.stderr)

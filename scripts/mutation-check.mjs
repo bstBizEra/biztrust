@@ -2782,6 +2782,21 @@ const MUTATIONS = [
     from: 're.compile(r"npm_[A-Za-z0-9]{30,}")',
     to: 're.compile(r"NEVERMATCHES")',
   },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // Round seven m1. The whole validator file used to be skipped by the scan,
+    // and it is the file that carries every pin. The mutation puts the
+    // exemption back.
+    name: "records: exempt the validator file itself from the credential scan",
+    witness: "test_a_credential_planted_in_the_validator_itself_is_reported",
+    from: '        if any(segment in relative.split("/") for segment in skip_segments):',
+    to: lines(
+      '        if relative == "scripts/validate_continuity.py":',
+      "            continue",
+      '        if any(segment in relative.split("/") for segment in skip_segments):',
+    ),
+  },
 ];
 
 // TEST-ONLY seam, read by tests/boundaries/mutation-check-guard.test.mjs.

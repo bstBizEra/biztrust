@@ -2875,8 +2875,12 @@ def validate_no_secrets(errors: list[str]) -> None:
             continue
         if any(segment in relative.split("/") for segment in skip_segments):
             continue
-        if relative == "scripts/validate_continuity.py":
-            continue  # this file names the patterns it searches for
+        # No exemption for this file (round seven m1). It used to be skipped
+        # because it "names the patterns it searches for", but a pattern is a
+        # regex and a regex does not match itself, so the exemption bought
+        # nothing except a file that carries every pin and cannot be scanned.
+        # tests/unit plants a token here and requires it to be found, and
+        # requires the unmodified file to scan clean.
         # Read BYTES, not text. Skipping anything that is not valid UTF-8 made
         # the scan blind to every binary in the tree, and a peer review found a
         # tracked .pyc containing an assembled token literal that the source
