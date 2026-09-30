@@ -44,11 +44,17 @@ export function buildRules(registry) {
       name: `rule-1-internals-private-by-name-${m.name}`,
       comment:
         `Rule 1 by package name: @biztrust/${m.name}/src/internal/... from outside ` +
-        `modules/${m.name}/. The exports field refuses it at resolution; this rule ` +
+        `modules/${m.name}/, however the path is spelled (a .. or . segment, or ` +
+        `no trailing slash). The exports field refuses it at resolution; this rule ` +
         `makes the refusal a named violation instead of a silent unresolved import.`,
       severity: "error",
       from: { pathNot: "^modules/" + rx(m.name) + "/" },
-      to: { couldNotResolve: true, path: `^@biztrust/${rx(m.name)}/src/internal/` },
+      // Any `internal` segment under the package, however the path is spelled.
+      // The specifier is matched AS WRITTEN, not normalised, so
+      // src/public/../internal/x, src/./internal/x and a bare src/internal
+      // are all specifiers a literal `src/internal/` prefix never matches
+      // (round seven, controls N1).
+      to: { couldNotResolve: true, path: `^@biztrust/${rx(m.name)}/(?:internal|.*/internal)(?:/|$)` },
     });
   }
 

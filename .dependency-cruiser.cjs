@@ -59,50 +59,50 @@ module.exports = {
     },
     {
       "name": "rule-1-internals-private-by-name-tenancy",
-      "comment": "Rule 1 by package name: @biztrust/tenancy/src/internal/... from outside modules/tenancy/. The exports field refuses it at resolution; this rule makes the refusal a named violation instead of a silent unresolved import.",
+      "comment": "Rule 1 by package name: @biztrust/tenancy/src/internal/... from outside modules/tenancy/, however the path is spelled (a .. or . segment, or no trailing slash). The exports field refuses it at resolution; this rule makes the refusal a named violation instead of a silent unresolved import.",
       "severity": "error",
       "from": {
         "pathNot": "^modules/tenancy/"
       },
       "to": {
         "couldNotResolve": true,
-        "path": "^@biztrust/tenancy/src/internal/"
+        "path": "^@biztrust/tenancy/(?:internal|.*/internal)(?:/|$)"
       }
     },
     {
       "name": "rule-1-internals-private-by-name-identity-access",
-      "comment": "Rule 1 by package name: @biztrust/identity-access/src/internal/... from outside modules/identity-access/. The exports field refuses it at resolution; this rule makes the refusal a named violation instead of a silent unresolved import.",
+      "comment": "Rule 1 by package name: @biztrust/identity-access/src/internal/... from outside modules/identity-access/, however the path is spelled (a .. or . segment, or no trailing slash). The exports field refuses it at resolution; this rule makes the refusal a named violation instead of a silent unresolved import.",
       "severity": "error",
       "from": {
         "pathNot": "^modules/identity-access/"
       },
       "to": {
         "couldNotResolve": true,
-        "path": "^@biztrust/identity-access/src/internal/"
+        "path": "^@biztrust/identity-access/(?:internal|.*/internal)(?:/|$)"
       }
     },
     {
       "name": "rule-1-internals-private-by-name-audit",
-      "comment": "Rule 1 by package name: @biztrust/audit/src/internal/... from outside modules/audit/. The exports field refuses it at resolution; this rule makes the refusal a named violation instead of a silent unresolved import.",
+      "comment": "Rule 1 by package name: @biztrust/audit/src/internal/... from outside modules/audit/, however the path is spelled (a .. or . segment, or no trailing slash). The exports field refuses it at resolution; this rule makes the refusal a named violation instead of a silent unresolved import.",
       "severity": "error",
       "from": {
         "pathNot": "^modules/audit/"
       },
       "to": {
         "couldNotResolve": true,
-        "path": "^@biztrust/audit/src/internal/"
+        "path": "^@biztrust/audit/(?:internal|.*/internal)(?:/|$)"
       }
     },
     {
       "name": "rule-1-internals-private-by-name-platform-configuration",
-      "comment": "Rule 1 by package name: @biztrust/platform-configuration/src/internal/... from outside modules/platform-configuration/. The exports field refuses it at resolution; this rule makes the refusal a named violation instead of a silent unresolved import.",
+      "comment": "Rule 1 by package name: @biztrust/platform-configuration/src/internal/... from outside modules/platform-configuration/, however the path is spelled (a .. or . segment, or no trailing slash). The exports field refuses it at resolution; this rule makes the refusal a named violation instead of a silent unresolved import.",
       "severity": "error",
       "from": {
         "pathNot": "^modules/platform-configuration/"
       },
       "to": {
         "couldNotResolve": true,
-        "path": "^@biztrust/platform-configuration/src/internal/"
+        "path": "^@biztrust/platform-configuration/(?:internal|.*/internal)(?:/|$)"
       }
     },
     {

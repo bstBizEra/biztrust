@@ -220,6 +220,28 @@ CONTROLS.push(
     file: "services/api/src/violates-rule-5-by-name.ts",
     rule: "rule-5-entry-points-see-contracts-only-by-name",
   },
+  // Round seven, controls N1. The rule above matched only the literal prefix
+  // @biztrust/<m>/src/internal/, and the specifier is not normalised before it
+  // is matched. These three are what it missed, from packages/ where no other
+  // rule is there to hide the gap.
+  {
+    control: 1,
+    threat: "the same, spelled with a .. segment (src/public/../internal/)",
+    file: "packages/shared/src/violates-rule-1-by-name-dotdot.ts",
+    rule: "rule-1-internals-private-by-name-alpha",
+  },
+  {
+    control: 1,
+    threat: "the same, naming the internal directory with no trailing slash",
+    file: "packages/shared/src/violates-rule-1-by-name-no-slash.ts",
+    rule: "rule-1-internals-private-by-name-alpha",
+  },
+  {
+    control: 1,
+    threat: "the same, spelled with a . segment (src/./internal/)",
+    file: "packages/shared/src/violates-rule-1-by-name-dot-segment.ts",
+    rule: "rule-1-internals-private-by-name-alpha",
+  },
 );
 
 for (const { control, threat, file, rule } of CONTROLS) {
