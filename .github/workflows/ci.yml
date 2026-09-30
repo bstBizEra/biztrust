@@ -34,7 +34,11 @@ jobs:
   verify:
     name: Verify
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 15 was enough for 197 mutations (the mutation step took about 10 minutes)
+    # and cancelled the job mid-sweep at 229 (171 done after 15 minutes, nothing
+    # failed). The sweep grows with every guard added, so this leaves room for
+    # about 400. A cancelled job is not a passing one: main requires Verify.
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
