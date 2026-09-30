@@ -3392,21 +3392,118 @@ class RegistryFieldsAreReadOnce(unittest.TestCase):
         forged = self._replaced(SIGNING_POLICY_WITH_KEY, "    kind: gpg" + NL, "    kind: gpg" + NL + "    kind: gpg" + NL)
         self._refused(self.REPEAT, signing_policy=forged)
 
-    # ---- badf/gates.yaml and badf/lifecycle.yaml: read by regex, not by grammar ----
+    # ---- badf/gates.yaml and badf/lifecycle.yaml ---------------------------------
+    #
+    # Both were read by patterns, and a pattern reader accepts anything it does
+    # not match. A differential fuzz against PyYAML found the gates registry
+    # taking `status:` with its value on the next line as no status at all
+    # (PyYAML reads the LAST duplicate: a recorded gate) and a top-level key
+    # inserted mid-list as harmless (PyYAML moves the rest of the list under
+    # it). Both are now read by the same refusing grammar as their siblings.
 
-    def test_a_gates_value_that_opens_a_quote_is_refused(self):
+    BT_G0 = "  - id: BT-G0" + NL + "    status: UNRECORDED" + NL
+    ACCEPT = (
+        "  - from: ENGINEERING_READY" + NL
+        + "    to: ACCEPTED" + NL
+        + '    role: "verifier, who is not the implementer"' + NL
+        + "    requires_human: true" + NL
+    )
+
+    def test_a_gates_field_that_opens_a_quote_is_refused(self):
         forged = self._replaced(
-            GATES_YAML, "  - id: BT-G0" + NL + "    status: UNRECORDED" + NL,
-            "  - id: BT-G0" + NL + "    status: UNRECORDED" + NL + "    note: " + self.OPEN + "x" + NL,
+            GATES_YAML, self.BT_G0, self.BT_G0 + "    name: " + self.OPEN + "x" + NL
         )
         self._refused(self.QUOTE, gates=forged)
 
-    def test_a_lifecycle_value_that_opens_a_quote_is_refused(self):
+    def test_a_gates_top_level_value_that_opens_a_quote_is_refused(self):
+        forged = self._replaced(GATES_YAML, 'version: "0.1.0"', 'version: "0.1.0')
+        self._refused(self.QUOTE, gates=forged)
+
+    def test_a_gate_id_that_opens_a_quote_is_refused(self):
+        forged = self._replaced(GATES_YAML, "  - id: BT-G0", "  - id: " + self.OPEN + "BT-G0")
+        self._refused(self.QUOTE, gates=forged)
+
+    def test_a_gate_status_repeated_with_its_value_on_the_next_line_is_refused(self):
+        """The fuzz's find: `status:` with no value on its line was no status to the pattern."""
         forged = self._replaced(
-            LIFECYCLE_YAML, "    requires_human: true" + NL,
-            "    requires_human: true" + NL + "    note: " + self.OPEN + "x" + NL,
+            GATES_YAML, self.BT_G0, self.BT_G0 + "    status:" + NL + "      GRANTED" + NL
+        )
+        self._refused("'status' " + self.REPEAT, gates=forged)
+
+    def test_a_gates_registry_split_by_a_top_level_key_is_refused(self):
+        forged = self._replaced(
+            GATES_YAML, "  - id: BT-G2" + NL, "forbidden:" + NL + "  - id: BT-G2" + NL
+        )
+        self._refused("unknown top-level key 'forbidden'", gates=forged)
+
+    def test_a_gates_top_level_key_repeated_is_refused(self):
+        self._refused("'delivery_gates' " + self.REPEAT, gates=GATES_YAML + "delivery_gates:" + NL)
+
+    def test_a_gate_recorded_twice_is_refused(self):
+        forged = GATES_YAML + "  - id: BT-G0" + NL + "    status: UNRECORDED" + NL
+        self._refused("duplicate id 'BT-G0'", gates=forged)
+
+    def test_a_gate_recorded_again_under_a_quoted_id_is_refused(self):
+        """The fuzz's other find: "BT-G0" and BT-G0 are one id to YAML and two to a raw compare."""
+        forged = GATES_YAML + "  - id: " + self.OPEN + "BT-G0" + self.OPEN + NL + "    status: UNRECORDED" + NL
+        self._refused("duplicate id 'BT-G0'", gates=forged)
+
+    def test_an_unknown_field_on_a_gate_is_refused(self):
+        forged = self._replaced(
+            GATES_YAML, self.BT_G0, self.BT_G0 + "    approved_by: nobody" + NL
+        )
+        self._refused("unknown field 'approved_by'", gates=forged)
+
+    def test_a_gates_list_with_an_inline_value_is_refused(self):
+        forged = self._replaced(GATES_YAML, "delivery_gates:", "delivery_gates: []")
+        self._refused("inline value", gates=forged)
+
+    def test_a_gates_entry_that_does_not_open_with_its_key_is_refused(self):
+        forged = self._replaced(GATES_YAML, "  - id: BT-G1", "  - name: BT-G1")
+        self._refused("must open with '- id:", gates=forged)
+
+    def test_a_tab_in_the_gates_registry_is_refused(self):
+        forged = self._replaced(GATES_YAML, "    status: UNRECORDED", "\tstatus: UNRECORDED")
+        self._refused("contains a tab", gates=forged)
+
+    def test_a_lifecycle_field_that_opens_a_quote_is_refused(self):
+        forged = self._replaced(
+            LIFECYCLE_YAML, self.ACCEPT, self.ACCEPT + "    condition: " + self.OPEN + "x" + NL
         )
         self._refused(self.QUOTE, lifecycle=forged)
+
+    def test_a_lifecycle_list_item_that_opens_a_quote_is_refused(self):
+        forged = LIFECYCLE_YAML + "  - " + self.OPEN + "Any transition" + NL
+        self._refused(self.QUOTE, lifecycle=forged)
+
+    def test_the_acceptance_transition_recorded_twice_is_refused(self):
+        """A decoy first, the real requires_human: false second: PyYAML sees both."""
+        forged = self._replaced(
+            LIFECYCLE_YAML, self.ACCEPT,
+            self.ACCEPT + "  - from: ENGINEERING_READY" + NL + "    to: ACCEPTED" + NL
+            + '    role: "owner"' + NL + "    requires_human: false" + NL,
+        )
+        self._refused("more than once", lifecycle=forged)
+
+    def test_requires_human_repeated_in_the_acceptance_transition_is_refused(self):
+        forged = self._replaced(
+            LIFECYCLE_YAML, self.ACCEPT, self.ACCEPT + "    requires_human: false" + NL
+        )
+        self._refused("'requires_human' " + self.REPEAT, lifecycle=forged)
+
+    def test_the_forbidden_sentence_only_in_a_comment_is_not_the_forbidden_list(self):
+        forged = self._replaced(
+            LIFECYCLE_YAML,
+            '  - "Any transition into ACCEPTED made by the implementing agent"' + NL,
+            "  # Any transition into ACCEPTED made by the implementing agent" + NL,
+        )
+        self._refused("forbidden list", lifecycle=forged)
+
+    def test_a_lifecycle_top_level_key_repeated_is_refused(self):
+        self._refused("'forbidden' " + self.REPEAT, lifecycle=LIFECYCLE_YAML + "forbidden:" + NL)
+
+    def test_an_unknown_top_level_key_in_the_lifecycle_registry_is_refused(self):
+        self._refused("unknown top-level key 'shortcuts'", lifecycle=LIFECYCLE_YAML + "shortcuts:" + NL)
 
 
 def load_validator():
