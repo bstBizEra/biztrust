@@ -2340,9 +2340,11 @@ PINNED_PROTECTED_PATHS = (
 #: The identity that signs every commit GitHub's own merge writes, and that
 #: no policy may ever accept (review finding M4).
 #:
-#: Main is written by GitHub's merge button: the last commits on it are
-#: committed by `GitHub <noreply@github.com>` and signed by GitHub's web-flow
-#: key. Enrolling THAT key turns this check green for every change merged in
+#: GitHub's merge button writes squash merges committed by
+#: `GitHub <noreply@github.com>` and signed by GitHub's web-flow key. Four of
+#: them (#4 to #7) are on PR #1's head branch; main itself still holds only its
+#: "Initial commit", so this is what a squash merge into main WOULD do, seen in
+#: how those four behaved. Enrolling THAT key turns this check green for every change merged in
 #: the web UI - including one an agent authored and a human never read - so the
 #: signature would bind nothing to a person. A person's own signature does not
 #: survive a squash merge through the UI, which is the incompatibility
