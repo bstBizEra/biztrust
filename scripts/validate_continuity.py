@@ -319,6 +319,147 @@ AGENT_RECORDABLE = "repository_scaffold"
 #: Where the children of a refused section go, so one bad line is one error.
 QUARANTINE = "__refused_section__"
 
+#: A double-quoted YAML scalar and nothing after its closing quote. An escape is
+#: a backslash and any one character, so `\"` does not close it. Round nine S-1.
+_DOUBLE_QUOTED_SCALAR = re.compile(r'^"(?:[^"\\]|\\.)*"$')
+_SINGLE_QUOTED_LINE = re.compile(r"^'(?:[^']|'')*'$")
+
+
+def _open_quote_in_flow(value: str) -> bool:
+    """Whether a flow collection on one line holds a quote it does not close.
+
+    A quote only OPENS a scalar at the start of a token (after `[`, `{`, `,`
+    or `:`), so `[it's]` is not one, and `["it's"]` is a complete double-quoted
+    scalar with an apostrophe inside.
+    """
+    quote = None
+    index = 0
+    previous = ""
+    while index < len(value):
+        char = value[index]
+        if quote == '"':
+            if char == "\\":
+                index += 2
+                continue
+            if char == '"':
+                quote = None
+        elif quote == "'":
+            if char == "'":
+                if value[index + 1 : index + 2] == "'":
+                    index += 2
+                    continue
+                quote = None
+        elif char in "\"'" and previous in ("", "[", "{", ",", ":"):
+            quote = char
+        if not char.isspace() and quote is None:
+            previous = char
+        index += 1
+    return quote is not None
+
+
+def scalar_refusal(value: str) -> str | None:
+    """Why a field value is not one line this reader reads whole, or None.
+
+    Round nine S-1. The hand readers took any text after `field:` as the value,
+    so a value that OPENS a quote it does not close swallowed, for every
+    ordinary YAML reader, all the lines up to a quote inside a later comment
+    line - lines these readers skip as comments. That is the round-seven N1
+    attack (`_tool_authority_item`) one level up, and it made PyYAML read the
+    withheld P0 grant as GRANTED while this reader read NOT_GRANTED. The rule
+    is the same one: a value that opens a quote is exactly one complete quoted
+    scalar on its line, and a flow collection closes on its line. An anchor, an
+    alias and a tag are refused too, because this reader resolves none of them.
+    """
+    if value.startswith('"'):
+        if _DOUBLE_QUOTED_SCALAR.match(value) is None:
+            return "a double-quoted scalar that is not one complete quoted scalar on its line"
+        return None
+    if value.startswith("'"):
+        if _SINGLE_QUOTED_LINE.match(value) is None:
+            return "a single-quoted scalar that is not one complete quoted scalar on its line"
+        return None
+    if value.startswith(("[", "{")):
+        if _open_quote_in_flow(value):
+            return "a flow collection holding a quote that is not one complete quoted scalar on its line"
+        if not value.endswith("]" if value.startswith("[") else "}"):
+            return "a flow collection that does not close on its line"
+        return None
+    if value.startswith(("&", "*", "!")):
+        return "an anchor, an alias or a tag, none of which this reader resolves"
+    return None
+
+
+def refuse_value(name: str, number: int, field: str, value: str, problems: list[str]) -> bool:
+    """Records a problem, and returns True, when `value` is not read whole."""
+    why = scalar_refusal(value)
+    if why is None:
+        return False
+    problems.append(
+        f"{name} line {number}: the value of {field!r} is {why}: {value!r}. A quote "
+        f"left open swallows every line up to the next quote, comment lines "
+        f"included, so YAML reads a different file from the one this reader read"
+    )
+    return True
+
+
+_BLOCK_SCALAR_HEADER = re.compile(r"^[>|][+-]?[0-9]?$")
+_KEY_LINE = re.compile(r"^([A-Za-z0-9_.-]+):(?:[ ]+(.*))?$")
+
+
+def open_scalar_problems(name: str, text: str) -> list[str]:
+    """Every value in a REGEX-READ registry that opens a quote it does not close.
+
+    badf/gates.yaml and badf/lifecycle.yaml are read by patterns, not by a
+    grammar, so there is no field loop to put `refuse_value` in. A pattern
+    reader has the same flaw: a quote opened in one line and closed in a
+    comment two lines down hides a `status:` line from YAML while the pattern
+    still finds it. This walks every line the way the grammar readers do
+    (blank and comment lines skipped, a block scalar's body skipped) and applies
+    the same refusal to every value on it.
+    """
+    problems: list[str] = []
+    block_column: int | None = None
+    for number, raw in enumerate(text.splitlines(), start=1):
+        if raw.strip() == "" or raw.lstrip().startswith("#"):
+            continue
+        indent = len(raw) - len(raw.lstrip(" "))
+        if block_column is not None:
+            if indent > block_column:
+                continue
+            block_column = None
+        body = raw.strip()
+        column = indent
+        while body.startswith("- "):
+            consumed = len(body) - len(body[2:].lstrip())
+            body = body[2:].lstrip()
+            column += consumed
+        keyed = _KEY_LINE.match(body)
+        label, value = ("list item", body) if keyed is None else (keyed.group(1), keyed.group(2) or "")
+        if _BLOCK_SCALAR_HEADER.match(value.strip()):
+            block_column = column
+            continue
+        refuse_value(name, number, label, value.strip(), problems)
+    return problems
+
+
+def refuse_repeat(
+    name: str, number: int, field: str, where: str, seen, problems: list[str]
+) -> bool:
+    """Records a problem, and returns True, when `field` is already in `seen`.
+
+    Round nine S-1. YAML keeps the last of two equal keys and these readers
+    used to keep the last too - until a scalar opened between them hid one from
+    every other reader. A repeated key is two files, so it is refused.
+    """
+    if field not in seen:
+        return False
+    problems.append(
+        f"{name} line {number}: {field!r} appears more than once in {where}. YAML "
+        f"keeps only the last of two equal keys, and a quote opened between them "
+        f"can hide either one from a reader that keeps the other"
+    )
+    return True
+
 
 def parse_authority(text: str) -> tuple[dict[str, dict[str, dict[str, str]]], list[str]]:
     """Reads badf/authority.yaml, refusing every line it cannot classify.
@@ -413,6 +554,7 @@ def parse_authority(text: str) -> tuple[dict[str, dict[str, dict[str, str]]], li
                     f"badf/authority.yaml line {number}: section {section!r} carries "
                     f"an inline value; its entries must be written as a block"
                 )
+            refuse_value("badf/authority.yaml", number, section, rest, problems)
             continue
 
         if section is None:
@@ -431,6 +573,9 @@ def parse_authority(text: str) -> tuple[dict[str, dict[str, dict[str, str]]], li
                 )
                 continue
             key, rest = match.group(1), match.group(2).strip()
+            refuse_repeat(
+                "badf/authority.yaml", number, key, section, sections[section], problems
+            )
             sections[section].setdefault(key, {})
             if rest:
                 problems.append(
@@ -456,6 +601,13 @@ def parse_authority(text: str) -> tuple[dict[str, dict[str, dict[str, str]]], li
                 )
                 continue
             field, value = match.group(1), match.group(2).strip()
+            if refuse_value("badf/authority.yaml", number, field, value, problems):
+                continue
+            if refuse_repeat(
+                "badf/authority.yaml", number, field, f"{section}.{key}",
+                sections[section][key], problems,
+            ):
+                continue
             if value in (">", ">-", "|", "|-", ""):
                 block_indent = 6
                 value = ""
@@ -868,6 +1020,7 @@ def parse_skills(text: str) -> tuple[dict[str, dict[str, str]], list[str]]:
     in_skills = False
     current: str | None = None
     block_indent: int | None = None
+    seen_top: set[str] = set()
 
     for number, raw in enumerate(text.splitlines(), start=1):
         if raw.strip() == "" or raw.lstrip().startswith("#"):
@@ -897,6 +1050,9 @@ def parse_skills(text: str) -> tuple[dict[str, dict[str, str]], list[str]]:
                 continue
             key, rest = match.group(1), match.group(2).strip()
             current = None
+            refuse_value("badf/skills.yaml", number, key, rest, problems)
+            refuse_repeat("badf/skills.yaml", number, key, "this file", seen_top, problems)
+            seen_top.add(key)
             if key == "skills":
                 if rest != "":
                     problems.append(
@@ -931,6 +1087,7 @@ def parse_skills(text: str) -> tuple[dict[str, dict[str, str]], list[str]]:
                 current = None
                 continue
             current = match.group(1).strip()
+            refuse_value("badf/skills.yaml", number, "id", current, problems)
             if current in entries:
                 problems.append(
                     f"badf/skills.yaml line {number}: duplicate skill id "
@@ -959,6 +1116,13 @@ def parse_skills(text: str) -> tuple[dict[str, dict[str, str]], list[str]]:
                     f"badf/skills.yaml line {number}: unknown field {field!r} on "
                     f"skill {current!r}"
                 )
+                continue
+            if refuse_value("badf/skills.yaml", number, field, value, problems):
+                continue
+            if refuse_repeat(
+                "badf/skills.yaml", number, field, f"skill {current!r}",
+                entries[current], problems,
+            ):
                 continue
             if value in (">", ">-", "|", "|-", ""):
                 block_indent = 6
@@ -1134,6 +1298,7 @@ def parse_agents(
     current_role: str | None = None
     current_route: dict[str, str] | None = None
     block_indent: int | None = None
+    seen_top: set[str] = set()
 
     for number, raw in enumerate(text.splitlines(), start=1):
         if raw.strip() == "" or raw.lstrip().startswith("#"):
@@ -1164,6 +1329,9 @@ def parse_agents(
             key, rest = match.group(1), match.group(2).strip()
             current_role = None
             current_route = None
+            refuse_value("badf/agents.yaml", number, key, rest, problems)
+            refuse_repeat("badf/agents.yaml", number, key, "this file", seen_top, problems)
+            seen_top.add(key)
             if key == "roles":
                 if rest != "":
                     problems.append(
@@ -1217,6 +1385,7 @@ def parse_agents(
                     current_role = None
                     continue
                 current_role = match.group(1).strip()
+                refuse_value("badf/agents.yaml", number, "id", current_role, problems)
                 if current_role in roles:
                     problems.append(
                         f"badf/agents.yaml line {number}: duplicate role id "
@@ -1233,6 +1402,9 @@ def parse_agents(
                     current_route = None
                     continue
                 current_route = {"path": match.group(1).strip()}
+                refuse_value(
+                    "badf/agents.yaml", number, "path", current_route["path"], problems
+                )
                 routing.append(current_route)
             continue
 
@@ -1245,6 +1417,8 @@ def parse_agents(
                 )
                 continue
             field, value = match.group(1), match.group(2).strip()
+            if refuse_value("badf/agents.yaml", number, field, value, problems):
+                continue
             if section == "roles":
                 if current_role is None:
                     problems.append(
@@ -1257,6 +1431,11 @@ def parse_agents(
                         f"badf/agents.yaml line {number}: unknown field "
                         f"{field!r} on role {current_role!r}"
                     )
+                    continue
+                if refuse_repeat(
+                    "badf/agents.yaml", number, field, f"role {current_role!r}",
+                    roles[current_role], problems,
+                ):
                     continue
                 if value in (">", ">-", "|", "|-", ""):
                     block_indent = 6
@@ -1274,6 +1453,12 @@ def parse_agents(
                         f"badf/agents.yaml line {number}: unknown field "
                         f"{field!r} on a routing entry"
                     )
+                    continue
+                if refuse_repeat(
+                    "badf/agents.yaml", number, field,
+                    f"the routing entry for {current_route['path']!r}",
+                    current_route, problems,
+                ):
                     continue
                 if value in (">", ">-", "|", "|-", ""):
                     block_indent = 6
@@ -1632,6 +1817,7 @@ def parse_bootstrap(text: str) -> tuple[dict, list[str]]:
     entry: dict[str, str] | None = None
     block_indent: int | None = None
     block_owner: str = ""
+    seen_top: set[str] = set()
 
     for number, raw in enumerate(text.splitlines(), start=1):
         if raw.strip() == "" or raw.lstrip().startswith("#"):
@@ -1660,6 +1846,11 @@ def parse_bootstrap(text: str) -> tuple[dict, list[str]]:
                 key, value = top.group(1), top.group(2).strip()
                 section = None
                 entry = None
+                refuse_value("badf/bootstrap.yaml", number, key, value, problems)
+                refuse_repeat(
+                    "badf/bootstrap.yaml", number, key, "this file", seen_top, problems
+                )
+                seen_top.add(key)
                 if key in BOOTSTRAP_SCALARS:
                     if value in (">", ">-", "|", "|-"):
                         block_indent = 2
@@ -1707,6 +1898,9 @@ def parse_bootstrap(text: str) -> tuple[dict, list[str]]:
         if tabless and indent == 2 and section == "seatings":
             opener = re.match(r"^ {2}- seat:[ ]*(\S.*)$", raw)
             if opener is not None:
+                refuse_value(
+                    "badf/bootstrap.yaml", number, "seat", opener.group(1).strip(), problems
+                )
                 entry = {
                     "seat": opener.group(1).strip().strip('"'),
                     "__line__": str(number),
@@ -1727,6 +1921,13 @@ def parse_bootstrap(text: str) -> tuple[dict, list[str]]:
                         f"on a seating. A field this reader drops is a field a human "
                         f"reading the file still sees, and believes"
                     )
+                    continue
+                if refuse_value("badf/bootstrap.yaml", number, field, value, problems):
+                    continue
+                if refuse_repeat(
+                    "badf/bootstrap.yaml", number, field,
+                    f"seating {len(record['seatings'])}", entry, problems,
+                ):
                     continue
                 if value in (">", ">-", "|", "|-", ""):
                     block_indent = 6
@@ -2412,6 +2613,7 @@ def parse_signing_policy(text: str) -> tuple[dict, list[str]]:
     section: str | None = None
     entry: dict[str, str] | None = None
     block_indent: int | None = None
+    seen_top: set[str] = set()
 
     for number, raw in enumerate(text.splitlines(), start=1):
         if raw.strip() == "" or raw.lstrip().startswith("#"):
@@ -2438,6 +2640,11 @@ def parse_signing_policy(text: str) -> tuple[dict, list[str]]:
                 key, value = top.group(1), top.group(2).strip()
                 section = None
                 entry = None
+                refuse_value("badf/signing-policy.yaml", number, key, value, problems)
+                refuse_repeat(
+                    "badf/signing-policy.yaml", number, key, "this file", seen_top, problems
+                )
+                seen_top.add(key)
                 if key in SIGNING_SCALARS:
                     policy["scalars"][key] = value.strip('"')
                     continue
@@ -2458,12 +2665,20 @@ def parse_signing_policy(text: str) -> tuple[dict, list[str]]:
         if tabless and indent == 2 and section == "protected_paths":
             item = re.match(r"^ {2}- (\S+)[ ]*$", raw)
             if item is not None:
+                refuse_value(
+                    "badf/signing-policy.yaml", number, "protected_paths item",
+                    item.group(1), problems,
+                )
                 policy["protected_paths"].append((number, item.group(1).strip('"')))
                 continue
 
         if tabless and indent == 2 and section == "accepted_keys":
             opener = re.match(r"^ {2}- identity:[ ]*(\S.*)$", raw)
             if opener is not None:
+                refuse_value(
+                    "badf/signing-policy.yaml", number, "identity",
+                    opener.group(1).strip(), problems,
+                )
                 entry = {
                     "identity": opener.group(1).strip().strip('"'),
                     "__line__": str(number),
@@ -2481,6 +2696,13 @@ def parse_signing_policy(text: str) -> tuple[dict, list[str]]:
                         f"{field!r} on an accepted key. A field this reader drops is "
                         f"a field a human reading the file still sees, and believes"
                     )
+                    continue
+                if refuse_value("badf/signing-policy.yaml", number, field, value, problems):
+                    continue
+                if refuse_repeat(
+                    "badf/signing-policy.yaml", number, field,
+                    f"the accepted key at line {entry['__line__']}", entry, problems,
+                ):
                     continue
                 if value in (">", ">-", "|", "|-", ""):
                     block_indent = 6
@@ -2665,6 +2887,8 @@ def validate_gates_registry(state, errors: list[str]) -> None:
         errors.append(f"badf/gates.yaml: cannot read: {exc}")
         return
 
+    errors.extend(open_scalar_problems("badf/gates.yaml", text))
+
     recorded: dict[str, str] = {}
     current: str | None = None
     for number, raw in enumerate(text.splitlines(), start=1):
@@ -2778,6 +3002,8 @@ def validate_lifecycle_pins(errors: list[str]) -> None:
     except OSError as exc:
         errors.append(f"badf/lifecycle.yaml: cannot read: {exc}")
         return
+
+    errors.extend(open_scalar_problems("badf/lifecycle.yaml", text))
 
     transition = re.search(
         r"-\s+from:\s*ENGINEERING_READY\s*\n\s*to:\s*ACCEPTED\s*\n"
