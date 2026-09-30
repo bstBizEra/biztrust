@@ -2785,6 +2785,22 @@ const MUTATIONS = [
   {
     file: RECORDS,
     suite: "validator",
+    name: "records: stop scanning the tree for GitHub refresh tokens",
+    witness: "test_a_github_refresh_token_in_the_tree_is_reported",
+    from: 're.compile(r"ghr_[A-Za-z0-9]{20,}")',
+    to: 're.compile(r"NEVERMATCHES")',
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: stop scanning the tree for Stripe restricted keys",
+    witness: "test_a_stripe_restricted_key_in_the_tree_is_reported",
+    from: 're.compile(r"rk_live_[A-Za-z0-9]{20,}")',
+    to: 're.compile(r"NEVERMATCHES")',
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
     // Round seven m1. The whole validator file used to be skipped by the scan,
     // and it is the file that carries every pin. The mutation puts the
     // exemption back.

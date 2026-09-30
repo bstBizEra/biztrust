@@ -2860,6 +2860,9 @@ def validate_no_secrets(errors: list[str]) -> None:
         # can carry its own control and its own mutation.
         (re.compile(r"gh[su]_[A-Za-z0-9]{20,}"), "a GitHub server or user token"),
         (re.compile(r"sk_live_[A-Za-z0-9]{20,}"), "a Stripe live key"),
+        # Round seven m2: the two shapes the list above still missed.
+        (re.compile(r"ghr_[A-Za-z0-9]{20,}"), "a GitHub refresh token"),
+        (re.compile(r"rk_live_[A-Za-z0-9]{20,}"), "a Stripe restricted key"),
         (re.compile(r"AIza[0-9A-Za-z_-]{35}"), "a Google API key"),
         (re.compile(r"npm_[A-Za-z0-9]{30,}"), "an npm access token"),
     ]
