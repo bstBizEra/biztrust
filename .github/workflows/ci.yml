@@ -53,9 +53,10 @@ jobs:
     # it was 23:14 and 24:20 for 229 mutations (6.1 to 6.4 s each, 169 tests).
     # 15 minutes cancelled the job mid-sweep at 229; 30 would cancel it at
     # 170 to 210 of today's 292. The head after these measurements has 307
-    # mutations (146 of them validator mutations) and a 244-test suite, which
-    # puts the slow runner at about an hour, so 90 leaves half as much again.
-    # The sweep grows with every guard added, so re-measure and move this
+    # mutations (146 of them validator mutations) and a 244-test suite, and its
+    # own run (36742503170) took 51:32 in the mutation step, 52:37 for the job.
+    # The slow runner would put that at about an hour, so 90 leaves half as much
+    # again. The sweep grows with every guard added, so re-measure and move this
     # number with it. A cancelled job is not a passing one: main requires Verify.
     timeout-minutes: 90
 
