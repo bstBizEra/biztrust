@@ -2,8 +2,8 @@
 # human-only seat, and of the succession rule that act adopts.
 #
 # WHY THIS FILE EXISTS. badf/agents.yaml routes changes to itself to
-# `verifier: repository-administrator`, so filling that seat requires the seat
-# to verify its own creation. The same unfilled seat owns
+# `verifier: repository-administrator`, so filling that seat required the seat
+# to verify its own creation. The same seat owns
 # badf/signing-policy.yaml and AGENTS.md. No agent may break that loop:
 # badf/authority.yaml tool_authority.may_not forbids an agent to "Grant, extend
 # or infer authority, including its own", and a rule deciding who may seat an
@@ -15,12 +15,20 @@
 # rule now written into badf/agents.yaml, so that no further out-of-band
 # instruction is ever needed. This file is the record of that act.
 #
-# WHAT THIS FILE IS NOT. It is not a seating. It is the SHAPE of one, shipped
-# with the principal absent, and scripts/validate_continuity.py refuses it as a
-# completed seating until an operator names one. An agent may not supply that
-# name: the repository's git identity is a fact about a machine, not a decision
-# about who holds an office, and an agent writing a human into a seat is the
-# forgery this repository exists to refuse.
+# WHAT THIS FILE WAS, AND IS NOW. It shipped as the SHAPE of a seating, with the
+# principal absent, and scripts/validate_continuity.py refused it as a completed
+# seating until an operator named one. On 2026-09-30 the operator did, in
+# session: "Name: BizEra as the Project Owner" (DEC-036, badf/decision-log.jsonl).
+# The state below is now SEATED. An agent supplied no name: the repository's git
+# identity is a fact about a machine, not a decision about who holds an office,
+# and an agent writing a human into a seat is the forgery this repository exists
+# to refuse.
+#
+# THIS SEATING IS CONTESTED. The independent review of BIZTRUST-WP-001 (issue 8,
+# finding B6) found that "BizEra" is also the git identity earlier agent commits
+# used, so the record alone cannot tell this seating from that forgery, and that
+# the succession rule's first-fill verification by a different human seat has not
+# happened. The finding is open, and it is the operator's decision (D2 on issue 8).
 #
 # THE FIVE PROPERTIES THE VALIDATOR ENFORCES, not merely documents:
 #
