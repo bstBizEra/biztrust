@@ -31,8 +31,12 @@ compliance, finance and accounting, and architecture — and it stops outright
 when an agent is asked to infer contract authority from a product name or a
 workflow.
 
-None of those seats is filled. `S01` is not complete. No later slice may be
-activated early.
+Two of those five seats are held and three are unfilled. Business authority and
+architecture are held by the operator, on the operator's statement of
+2026-09-28; insurance domain, legal and compliance, and finance and accounting
+are `UNFILLED` (the guide's `docs/architecture/ADR_REGISTER.md`, section "Review
+seats", at guide revision `3b5690b`). Two of five buys two: `S01` is not
+complete. No later slice may be activated early.
 
 ## The ADRs this repository depends on
 

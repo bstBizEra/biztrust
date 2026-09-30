@@ -26,6 +26,15 @@ on:
 permissions:
   contents: read
 
+# Every action below is pinned by full commit SHA, with the tag it was resolved
+# from as a trailing comment (round nine, security m5 and spec F-f). A tag moves
+# and a SHA does not, so a compromised or retagged upstream cannot change what
+# this job runs. Each SHA was resolved with
+# `gh api repos/<owner>/<repo>/git/ref/tags/<tag>` on 2026-09-30, and
+# pnpm/action-setup, whose tag is annotated, was dereferenced through
+# `git/tags/<sha>` to the commit. Moving to a newer release is a reviewed change
+# to this file, not a silent one.
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -42,7 +51,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           # Full history. The signing check (step 2c) asks git which commits
           # touched a governed path since the policy landed, and a shallow
@@ -60,17 +69,17 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: .nvmrc
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           run_install: false
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.13"
 

@@ -7,3 +7,12 @@ packages:
   - "services/*"
   - "modules/*"
   - "packages/*"
+
+# A transitive dependency held above its advisory (GHSA-hrr3-gc8f-f4qj, patched
+# in 3.1.8) and inside the major ajv asks for. fast-uri arrives through
+# dependency-cruiser > ajv, a dev dependency that reads only this repository's
+# own configuration, so the exposure is small; the override keeps `pnpm audit`
+# clean rather than carrying a known advisory. Remove it when dependency-cruiser
+# takes a release whose ajv range already resolves to 3.1.8 or later.
+overrides:
+  fast-uri: "^3.1.8"

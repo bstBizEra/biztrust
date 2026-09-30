@@ -11,9 +11,11 @@ left to be guessed at.
 > **status:** NOT_GRANTED
 > **held_by:** architecture authority seat
 
-Every ADR the P0.2 design depends on — ADR-001 (modular monolith), ADR-004
-(PostgreSQL and RLS), ADR-005 (contract-first APIs), ADR-010 (durable
-workflows), ADR-011 (tenant packs) — is `DRAFT_REQUIRED`. The dependency rules
+None of the ADRs the P0.2 design depends on is accepted: ADR-001 (modular
+monolith), ADR-004 (PostgreSQL and RLS) and ADR-010 (durable workflows) are
+`PROPOSED`, and ADR-005 (contract-first APIs) and ADR-011 (tenant packs) are
+`DRAFT_REQUIRED`, as `docs/architecture/STATUS.md` records from the guide's
+`docs/architecture/ADR_REGISTER.md`. The dependency rules
 this repository generates and tests are therefore the **proposal** of a design
 at `IN_REVIEW`, not an accepted decision.
 

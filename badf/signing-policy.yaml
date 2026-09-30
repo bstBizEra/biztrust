@@ -52,12 +52,12 @@
 # observed, and where. `git ls-remote origin refs/heads/main` (run 2026-09-30)
 # gives 062a0f7c1b350e4af695978b238b28e323b7d0e0, and main holds exactly that
 # one commit, "Initial commit", committed by `GitHub <noreply@github.com>`.
-# Main does NOT yet hold any squash merge. The four squash merges #4 to #7
-# (cbaa950, 0e388ce, dbae365, ce989e7) are on PR #1's head branch,
+# Main does NOT yet hold any squash merge. The five squash merges #4 to #7 and
+# #9 (cbaa950, 0e388ce, dbae365, ce989e7, ec80d1f) are on PR #1's head branch,
 # motor/p0.2/repository-and-boundaries, not on main. Each is committed by
 # `GitHub <noreply@github.com>` and carries GitHub's web-flow key
 # B5690EEEBB952194. What follows is therefore a statement about what a squash
-# merge INTO main would do, seen in how those four behaved, and not a record of
+# merge INTO main would do, seen in how those five behaved, and not a record of
 # what main contains. A squash merge made in the web UI replaces the author's
 # commit with a new one, so the author's own signature does not survive it.
 # The two ways to make this check pass are both bad:

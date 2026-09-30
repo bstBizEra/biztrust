@@ -13,9 +13,6 @@ __pycache__/
 
 # Subagent-driven-development scratch workspace (ledger, briefs, review packages).
 .superpowers/
-[INFO] Recording command outcome: printf
-
-[OK] Command outcome recorded
 
 # Agent harness working directories. Untracked, and MUTATION_CHECK refuses to
 # run while the tree is unclean, so the repository's own instrument cannot run

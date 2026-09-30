@@ -1684,14 +1684,17 @@ def validate_agents_registry(errors: list[str], seated: dict[str, str]) -> None:
 #
 # badf/agents.yaml routes changes to itself to `verifier:
 # repository-administrator`, so filling that seat requires the seat to verify
-# its own creation, and the same unfilled seat owns badf/signing-policy.yaml
-# and AGENTS.md. docs/decisions/PROPOSAL-bootstrap-seating.md costs four ways
-# out; the mechanism built here is its recommendation - option (a), the
-# succession rule, adopted ONCE by option (c), an operator instruction.
+# its own creation, and the same seat (unfilled when this was written, held by
+# BizEra since BOOTSTRAP-001, DEC-036, and contested by review finding B6) owns
+# badf/signing-policy.yaml and AGENTS.md. docs/decisions/PROPOSAL-bootstrap-seating.md
+# costs four ways out; the mechanism built here is its recommendation - option
+# (a), the succession rule, adopted ONCE by option (c), an operator instruction.
 #
-# NOTHING BELOW SEATS ANYONE. The record ships with no principal named and is
-# refused as a completed seating until an operator names one. An agent may not
-# supply that name, and this validator is written so that it cannot: every rule
+# NOTHING BELOW SEATS ANYONE. The record was written to ship with no principal
+# named and to be refused as a completed seating until an operator named one;
+# the operator did on 2026-09-30 (DEC-036) and the record now reads SEATED. An
+# agent may not supply that name, and this validator is written so that it
+# cannot: every rule
 # here narrows what a record may say, and none of them can be satisfied by an
 # agent writing a human into a seat, because the seating has to agree with
 # badf/agents.yaml AND with badf/current-state.json, both of which are covered
@@ -2588,11 +2591,11 @@ PINNED_PROTECTED_PATHS = (
 #: no policy may ever accept (review finding M4).
 #:
 #: GitHub's merge button writes squash merges committed by
-#: `GitHub <noreply@github.com>` and signed by GitHub's web-flow key. Four of
-#: them (#4 to #7) are on PR #1's head branch; main itself still holds only its
-#: "Initial commit", so this is what a squash merge into main WOULD do, seen in
-#: how those four behaved. Enrolling THAT key turns this check green for every change merged in
-#: the web UI - including one an agent authored and a human never read - so the
+#: `GitHub <noreply@github.com>` and signed by GitHub's web-flow key. Five of
+#: them (#4 to #7 and #9) are on PR #1's head branch; main itself still holds
+#: only its "Initial commit", so this is what a squash merge into main WOULD do,
+#: seen in how those five behaved. Enrolling THAT key turns this check green for
+#: every change merged in the web UI - including one an agent authored and a human never read - so the
 #: signature would bind nothing to a person. A person's own signature does not
 #: survive a squash merge through the UI, which is the incompatibility
 #: badf/signing-policy.yaml states. Which merge strategy resolves it is a human

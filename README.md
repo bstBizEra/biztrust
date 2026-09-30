@@ -10,8 +10,9 @@ Multi-tenant insurance brokerage, distribution and insurance API platform.
 > no server, no database, no configuration and no deployment.
 >
 > That is not a gap to be quietly filled. `BIZTRUST-ARCH-001` is a draft, the
-> `BT-G0` contract freeze is unrecorded, and every ADR this repository depends
-> on is `DRAFT_REQUIRED`. Until an architecture authority records `BT-G0` and a
+> `BT-G0` contract freeze is unrecorded, and none of the five ADRs this
+> repository depends on is accepted (ADR-001, ADR-004 and ADR-010 are `PROPOSED`;
+> ADR-005 and ADR-011 are `DRAFT_REQUIRED`). Until an architecture authority records `BT-G0` and a
 > business authority records an expiring implementation grant, no P0 epic may
 > be implemented. See [`badf/authority.yaml`](badf/authority.yaml) and
 > [`docs/architecture/STATUS.md`](docs/architecture/STATUS.md).
