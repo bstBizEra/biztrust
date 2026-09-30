@@ -73,11 +73,21 @@ function renderDepcruise(registry, rules) {
     "",
   ].join("\n");
 
+  // doNotFollow, and NOT exclude, for build output and the fixture tree.
+  //
+  // Round nine, controls R9-C1. `exclude` removes a module from the graph AS A
+  // DEPENDENCY TARGET too, so an import of `tests/boundaries/fixtures/...` (a
+  // service reaching tracked test code, rule 6) or of `modules/<m>/dist/internal/`
+  // (rules 1, 2 and 5) had no edge for any rule to judge, and `boundaries:check`
+  // printed "no dependency violations". `doNotFollow` keeps the module in the
+  // graph as a leaf: an edge INTO it is still judged, and its own imports are not
+  // followed, which is all the fixture tree (built to violate) and build output
+  // (not source) need. tests/boundaries/production-options.test.mjs plants one
+  // violation per option here that could hide it.
   const body = {
     forbidden: rules,
     options: {
-      doNotFollow: { path: "node_modules" },
-      exclude: { path: "(^|/)dist/|^tests/boundaries/fixtures/" },
+      doNotFollow: { path: "node_modules|(^|/)dist/|^tests/boundaries/fixtures/" },
       tsPreCompilationDeps: true,
       tsConfig: { fileName: "tsconfig.json" },
       enhancedResolveOptions: {

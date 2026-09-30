@@ -521,11 +521,11 @@ const MUTATIONS = [
     // this task added found it; `anchorDefect` now refuses an anchor that
     // matches twice, so it cannot come back silently.)
     from: lines(
-      '      path: "^modules/[^/]+/src/",',
+      '      path: "^modules/[^/]+/(?:src|dist)/",',
       '      pathNot: "^modules/[^/]+/src/public/index\\\\.ts$",',
     ),
     to: lines(
-      '      path: "^modules/[^/]+/src/",',
+      '      path: "^modules/[^/]+/(?:src|dist)/",',
       '      pathNot: "^modules/[^/]+/src/public/",',
     ),
   },
@@ -3177,6 +3177,99 @@ const MUTATIONS = [
     witness: "test_an_anchor_an_alias_and_a_tag_are_not_read",
     from: '    if value.startswith(("&", "*", "!")):',
     to: "    if False:",
+  },
+  // ---- round ten, R9-C1 and R9-C2: the checker options the generator writes ----
+  //
+  // tests/boundaries/production-options.test.mjs cruises a copy of the
+  // workspace with the options the generator writes, byte for byte, and plants
+  // one violation per option that could hide it. Each mutation below loosens
+  // exactly one of them, and each has a plant of its own.
+  {
+    file: GENERATOR,
+    name: "generator: judge no edge into build output or the fixture tree again (R9-C1)",
+    witness:
+      "production options: a service importing the fixture tree is reported as " +
+      "rule-6-test-packages-stay-in-tests",
+    from: '      doNotFollow: { path: "node_modules|(^|/)dist/|^tests/boundaries/fixtures/" },',
+    to: lines(
+      '      doNotFollow: { path: "node_modules" },',
+      '      exclude: { path: "(^|/)dist/|^tests/boundaries/fixtures/" },',
+    ),
+  },
+  {
+    file: GENERATOR,
+    name: "generator: exclude every internal directory from the checker (R9-C2)",
+    witness:
+      "production options: a js file importing modules/tenancy/src/internal is reported as " +
+      "rule-1-internals-private-tenancy",
+    from: '      doNotFollow: { path: "node_modules|(^|/)dist/|^tests/boundaries/fixtures/" },',
+    to: lines(
+      '      doNotFollow: { path: "node_modules|(^|/)dist/|^tests/boundaries/fixtures/" },',
+      '      exclude: { path: "/internal/" },',
+    ),
+  },
+  {
+    file: GENERATOR,
+    name: "generator: do not follow the imports of services (R9-C2)",
+    witness:
+      "production options: an import of @biztrust/audit/dist/internal by name is reported as " +
+      "rule-1-internals-private-by-name-audit",
+    from: '      doNotFollow: { path: "node_modules|(^|/)dist/|^tests/boundaries/fixtures/" },',
+    to: '      doNotFollow: { path: "node_modules|(^|/)dist/|^tests/boundaries/fixtures/|^services/" },',
+  },
+  {
+    file: GENERATOR,
+    name: "generator: stop counting type-only imports (R9-C2)",
+    witness:
+      "production options: a type-only import of src/internal is reported as " +
+      "rule-1-internals-private-tenancy",
+    from: "      tsPreCompilationDeps: true,",
+    to: "      tsPreCompilationDeps: false,",
+  },
+  {
+    file: GENERATOR,
+    name: "generator: stop reading the tsconfig path map (R9-C2)",
+    witness:
+      "production options: a package importing a module by its bare name is reported as " +
+      "rule-4-packages-import-no-module",
+    from: '      tsConfig: { fileName: "tsconfig.json" },',
+    to: "",
+  },
+  {
+    file: GENERATOR,
+    name: "generator: stop resolving .ts files (R9-C2)",
+    witness:
+      "production options: an import of src/internal spelled with no extension is reported as " +
+      "rule-1-internals-private-tenancy",
+    from: '        extensions: [".ts", ".js", ".mjs", ".cjs"],',
+    to: '        extensions: [".js", ".mjs", ".cjs"],',
+  },
+  {
+    file: RULES,
+    name: "rule 1: stop protecting a built internal directory (R9-C1)",
+    witness:
+      "production options: a relative import of modules/tenancy/dist/internal is reported as " +
+      "rule-1-internals-private-tenancy",
+    from: "      to: { path: " + BT + "^modules/" + DOLLAR + "{rx(m.name)}/(?:src|dist)/internal/" + BT + " },",
+    to: "      to: { path: " + BT + "^modules/" + DOLLAR + "{rx(m.name)}/src/internal/" + BT + " },",
+  },
+  {
+    file: RULES,
+    name: "rule 2: allow a module to import another module's built files (R9-C1)",
+    witness:
+      "production options: a module importing another module's dist is reported as " +
+      "rule-2-contracts-only-identity-access",
+    from: '        path: "^modules/(?!" + rx(m.name) + "/)[^/]+/(?:src|dist)/",',
+    to: '        path: "^modules/(?!" + rx(m.name) + "/)[^/]+/src/",',
+  },
+  {
+    file: RULES,
+    name: "rule 5: allow an entry point to import a module's built files (R9-C1)",
+    witness:
+      "production options: a relative import of modules/tenancy/dist/internal is reported as " +
+      "rule-5-entry-points-see-contracts-only",
+    from: '      path: "^modules/[^/]+/(?:src|dist)/",',
+    to: '      path: "^modules/[^/]+/src/",',
   },
 ];
 

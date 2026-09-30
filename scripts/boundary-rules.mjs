@@ -29,13 +29,14 @@ export function buildRules(registry) {
     rules.push({
       name: `rule-1-internals-private-${m.name}`,
       comment:
-        `Rule 1: anything under modules/${m.name}/src/internal/ may be imported ` +
+        `Rule 1: anything under modules/${m.name}/src/internal/, or the same ` +
+        `directory built into dist/, may be imported ` +
         `only from inside modules/${m.name}/. The package exports field refuses ` +
         `the path at resolution as well; this rule catches an absolute path, ` +
         `against which exports "is not a strong encapsulation".`,
       severity: "error",
       from: { pathNot: `^modules/${rx(m.name)}/` },
-      to: { path: `^modules/${rx(m.name)}/src/internal/` },
+      to: { path: `^modules/${rx(m.name)}/(?:src|dist)/internal/` },
     });
   }
 
@@ -65,11 +66,12 @@ export function buildRules(registry) {
       comment:
         `Rule 2: modules/${m.name} may import another module only through ` +
         `@biztrust/<module>, which resolves to that module's contract, ` +
-        `src/public/index.ts. Never a repository, a table or a connection.`,
+        `src/public/index.ts. Never a repository, a table or a connection, and ` +
+        `never the built copy of one under dist/.`,
       severity: "error",
       from: { path: `^modules/${rx(m.name)}/` },
       to: {
-        path: "^modules/(?!" + rx(m.name) + "/)[^/]+/src/",
+        path: "^modules/(?!" + rx(m.name) + "/)[^/]+/(?:src|dist)/",
         pathNot: "^modules/[^/]+/src/public/index\\.ts$",
       },
     });
@@ -119,11 +121,12 @@ export function buildRules(registry) {
     name: "rule-5-entry-points-see-contracts-only",
     comment:
       "Rule 5: services/* and apps/* import modules' contracts and packages/*; " +
-      "an import of any other path inside a module is a bypass of the contract.",
+      "an import of any other path inside a module, src/ or built dist/, is a " +
+      "bypass of the contract.",
     severity: "error",
     from: { path: "^(services|apps)/" },
     to: {
-      path: "^modules/[^/]+/src/",
+      path: "^modules/[^/]+/(?:src|dist)/",
       pathNot: "^modules/[^/]+/src/public/index\\.ts$",
     },
   });

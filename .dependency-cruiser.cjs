@@ -15,46 +15,46 @@ module.exports = {
   "forbidden": [
     {
       "name": "rule-1-internals-private-tenancy",
-      "comment": "Rule 1: anything under modules/tenancy/src/internal/ may be imported only from inside modules/tenancy/. The package exports field refuses the path at resolution as well; this rule catches an absolute path, against which exports \"is not a strong encapsulation\".",
+      "comment": "Rule 1: anything under modules/tenancy/src/internal/, or the same directory built into dist/, may be imported only from inside modules/tenancy/. The package exports field refuses the path at resolution as well; this rule catches an absolute path, against which exports \"is not a strong encapsulation\".",
       "severity": "error",
       "from": {
         "pathNot": "^modules/tenancy/"
       },
       "to": {
-        "path": "^modules/tenancy/src/internal/"
+        "path": "^modules/tenancy/(?:src|dist)/internal/"
       }
     },
     {
       "name": "rule-1-internals-private-identity-access",
-      "comment": "Rule 1: anything under modules/identity-access/src/internal/ may be imported only from inside modules/identity-access/. The package exports field refuses the path at resolution as well; this rule catches an absolute path, against which exports \"is not a strong encapsulation\".",
+      "comment": "Rule 1: anything under modules/identity-access/src/internal/, or the same directory built into dist/, may be imported only from inside modules/identity-access/. The package exports field refuses the path at resolution as well; this rule catches an absolute path, against which exports \"is not a strong encapsulation\".",
       "severity": "error",
       "from": {
         "pathNot": "^modules/identity-access/"
       },
       "to": {
-        "path": "^modules/identity-access/src/internal/"
+        "path": "^modules/identity-access/(?:src|dist)/internal/"
       }
     },
     {
       "name": "rule-1-internals-private-audit",
-      "comment": "Rule 1: anything under modules/audit/src/internal/ may be imported only from inside modules/audit/. The package exports field refuses the path at resolution as well; this rule catches an absolute path, against which exports \"is not a strong encapsulation\".",
+      "comment": "Rule 1: anything under modules/audit/src/internal/, or the same directory built into dist/, may be imported only from inside modules/audit/. The package exports field refuses the path at resolution as well; this rule catches an absolute path, against which exports \"is not a strong encapsulation\".",
       "severity": "error",
       "from": {
         "pathNot": "^modules/audit/"
       },
       "to": {
-        "path": "^modules/audit/src/internal/"
+        "path": "^modules/audit/(?:src|dist)/internal/"
       }
     },
     {
       "name": "rule-1-internals-private-platform-configuration",
-      "comment": "Rule 1: anything under modules/platform-configuration/src/internal/ may be imported only from inside modules/platform-configuration/. The package exports field refuses the path at resolution as well; this rule catches an absolute path, against which exports \"is not a strong encapsulation\".",
+      "comment": "Rule 1: anything under modules/platform-configuration/src/internal/, or the same directory built into dist/, may be imported only from inside modules/platform-configuration/. The package exports field refuses the path at resolution as well; this rule catches an absolute path, against which exports \"is not a strong encapsulation\".",
       "severity": "error",
       "from": {
         "pathNot": "^modules/platform-configuration/"
       },
       "to": {
-        "path": "^modules/platform-configuration/src/internal/"
+        "path": "^modules/platform-configuration/(?:src|dist)/internal/"
       }
     },
     {
@@ -107,49 +107,49 @@ module.exports = {
     },
     {
       "name": "rule-2-contracts-only-tenancy",
-      "comment": "Rule 2: modules/tenancy may import another module only through @biztrust/<module>, which resolves to that module's contract, src/public/index.ts. Never a repository, a table or a connection.",
+      "comment": "Rule 2: modules/tenancy may import another module only through @biztrust/<module>, which resolves to that module's contract, src/public/index.ts. Never a repository, a table or a connection, and never the built copy of one under dist/.",
       "severity": "error",
       "from": {
         "path": "^modules/tenancy/"
       },
       "to": {
-        "path": "^modules/(?!tenancy/)[^/]+/src/",
+        "path": "^modules/(?!tenancy/)[^/]+/(?:src|dist)/",
         "pathNot": "^modules/[^/]+/src/public/index\\.ts$"
       }
     },
     {
       "name": "rule-2-contracts-only-identity-access",
-      "comment": "Rule 2: modules/identity-access may import another module only through @biztrust/<module>, which resolves to that module's contract, src/public/index.ts. Never a repository, a table or a connection.",
+      "comment": "Rule 2: modules/identity-access may import another module only through @biztrust/<module>, which resolves to that module's contract, src/public/index.ts. Never a repository, a table or a connection, and never the built copy of one under dist/.",
       "severity": "error",
       "from": {
         "path": "^modules/identity-access/"
       },
       "to": {
-        "path": "^modules/(?!identity-access/)[^/]+/src/",
+        "path": "^modules/(?!identity-access/)[^/]+/(?:src|dist)/",
         "pathNot": "^modules/[^/]+/src/public/index\\.ts$"
       }
     },
     {
       "name": "rule-2-contracts-only-audit",
-      "comment": "Rule 2: modules/audit may import another module only through @biztrust/<module>, which resolves to that module's contract, src/public/index.ts. Never a repository, a table or a connection.",
+      "comment": "Rule 2: modules/audit may import another module only through @biztrust/<module>, which resolves to that module's contract, src/public/index.ts. Never a repository, a table or a connection, and never the built copy of one under dist/.",
       "severity": "error",
       "from": {
         "path": "^modules/audit/"
       },
       "to": {
-        "path": "^modules/(?!audit/)[^/]+/src/",
+        "path": "^modules/(?!audit/)[^/]+/(?:src|dist)/",
         "pathNot": "^modules/[^/]+/src/public/index\\.ts$"
       }
     },
     {
       "name": "rule-2-contracts-only-platform-configuration",
-      "comment": "Rule 2: modules/platform-configuration may import another module only through @biztrust/<module>, which resolves to that module's contract, src/public/index.ts. Never a repository, a table or a connection.",
+      "comment": "Rule 2: modules/platform-configuration may import another module only through @biztrust/<module>, which resolves to that module's contract, src/public/index.ts. Never a repository, a table or a connection, and never the built copy of one under dist/.",
       "severity": "error",
       "from": {
         "path": "^modules/platform-configuration/"
       },
       "to": {
-        "path": "^modules/(?!platform-configuration/)[^/]+/src/",
+        "path": "^modules/(?!platform-configuration/)[^/]+/(?:src|dist)/",
         "pathNot": "^modules/[^/]+/src/public/index\\.ts$"
       }
     },
@@ -225,13 +225,13 @@ module.exports = {
     },
     {
       "name": "rule-5-entry-points-see-contracts-only",
-      "comment": "Rule 5: services/* and apps/* import modules' contracts and packages/*; an import of any other path inside a module is a bypass of the contract.",
+      "comment": "Rule 5: services/* and apps/* import modules' contracts and packages/*; an import of any other path inside a module, src/ or built dist/, is a bypass of the contract.",
       "severity": "error",
       "from": {
         "path": "^(services|apps)/"
       },
       "to": {
-        "path": "^modules/[^/]+/src/",
+        "path": "^modules/[^/]+/(?:src|dist)/",
         "pathNot": "^modules/[^/]+/src/public/index\\.ts$"
       }
     },
@@ -283,10 +283,7 @@ module.exports = {
   ],
   "options": {
     "doNotFollow": {
-      "path": "node_modules"
-    },
-    "exclude": {
-      "path": "(^|/)dist/|^tests/boundaries/fixtures/"
+      "path": "node_modules|(^|/)dist/|^tests/boundaries/fixtures/"
     },
     "tsPreCompilationDeps": true,
     "tsConfig": {
