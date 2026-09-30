@@ -31,6 +31,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import subprocess
 import sys
 import traceback
 from pathlib import Path
@@ -175,6 +176,39 @@ def load_schema(name: str):
         raise ValidatorDefect(f"schemas/{name}: cannot load: {exc}") from exc
 
 
+def record_files(directory: Path, errors: list[str]) -> list[Path]:
+    """The `*.json` files directly in `directory`, refusing what a glob misses.
+
+    Round nine R9-m3. `directory.glob("*.json")` is not recursive and is
+    case-sensitive on Linux (where CI runs) and not on Windows, so a malformed
+    record in a subdirectory, or one named `x.JSON`, was validated by nobody on
+    one platform and by somebody on the other. Both shapes are refused here
+    rather than guessed at.
+    """
+    if not directory.is_dir():
+        return []
+    label = directory.relative_to(ROOT).as_posix()
+    found: list[Path] = []
+    for path in sorted(directory.rglob("*")):
+        if not path.is_file():
+            continue
+        relative = path.relative_to(ROOT).as_posix()
+        if path.parent != directory:
+            errors.append(
+                f"{relative}: is in a subdirectory of {label}/, which nothing reads, so "
+                f"a record there is validated by nobody. Move it up or delete it"
+            )
+            continue
+        if path.suffix == ".json":
+            found.append(path)
+        elif path.suffix.lower() == ".json":
+            errors.append(
+                f"{relative}: its extension is not exactly '.json', so a case-sensitive "
+                f"read (Linux, where CI runs) skips it while Windows reads it"
+            )
+    return found
+
+
 def validate_records(errors: list[str]) -> None:
     state = load_json("badf/current-state.json", errors)
     actions = load_json("badf/next-actions.json", errors)
@@ -206,7 +240,7 @@ def validate_records(errors: list[str]) -> None:
 
     # --- every committed checkpoint ----------------------------------------
     checkpoint_schema = load_schema("session-checkpoint.schema.json")
-    checkpoints = sorted(CHECKPOINTS.glob("*.json")) if CHECKPOINTS.is_dir() else []
+    checkpoints = record_files(CHECKPOINTS, errors)
     if not checkpoints:
         errors.append("sessions/checkpoints/: no checkpoint is committed")
     for path in checkpoints:
@@ -219,7 +253,7 @@ def validate_records(errors: list[str]) -> None:
     handoff_dir = ROOT / "sessions" / "handoffs"
     if handoff_dir.is_dir():
         handoff_schema = load_schema("handoff.schema.json")
-        for path in sorted(handoff_dir.glob("*.json")):
+        for path in record_files(handoff_dir, errors):
             relative = path.relative_to(ROOT).as_posix()
             record = load_json(relative, errors)
             if record is not None:
@@ -740,6 +774,18 @@ def parse_tool_authority(text: str) -> tuple[dict[str, list[str]], list[str]]:
                     f"badf/authority.yaml line {number}: a tool_authority item that is "
                     f"not exactly one quoted scalar or one plain scalar without '#' "
                     f"({why}): {raw.strip()!r}"
+                )
+                continue
+            # Round nine S-4. `_normalised` folds Unicode whitespace and YAML
+            # does not, so `Push<NBSP>to main` met the pin here and was absent
+            # from may_not for a strict reader; a homoglyph or a zero-width
+            # space under `may` names a power no pin can. Judged after
+            # decoding, so a `\u00a0` escape is caught as well.
+            if not item.isascii():
+                problems.append(
+                    f"badf/authority.yaml line {number}: a tool_authority item holding a "
+                    f"non-ASCII character ({item!r}). Every pinned power is ASCII, and "
+                    f"a look-alike is a power the pins cannot name"
                 )
                 continue
             lists[current].append(item)
@@ -3070,6 +3116,21 @@ def validate_checkpoint_agrees(state, errors: list[str]) -> None:
             )
 
 
+def tracked_files() -> set[str]:
+    """The paths git tracks, as posix paths relative to ROOT.
+
+    Empty when git cannot say (no repository, no git): then nothing is treated
+    as tracked, which is the old behaviour, and the skip lists apply.
+    """
+    try:
+        listing = subprocess.run(
+            ["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, check=True
+        ).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return set()
+    return {name.decode("utf-8", "replace") for name in listing.split(b"\0") if name}
+
+
 def validate_no_secrets(errors: list[str]) -> None:
     """AGENTS.md section 5: no secret, token or credential in this repository."""
     # No leading \b. Scanning bytes means a token can sit next to a byte that
@@ -3093,18 +3154,29 @@ def validate_no_secrets(errors: list[str]) -> None:
         (re.compile(r"rk_live_[A-Za-z0-9]{20,}"), "a Stripe restricted key"),
         (re.compile(r"AIza[0-9A-Za-z_-]{35}"), "a Google API key"),
         (re.compile(r"npm_[A-Za-z0-9]{30,}"), "an npm access token"),
+        # Round nine S-5: three more shapes a review planted and the scan missed.
+        (re.compile(r"glpat-[A-Za-z0-9_-]{20,}"), "a GitLab access token"),
+        (re.compile(r"sk-ant-[A-Za-z0-9_-]{20,}"), "an Anthropic API key"),
+        (re.compile(r"rk_test_[A-Za-z0-9]{20,}"), "a Stripe test restricted key"),
     ]
-    # Build output and dependencies are not repository content. Everything else
-    # is scanned, binaries included.
+    # Build output and dependencies are not repository content, UNLESS git
+    # tracks them. Round nine S-2: `dist/` and `__pycache__` are gitignored, and
+    # `git add -f` puts a file there into CI's checkout all the same, so a skip
+    # that ignored tracking was the one place a credential could sit unscanned.
+    # Everything else is scanned, binaries included.
+    tracked = tracked_files()
     skip_prefixes = (".git/", "node_modules/", "dist/", ".pnpm-store/")
     skip_segments = ("__pycache__",)
     for path in ROOT.rglob("*"):
         if not path.is_file():
             continue
         relative = path.relative_to(ROOT).as_posix()
-        if relative.startswith(skip_prefixes):
+        if relative.startswith(skip_prefixes) and relative not in tracked:
             continue
-        if any(segment in relative.split("/") for segment in skip_segments):
+        if (
+            any(segment in relative.split("/") for segment in skip_segments)
+            and relative not in tracked
+        ):
             continue
         # No exemption for this file (round seven m1). It used to be skipped
         # because it "names the patterns it searches for", but a pattern is a

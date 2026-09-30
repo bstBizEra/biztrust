@@ -413,6 +413,10 @@ const lines = (...parts) => parts.join("\n");
 // still interpolates ${...}, so the anchor would evaluate rather than match.
 const BT = String.fromCharCode(96);
 const DOLLAR = String.fromCharCode(36);
+// A backslash, spelled out, for the same reason: an anchor that quotes a regular
+// expression source needs backslashes, and an escape inside an escape is where
+// these anchors have been corrupted before.
+const BACKSLASH = String.fromCharCode(92);
 
 const MUTATIONS = [
   // ---- found by the WP-001 independent review, issue #8 ------------------
@@ -439,8 +443,8 @@ const MUTATIONS = [
     witness:
       "control 1: a module reaches into another's internals by package name is reported as " +
       "rule-1-internals-private-by-name-alpha",
-    from: "      to: { couldNotResolve: true, path: " + BT + "^@biztrust/" + DOLLAR + "{rx(m.name)}/(?:internal|.*/internal)(?:/|" + DOLLAR + ")" + BT + " },",
-    to: "      to: { couldNotResolve: false, path: " + BT + "^@biztrust/" + DOLLAR + "{rx(m.name)}/(?:internal|.*/internal)(?:/|" + DOLLAR + ")" + BT + " },",
+    from: "      to: { couldNotResolve: true, path: internalByName(m.name) },",
+    to: "      to: { couldNotResolve: false, path: internalByName(m.name) },",
   },
   {
     file: RULES,
@@ -451,7 +455,7 @@ const MUTATIONS = [
     witness:
       "control 1: the same, spelled with a .. segment (src/public/../internal/) is reported as " +
       "rule-1-internals-private-by-name-alpha",
-    from: "      to: { couldNotResolve: true, path: " + BT + "^@biztrust/" + DOLLAR + "{rx(m.name)}/(?:internal|.*/internal)(?:/|" + DOLLAR + ")" + BT + " },",
+    from: "      to: { couldNotResolve: true, path: internalByName(m.name) },",
     to: "      to: { couldNotResolve: true, path: " + BT + "^@biztrust/" + DOLLAR + "{rx(m.name)}/src/internal/" + BT + " },",
   },
   {
@@ -469,8 +473,8 @@ const MUTATIONS = [
     witness:
       "control 5: an entry point reaches past a contract by package name is reported as " +
       "rule-5-entry-points-see-contracts-only-by-name",
-    from: '    to: { couldNotResolve: true, path: "^@biztrust/" + anyModule + "/.+" },',
-    to: '    to: { couldNotResolve: false, path: "^@biztrust/" + anyModule + "/.+" },',
+    from: '    to: { couldNotResolve: true, path: SCOPE + anyModule + SEP + ".+" },',
+    to: '    to: { couldNotResolve: false, path: SCOPE + anyModule + SEP + ".+" },',
   },
   // ---- the dependency rules ----------------------------------------------
   {
@@ -3270,6 +3274,186 @@ const MUTATIONS = [
       "rule-5-entry-points-see-contracts-only",
     from: '      path: "^modules/[^/]+/(?:src|dist)/",',
     to: '      path: "^modules/[^/]+/src/",',
+  },
+  // ---- round ten, S-2, S-4 and S-5: the secret scan and the tool powers ------
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: skip a tracked top-level dist directory in the secret scan (R10-S2)",
+    witness: "test_a_credential_in_a_tracked_top_level_dist_directory_is_reported",
+    from: "        if relative.startswith(skip_prefixes) and relative not in tracked:",
+    to: "        if relative.startswith(skip_prefixes):",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: skip a tracked __pycache__ directory in the secret scan (R10-S2)",
+    witness: "test_a_credential_in_a_tracked_pycache_directory_is_reported",
+    from: lines(
+      '            any(segment in relative.split("/") for segment in skip_segments)',
+      "            and relative not in tracked",
+    ),
+    to: '            any(segment in relative.split("/") for segment in skip_segments)',
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: accept a non-ASCII character in a tool power (R10-S4)",
+    witness: "test_a_tool_power_with_a_non_ascii_character_is_refused",
+    from: "            if not item.isascii():",
+    to: "            if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: stop recognising a GitLab access token (R10-S5)",
+    witness: "test_a_gitlab_token_in_the_tree_is_reported",
+    from: '        (re.compile(r"glpat-[A-Za-z0-9_-]{20,}"), "a GitLab access token"),',
+    to: "",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: stop recognising an Anthropic API key (R10-S5)",
+    witness: "test_an_anthropic_key_in_the_tree_is_reported",
+    from: '        (re.compile(r"sk-ant-[A-Za-z0-9_-]{20,}"), "an Anthropic API key"),',
+    to: "",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: stop recognising a Stripe test restricted key (R10-S5)",
+    witness: "test_a_stripe_test_restricted_key_in_the_tree_is_reported",
+    from: '        (re.compile(r"rk_test_[A-Za-z0-9]{20,}"), "a Stripe test restricted key"),',
+    to: "",
+  },
+  // ---- round ten, R9-m3: control 8's own condition, and the checkpoint scan ----
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: validate a checkpoint against its schema without the required fields (R10-m3)",
+    witness: "test_a_checkpoint_missing_a_required_field_is_reported",
+    from: '    checkpoint_schema = load_schema("session-checkpoint.schema.json")',
+    to: lines(
+      "    checkpoint_schema = {",
+      '        k: v for k, v in load_schema("session-checkpoint.schema.json").items() if k != "required"',
+      "    }",
+    ),
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: read past a record in a subdirectory of the checkpoint directory (R10-m3)",
+    witness: "test_a_checkpoint_in_a_subdirectory_is_reported",
+    from: "        if path.parent != directory:",
+    to: "        if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: read past a record whose extension differs only in case (R10-m3)",
+    witness: "test_a_checkpoint_with_an_upper_case_extension_is_reported",
+    from: '        elif path.suffix.lower() == ".json":',
+    to: "        elif False:",
+  },
+  // ---- round ten, R9-m1: every spelling of a by-name internals import ---------
+  //
+  // One family per mutation, each with a fixture of its own in packages/shared
+  // (no other rule reports an import from there, so a rule that stops matching
+  // leaves the file reported by nothing).
+  {
+    file: RULES,
+    name: "rule 1 by package name: match the internal directory in one case only (R10-m1)",
+    witness:
+      "control 1: the same, with other upper and lower case (@BizTrust/Alpha/src/Internal) is " +
+      "reported as rule-1-internals-private-by-name-alpha",
+    from: "      const forms = new Set([ch.toLowerCase(), ch.toUpperCase()]);",
+    to: "      const forms = new Set([ch]);",
+  },
+  {
+    file: RULES,
+    name: "by package name: match the scope and module names in one case only (R10-m1)",
+    witness:
+      "control 5: an entry point reaches past a contract by package name, spelled with other " +
+      "case is reported as rule-5-entry-points-see-contracts-only-by-name",
+    from:
+      "    .map((ch) => (/[A-Za-z]/.test(ch) ? " + BT + "[" + DOLLAR + "{ch.toLowerCase()}" +
+      DOLLAR + "{ch.toUpperCase()}]" + BT + " : rx(ch)))",
+    to: "    .map((ch) => rx(ch))",
+  },
+  {
+    file: RULES,
+    name: "rule 1 by package name: stop matching a percent-encoded letter (R10-m1)",
+    witness:
+      "control 1: the same, with a percent-encoded letter (src/%69nternal) is reported as " +
+      "rule-1-internals-private-by-name-alpha",
+    from: '      return "(?:[" + [...forms].join("") + "]|" + codes.join("|") + ")";',
+    to: '      return "(?:[" + [...forms].join("") + "])";',
+  },
+  {
+    file: RULES,
+    name: "rule 1 by package name: stop matching a backslash separator (R10-m1)",
+    witness:
+      "control 1: the same, with backslashes for separators (src backslash internal) is " +
+      "reported as rule-1-internals-private-by-name-alpha",
+    from: 'const SEP = "(?:[/' + BACKSLASH.repeat(4) + ']|%2[fF]|%5[cC])";',
+    to: 'const SEP = "(?:/|%2[fF]|%5[cC])";',
+  },
+  {
+    file: RULES,
+    name: "rule 1 by package name: stop matching a percent-encoded slash (R10-m1)",
+    witness:
+      "control 1: the same, with a percent-encoded slash after the directory (internal%2Fx) is " +
+      "reported as rule-1-internals-private-by-name-alpha",
+    from: 'const SEP = "(?:[/' + BACKSLASH.repeat(4) + ']|%2[fF]|%5[cC])";',
+    to: 'const SEP = "(?:[/' + BACKSLASH.repeat(4) + ']|%5[cC])";',
+  },
+  {
+    file: RULES,
+    name: "rule 1 by package name: stop matching a percent-encoded hash (R10-m1)",
+    witness:
+      "control 1: the same, with a percent-encoded hash after the directory (internal%23x) is " +
+      "reported as rule-1-internals-private-by-name-alpha",
+    from: 'const END = "(?:" + SEP + "|[?#]|%3[fF]|%23|$)";',
+    to: 'const END = "(?:" + SEP + "|[?#]|%3[fF]|$)";',
+  },
+  {
+    file: RULES,
+    name: "rule 1 by package name: stop matching a percent-encoded query (R10-m1)",
+    witness:
+      "control 1: the same, with a percent-encoded query after the directory (internal%3Fx) is " +
+      "reported as rule-1-internals-private-by-name-alpha",
+    from: 'const END = "(?:" + SEP + "|[?#]|%3[fF]|%23|$)";',
+    to: 'const END = "(?:" + SEP + "|[?#]|%23|$)";',
+  },
+  {
+    file: RULES,
+    name: "rule 1 by package name: stop matching a directory named with a query (R10-m1)",
+    witness:
+      "control 1: the same, naming the directory with a query and nothing after it (internal?x) " +
+      "is reported as rule-1-internals-private-by-name-alpha",
+    from: 'const END = "(?:" + SEP + "|[?#]|%3[fF]|%23|$)";',
+    to: 'const END = "(?:" + SEP + "|[#]|%3[fF]|%23|$)";',
+  },
+  {
+    file: RULES,
+    name: "rule 1 by package name: stop matching a directory named with a hash (R10-m1)",
+    witness:
+      "control 1: the same, naming the directory with a hash and nothing after it (internal#x) " +
+      "is reported as rule-1-internals-private-by-name-alpha",
+    from: 'const END = "(?:" + SEP + "|[?#]|%3[fF]|%23|$)";',
+    to: 'const END = "(?:" + SEP + "|[?]|%3[fF]|%23|$)";',
+  },
+  {
+    file: RULES,
+    name: "rule 1 by package name: stop allowing a dot segment after the scope (R10-m1)",
+    witness:
+      "control 1: the same, with a dot segment between the scope and the package " +
+      "(@biztrust/./alpha) is reported as rule-1-internals-private-by-name-alpha",
+    from:
+      'const SCOPE = "^@" + caseless("biztrust") + SEP + "(?:' + BACKSLASH.repeat(2) +
+      '." + SEP + "|" + SEP + ")*";',
+    to: 'const SCOPE = "^@" + caseless("biztrust") + SEP;',
   },
 ];
 

@@ -242,6 +242,77 @@ CONTROLS.push(
     file: "packages/shared/src/violates-rule-1-by-name-dot-segment.ts",
     rule: "rule-1-internals-private-by-name-alpha",
   },
+  // Round nine, controls R9-m1. Each spelling below stayed silent from
+  // packages/: Node refuses all of them at run time, but the boundary check is
+  // the control, and a control that names only the spellings it was shown is a
+  // control for those spellings. One file per family, so that loosening one
+  // family turns exactly its own control red.
+  {
+    control: 1,
+    threat: "the same, with other upper and lower case (@BizTrust/Alpha/src/Internal)",
+    file: "packages/shared/src/violates-rule-1-by-name-case.ts",
+    rule: "rule-1-internals-private-by-name-alpha",
+  },
+  {
+    control: 1,
+    threat: "the same, with a percent-encoded letter (src/%69nternal)",
+    file: "packages/shared/src/violates-rule-1-by-name-percent-letter.ts",
+    rule: "rule-1-internals-private-by-name-alpha",
+  },
+  {
+    control: 1,
+    threat: "the same, with a percent-encoded slash after the directory (internal%2Fx)",
+    file: "packages/shared/src/violates-rule-1-by-name-percent-slash.ts",
+    rule: "rule-1-internals-private-by-name-alpha",
+  },
+  {
+    control: 1,
+    threat: "the same, with a percent-encoded hash after the directory (internal%23x)",
+    file: "packages/shared/src/violates-rule-1-by-name-percent-hash.ts",
+    rule: "rule-1-internals-private-by-name-alpha",
+  },
+  {
+    control: 1,
+    threat: "the same, with a percent-encoded query after the directory (internal%3Fx)",
+    file: "packages/shared/src/violates-rule-1-by-name-percent-query.ts",
+    rule: "rule-1-internals-private-by-name-alpha",
+  },
+  {
+    control: 1,
+    threat: "the same, with backslashes for separators (src backslash internal)",
+    file: "packages/shared/src/violates-rule-1-by-name-backslash.ts",
+    rule: "rule-1-internals-private-by-name-alpha",
+  },
+  {
+    control: 1,
+    threat: "the same, naming the directory with a query and nothing after it (internal?x)",
+    file: "packages/shared/src/violates-rule-1-by-name-directory-query.ts",
+    rule: "rule-1-internals-private-by-name-alpha",
+  },
+  {
+    control: 1,
+    threat: "the same, naming the directory with a hash and nothing after it (internal#x)",
+    file: "packages/shared/src/violates-rule-1-by-name-directory-hash.ts",
+    rule: "rule-1-internals-private-by-name-alpha",
+  },
+  {
+    control: 2,
+    threat: "a module imports another by a deep package path, spelled with other case",
+    file: "modules/beta/src/public/violates-rule-2-by-name-case.ts",
+    rule: "rule-2-contracts-only-by-name-beta",
+  },
+  {
+    control: 5,
+    threat: "an entry point reaches past a contract by package name, spelled with other case",
+    file: "services/api/src/violates-rule-5-by-name-case.ts",
+    rule: "rule-5-entry-points-see-contracts-only-by-name",
+  },
+  {
+    control: 1,
+    threat: "the same, with a dot segment between the scope and the package (@biztrust/./alpha)",
+    file: "packages/shared/src/violates-rule-1-by-name-scope-dot.ts",
+    rule: "rule-1-internals-private-by-name-alpha",
+  },
 );
 
 for (const { control, threat, file, rule } of CONTROLS) {
@@ -261,6 +332,7 @@ const CONFORMING = [
   "modules/alpha/src/public/index.ts",
   "modules/beta/src/public/index.ts",
   "packages/shared/src/index.ts",
+  "packages/shared/src/conforming-internal-lookalike.ts",
   "services/api/src/index.ts",
   "apps/control-plane/src/index.ts",
   "apps/broker-portal/src/index.ts",

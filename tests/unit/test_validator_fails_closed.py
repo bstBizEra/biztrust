@@ -900,6 +900,31 @@ class ValidatorFailsClosed(unittest.TestCase):
         state["latest_checkpoint"] = "README.md"
         self._broken(state=state)
 
+    # ---- round nine R9-m3: control 8's own condition ------------------------
+    #
+    # "A record drifts from its schema" was witnessed by a checkpoint with an
+    # EMPTY validation list and by a missing field in the state file - never by
+    # a checkpoint missing a required field. Dropping `required` from the
+    # checkpoint schema alone left the whole suite green.
+
+    def test_a_checkpoint_missing_a_required_field_is_reported(self):
+        checkpoint = copy.deepcopy(CHECKPOINT)
+        del checkpoint["blockers"]
+        result = self._broken(checkpoint=checkpoint)
+        self.assertIn("missing required field 'blockers'", result.stderr)
+
+    def test_a_checkpoint_in_a_subdirectory_is_reported(self):
+        """`glob("*.json")` is not recursive: a malformed record below it passed."""
+        result = self._broken(extra_files={"sessions/checkpoints/nested/x.json": "{}"})
+        self.assertIn("sessions/checkpoints/nested/x.json", result.stderr)
+        self.assertIn("is in a subdirectory of sessions/checkpoints/", result.stderr)
+
+    def test_a_checkpoint_with_an_upper_case_extension_is_reported(self):
+        """Windows matched `*.json` case-insensitively and Linux, where CI runs, does not."""
+        result = self._broken(extra_files={"sessions/checkpoints/other.JSON": "{}"})
+        self.assertIn("sessions/checkpoints/other.JSON", result.stderr)
+        self.assertIn("its extension is not exactly '.json'", result.stderr)
+
     # ---- the authority REGISTRY, not just its mirror -----------------------
     #
     # The state file was hardened first, which left the source of record
@@ -1134,6 +1159,44 @@ class ValidatorFailsClosed(unittest.TestCase):
         result = self._with_raw_tool_authority(block)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_a_tool_power_with_a_non_ascii_character_is_refused(self):
+        """Round nine S-4. `_normalised` folds Unicode whitespace and YAML does not.
+
+        `Push<NBSP>to main` satisfied the pin while a strict YAML consumer found
+        `Push to main` absent from may_not. A homoglyph or a zero-width space
+        under `may` is a power no pin can ever name. Refusing every non-ASCII
+        character closes all three, and the escape spelling too: the item is
+        judged AFTER it is decoded.
+        """
+        backslash = chr(92)
+        nbsp, zero_width, cyrillic_a = chr(0xA0), chr(0x200B), chr(0x430)
+        forbidden_may_not = TOOL_MAY_NOT[0]
+        for label, block in (
+            (
+                "a no-break space replacing a space in may_not",
+                tool_authority_yaml(may_not=(forbidden_may_not.replace(" ", nbsp),) + TOOL_MAY_NOT[1:]),
+            ),
+            (
+                "a zero-width space in may",
+                tool_authority_yaml(may=TOOL_MAY + ("Push to" + zero_width + " main",)),
+            ),
+            (
+                "a Cyrillic homoglyph in may",
+                tool_authority_yaml(may=TOOL_MAY + ("Push to m" + cyrillic_a + "in",)),
+            ),
+            (
+                "a JSON escape that decodes to a no-break space",
+                tool_authority_yaml().replace(
+                    chr(34) + "Push to main" + chr(34),
+                    chr(34) + "Push" + backslash + "u00a0to main" + chr(34),
+                ),
+            ),
+        ):
+            with self.subTest(form=label):
+                result = self._with_raw_tool_authority(block)
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn("non-ASCII character", result.stderr)
+
     def test_a_second_tool_authority_block_is_reported(self):
         second = (
             "tool_authority:" + NL
@@ -1260,6 +1323,60 @@ class ValidatorFailsClosed(unittest.TestCase):
     def test_an_npm_token_in_the_tree_is_reported(self):
         result = self._leaks("npm" + "_" + "a1B2c3" * 6)
         self.assertIn("docs/leak.md: contains what looks like an npm access token", result.stderr)
+
+    # ---- round nine S-5: three more shapes a review planted and the scan missed ----
+
+    def test_a_gitlab_token_in_the_tree_is_reported(self):
+        result = self._leaks("glp" + "at-" + "A" * 24)
+        self.assertIn("docs/leak.md: contains what looks like a GitLab access token", result.stderr)
+
+    def test_an_anthropic_key_in_the_tree_is_reported(self):
+        result = self._leaks("sk" + "-ant-" + "api03-" + "A" * 30)
+        self.assertIn("docs/leak.md: contains what looks like an Anthropic API key", result.stderr)
+
+    def test_a_stripe_test_restricted_key_in_the_tree_is_reported(self):
+        result = self._leaks("rk" + "_test_" + "a1B2" * 6)
+        self.assertIn("docs/leak.md: contains what looks like a Stripe test restricted key", result.stderr)
+
+    # ---- round nine S-2: build directories are skipped only when git does not track them ----
+    #
+    # The scan skipped any path with a `__pycache__` segment and a top-level
+    # `dist/` whether or not git tracked it. Both are gitignored, but
+    # `git add -f` ships a file in CI's checkout, so a force-added file was the
+    # one place a credential could sit unscanned.
+
+    TOKEN = "gh" + "p_" + "A" * 36
+
+    def _in_a_git_repository(self, path, *, track):
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = build(Path(directory), extra_files={path: "note: " + self.TOKEN + NL})
+            subprocess.run(["git", "init", "-q"], cwd=tmp, check=True)
+            if track:
+                subprocess.run(["git", "add", "-f", path], cwd=tmp, check=True)
+            return run(tmp)
+
+    def test_a_credential_in_a_tracked_pycache_directory_is_reported(self):
+        result = self._in_a_git_repository("docs/__pycache__/notes.txt", track=True)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("docs/__pycache__/notes.txt: contains what looks like", result.stderr)
+
+    def test_a_credential_in_a_tracked_top_level_dist_directory_is_reported(self):
+        result = self._in_a_git_repository("dist/notes.txt", track=True)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("dist/notes.txt: contains what looks like", result.stderr)
+
+    def test_an_untracked_build_directory_is_still_skipped(self):
+        """The boundary of the fix: untracked build output is not repository content."""
+        for path in ("docs/__pycache__/notes.txt", "dist/notes.txt"):
+            with self.subTest(path=path):
+                result = self._in_a_git_repository(path, track=False)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_build_directory_outside_any_git_repository_is_skipped(self):
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = build(Path(directory), extra_files={"dist/notes.txt": "note: " + self.TOKEN + NL})
+            result = run(tmp)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_words_that_only_resemble_a_credential_prefix_are_allowed(self):
         """The scan is not a substring ban: short and separated forms pass."""

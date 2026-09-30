@@ -15,6 +15,71 @@ export function rx(name) {
   return name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/**
+ * A word matched in either case, as regular expression source: `ab` is
+ * `[aA][bB]`. dependency-cruiser compiles a `path` without flags, so the case
+ * has to be written into the pattern.
+ */
+function caseless(word) {
+  return [...word]
+    .map((ch) => (/[A-Za-z]/.test(ch) ? `[${ch.toLowerCase()}${ch.toUpperCase()}]` : rx(ch)))
+    .join("");
+}
+
+/** One hex digit of a percent escape, either case: `e` is `[eE]`. */
+function hexDigit(digit) {
+  return /[a-f]/.test(digit) ? `[${digit}${digit.toUpperCase()}]` : digit;
+}
+
+/**
+ * A word matched in either case AND with any letter written as a percent
+ * escape: `i` is `(?:[iI]|%69|%49)`.
+ */
+function loosely(word) {
+  return [...word]
+    .map((ch) => {
+      const forms = new Set([ch.toLowerCase(), ch.toUpperCase()]);
+      const codes = [...forms].map(
+        (form) => "%" + [...form.charCodeAt(0).toString(16)].map(hexDigit).join(""),
+      );
+      return "(?:[" + [...forms].join("") + "]|" + codes.join("|") + ")";
+    })
+    .join("");
+}
+
+/**
+ * A path separator as a specifier can spell it: a slash, a backslash, or
+ * either one percent-encoded. Round nine, controls R9-m1: the rules matched
+ * `/` only, so a specifier the runtime refuses but a reader would still call
+ * an internals import was silent.
+ */
+const SEP = "(?:[/\\\\]|%2[fF]|%5[cC])";
+
+/**
+ * What may follow a directory name in a specifier: a separator, a query, a
+ * hash, either one percent-encoded, or the end. `internal/x?q` was reported;
+ * `internal?x` and `internal#x` were not.
+ */
+const END = "(?:" + SEP + "|[?#]|%3[fF]|%23|$)";
+
+/**
+ * The start of a by-name specifier, `@biztrust/`, in any case, with a dot
+ * segment or a doubled separator allowed after the scope (`@biztrust/./audit`).
+ */
+const SCOPE = "^@" + caseless("biztrust") + SEP + "(?:\\." + SEP + "|" + SEP + ")*";
+
+/**
+ * The directory word, in any case and with percent escapes. Written into the
+ * rule twice below rather than as an optional prefix: dependency-cruiser
+ * refuses a pattern whose optional group holds a repetition (`(?:.*x)?`) as
+ * unsafe, and accepts the same match written as an alternation.
+ */
+const INTERNAL = loosely("internal");
+
+/** The specifiers that name `internal` anywhere under module `name`, however spelled. */
+const internalByName = (name) =>
+  SCOPE + caseless(name) + SEP + "(?:" + INTERNAL + "|.*" + SEP + INTERNAL + ")" + END;
+
 export function buildRules(registry) {
   const packaged = registry.modules.filter((m) => m.package === true);
   const rules = [];
@@ -22,7 +87,7 @@ export function buildRules(registry) {
   // package name, @biztrust/<module>/<path>, is refused by that package's
   // exports field, so the checker records it as unresolvable and a rule over
   // resolved paths never sees it. The by-name rules below match those.
-  const anyModule = "(" + registry.modules.map((m) => rx(m.name)).join("|") + ")";
+  const anyModule = "(" + registry.modules.map((m) => caseless(m.name)).join("|") + ")";
 
   // Rule 1. A module's internals are private.
   for (const m of packaged) {
@@ -45,8 +110,9 @@ export function buildRules(registry) {
       name: `rule-1-internals-private-by-name-${m.name}`,
       comment:
         `Rule 1 by package name: @biztrust/${m.name}/src/internal/... from outside ` +
-        `modules/${m.name}/, however the path is spelled (a .. or . segment, or ` +
-        `no trailing slash). The exports field refuses it at resolution; this rule ` +
+        `modules/${m.name}/, however the path is spelled (a .. or . segment, no ` +
+        `trailing slash, other case, a percent escape, a backslash, a query or a ` +
+        `hash). The exports field refuses it at resolution; this rule ` +
         `makes the refusal a named violation instead of a silent unresolved import.`,
       severity: "error",
       from: { pathNot: "^modules/" + rx(m.name) + "/" },
@@ -54,8 +120,10 @@ export function buildRules(registry) {
       // The specifier is matched AS WRITTEN, not normalised, so
       // src/public/../internal/x, src/./internal/x and a bare src/internal
       // are all specifiers a literal `src/internal/` prefix never matches
-      // (round seven, controls N1).
-      to: { couldNotResolve: true, path: `^@biztrust/${rx(m.name)}/(?:internal|.*/internal)(?:/|$)` },
+      // (round seven, controls N1). Round nine, controls R9-m1: nor does it
+      // match other case, a percent escape, a backslash, or a directory named
+      // with a query or a hash and nothing after it.
+      to: { couldNotResolve: true, path: internalByName(m.name) },
     });
   }
 
@@ -87,7 +155,7 @@ export function buildRules(registry) {
       from: { path: `^modules/${rx(m.name)}/` },
       to: {
         couldNotResolve: true,
-        path: "^@biztrust/(?!" + rx(m.name) + "/)" + anyModule + "/.+",
+        path: SCOPE + "(?!" + caseless(m.name) + SEP + ")" + anyModule + SEP + ".+",
       },
     });
   }
@@ -145,7 +213,7 @@ export function buildRules(registry) {
       "path, @biztrust/<module>/<path>, which bypasses its contract.",
     severity: "error",
     from: { path: "^(apps|services)/" },
-    to: { couldNotResolve: true, path: "^@biztrust/" + anyModule + "/.+" },
+    to: { couldNotResolve: true, path: SCOPE + anyModule + SEP + ".+" },
   });
 
   // Rule 6. Test packages stay in tests.
