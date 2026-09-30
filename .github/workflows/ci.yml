@@ -43,10 +43,18 @@ jobs:
   verify:
     name: Verify
     runs-on: ubuntu-latest
-    # PROVISIONAL (round ten, replaced once the first run at this head has been
-    # measured): the mutation step took 23:14 and 24:20 at 229 mutations, so
-    # 6.1 to 6.4 s each on average, and the round-ten sweep is 292. A cancelled
-    # job is not a passing one: main requires Verify.
+    # The mutation sweep is nearly all of this job, so this is sized from it.
+    # Measured on this runner at the round-ten head (run 36727465982): 41:40 for
+    # 292 mutations, 8.6 s each on average. That average hides two costs: the
+    # 131 mutations of scripts/validate_continuity.py each re-run the whole
+    # 225-test validator suite (about 17 s apiece), and the other 161 take
+    # about 1.6 s. One round earlier it was 23:14 and 24:20 for 229 mutations
+    # (6.1 to 6.4 s each, 169 tests). 15 minutes cancelled the job mid-sweep at
+    # 229, and 30 would cancel it at roughly 200 of today's 292. 60 leaves about
+    # 16 minutes over the measured 42, which is some 55 more validator mutations
+    # at 17 s. The sweep grows with every guard added, so re-measure and move
+    # this number with it. A cancelled job is not a passing one: main requires
+    # Verify.
     timeout-minutes: 60
 
     steps:
