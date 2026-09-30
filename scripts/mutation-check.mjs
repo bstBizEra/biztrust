@@ -429,8 +429,20 @@ const MUTATIONS = [
     witness:
       "control 1: a module reaches into another's internals by package name is reported as " +
       "rule-1-internals-private-by-name-alpha",
-    from: "      to: { couldNotResolve: true, path: " + BT + "^@biztrust/" + DOLLAR + "{rx(m.name)}/src/internal/" + BT + " },",
-    to: "      to: { couldNotResolve: false, path: " + BT + "^@biztrust/" + DOLLAR + "{rx(m.name)}/src/internal/" + BT + " },",
+    from: "      to: { couldNotResolve: true, path: " + BT + "^@biztrust/" + DOLLAR + "{rx(m.name)}/(?:internal|.*/internal)(?:/|" + DOLLAR + ")" + BT + " },",
+    to: "      to: { couldNotResolve: false, path: " + BT + "^@biztrust/" + DOLLAR + "{rx(m.name)}/(?:internal|.*/internal)(?:/|" + DOLLAR + ")" + BT + " },",
+  },
+  {
+    file: RULES,
+    // Round seven, controls N1. The rule used to match only the literal prefix
+    // @biztrust/<m>/src/internal/. Narrowing it back to that prefix leaves the
+    // three specifiers below unreported by anything.
+    name: "rule 1 by package name: match only the literal src/internal/ prefix (N1)",
+    witness:
+      "control 1: the same, spelled with a .. segment (src/public/../internal/) is reported as " +
+      "rule-1-internals-private-by-name-alpha",
+    from: "      to: { couldNotResolve: true, path: " + BT + "^@biztrust/" + DOLLAR + "{rx(m.name)}/(?:internal|.*/internal)(?:/|" + DOLLAR + ")" + BT + " },",
+    to: "      to: { couldNotResolve: true, path: " + BT + "^@biztrust/" + DOLLAR + "{rx(m.name)}/src/internal/" + BT + " },",
   },
   {
     file: RULES,
