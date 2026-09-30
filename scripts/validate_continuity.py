@@ -352,6 +352,7 @@ def parse_authority(text: str) -> tuple[dict[str, dict[str, dict[str, str]]], li
     section: str | None = None
     key: str | None = None
     block_indent: int | None = None
+    seen_sections: set[str] = set()
 
     for number, raw in enumerate(text.splitlines(), start=1):
         if raw.strip() == "" or raw.lstrip().startswith("#"):
@@ -384,6 +385,17 @@ def parse_authority(text: str) -> tuple[dict[str, dict[str, dict[str, str]]], li
                 continue
             section, rest = match.group(1), match.group(2).strip()
             key = None
+            # Round seven finding N1. Two blocks under one key were MERGED
+            # here, while PyYAML keeps the last and drops the first: a second
+            # `tool_authority:` appended to the file replaced every pinned
+            # list for everyone but this reader. Refused, not merged.
+            if section in seen_sections:
+                problems.append(
+                    f"badf/authority.yaml line {number}: top-level key {section!r} "
+                    f"appears more than once. Two readings of one key are two files, "
+                    f"and YAML keeps only the last"
+                )
+            seen_sections.add(section)
             if section not in AUTHORITY_SECTIONS:
                 problems.append(
                     f"badf/authority.yaml line {number}: unknown top-level section "
@@ -481,18 +493,45 @@ PINNED_TOOL_MAY_NOT = (
 TOOL_AUTHORITY_LISTS = ("may", "may_not")
 
 
-def _tool_authority_item(raw: str) -> str:
-    """The text of one `- "..."` list item, unquoted."""
+#: A single-quoted YAML scalar, and nothing after its closing quote.
+_SINGLE_QUOTED_SCALAR = re.compile(r"^'(?:[^']|'')*'$")
+
+#: A plain YAML scalar this reader is willing to read: it opens on a letter,
+#: digit or parenthesis (so no indicator, quote, anchor, tag, flow bracket or
+#: nested `- `), and holds no ` #` or `#`, no `: ` and no closing colon.
+_PLAIN_SCALAR = re.compile(r"^[A-Za-z0-9(][^#]*$")
+
+
+def _tool_authority_item(raw: str) -> tuple[str | None, str | None]:
+    """One `- ...` list item as (text, None), or (None, why it was refused).
+
+    Round seven finding N1. This used to unquote an item only when the item
+    ENDED with a quote, and hand anything else back as text. A trailing
+    `# comment` after a quoted forbidden power therefore left the quotes and
+    the comment inside the compared string, the power no longer matched its
+    pin, and PyYAML read exactly the pinned string. Anything that is not
+    exactly one quoted scalar, or one plain scalar without a `#`, is REFUSED
+    here rather than guessed at: a reader that guesses is a reader with two
+    readings of the same file.
+    """
     body = raw.strip()[2:].strip()
-    if body.startswith('"') and body.endswith('"') and len(body) >= 2:
+    if body.startswith('"'):
         try:
             decoded = json.loads(body)
         except ValueError:
-            decoded = body[1:-1]
-        return str(decoded)
-    if body.startswith("'") and body.endswith("'") and len(body) >= 2:
-        return body[1:-1].replace("''", "'")
-    return body
+            decoded = None
+        if not isinstance(decoded, str):
+            return None, "a double-quoted scalar this reader cannot decode whole"
+        return decoded, None
+    if body.startswith("'"):
+        if _SINGLE_QUOTED_SCALAR.match(body) is None:
+            return None, "a single-quoted scalar with text outside its quotes"
+        return body[1:-1].replace("''", "'"), None
+    if _PLAIN_SCALAR.match(body) is None:
+        return None, "neither quoted nor a plain scalar this reader accepts"
+    if ": " in body or body.endswith(":"):
+        return None, "a plain scalar that reads as a mapping"
+    return body, None
 
 
 def _normalised(text: str) -> str:
@@ -511,6 +550,7 @@ def parse_tool_authority(text: str) -> tuple[dict[str, list[str]], list[str]]:
     problems: list[str] = []
     in_section = False
     current: str | None = None
+    opened: set[str] = set()
     for number, raw in enumerate(text.splitlines(), start=1):
         if raw.strip() == "" or raw.lstrip().startswith("#"):
             continue
@@ -518,6 +558,7 @@ def parse_tool_authority(text: str) -> tuple[dict[str, list[str]], list[str]]:
         if indent == 0:
             in_section = raw.startswith("tool_authority:")
             current = None
+            opened = set()
             continue
         if not in_section:
             continue
@@ -531,9 +572,25 @@ def parse_tool_authority(text: str) -> tuple[dict[str, list[str]], list[str]]:
                 current = None
                 continue
             current = match.group(1)
+            if current in opened:
+                # PyYAML keeps the LAST of two equal keys; merging them here
+                # would read a different file from the one everyone else reads.
+                problems.append(
+                    f"badf/authority.yaml line {number}: tool_authority.{current} "
+                    f"appears more than once; a second list is not merged with the first"
+                )
+            opened.add(current)
             continue
         if indent == 4 and raw.lstrip().startswith("- ") and current is not None:
-            lists[current].append(_tool_authority_item(raw))
+            item, why = _tool_authority_item(raw)
+            if item is None:
+                problems.append(
+                    f"badf/authority.yaml line {number}: a tool_authority item that is "
+                    f"not exactly one quoted scalar or one plain scalar without '#' "
+                    f"({why}): {raw.strip()!r}"
+                )
+                continue
+            lists[current].append(item)
             continue
         problems.append(
             f"badf/authority.yaml line {number}: not an item of tool_authority.may or "

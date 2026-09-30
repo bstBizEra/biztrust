@@ -2529,6 +2529,59 @@ const MUTATIONS = [
   {
     file: RECORDS,
     suite: "validator",
+    // Round seven N1, double quotes. A quoted item that json.loads cannot read
+    // whole (a trailing comment, text after the closing quote) used to fall
+    // back to the text between the outer quotes, which no longer matched its
+    // pin while PyYAML read exactly the pinned string.
+    name: "records: read a double-quoted tool power it cannot decode instead of refusing it",
+    witness: "test_a_tool_power_item_with_a_comment_under_may_not_is_refused_too",
+    from: "        if not isinstance(decoded, str):",
+    to: lines(
+      "        if not isinstance(decoded, str):",
+      "            return body[1:-1], None",
+      "        if False:",
+    ),
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // Round seven N1, single quotes.
+    name: "records: read a single-quoted tool power with text outside its quotes",
+    witness: "test_a_tool_power_item_with_a_trailing_comment_is_refused_not_skipped",
+    from: "        if _SINGLE_QUOTED_SCALAR.match(body) is None:",
+    to: "        if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // Round seven N1, plain scalars: ` # comment`, flow brackets, anchors.
+    name: "records: read a plain tool power item without checking it is one plain scalar",
+    witness: "test_a_tool_power_item_that_is_not_a_scalar_is_refused",
+    from: "    if _PLAIN_SCALAR.match(body) is None:",
+    to: "    if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // Round seven N1, the second block. Merged rather than refused, so a
+    // `tool_authority:` appended to the file replaced the lists for PyYAML only.
+    name: "records: merge a second top-level block instead of refusing the duplicate key",
+    witness: "test_a_second_tool_authority_block_is_reported",
+    from: "            if section in seen_sections:",
+    to: "            if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // Round seven N1, the same bypass one level down: two `may_not:` lists.
+    name: "records: merge a second list of the same name inside tool_authority",
+    witness: "test_a_second_list_of_the_same_name_inside_tool_authority_is_reported",
+    from: "            if current in opened:",
+    to: "            if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
     // M2. The only rule between a P0 grant written into authority.yaml alone
     // and a passing validate:records. Deleting it turned nothing red.
     name: "records: stop refusing a registry grant the state file still reads as withheld",

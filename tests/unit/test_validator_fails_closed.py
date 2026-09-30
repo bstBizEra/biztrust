@@ -1055,6 +1055,106 @@ class ValidatorFailsClosed(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    # ---- tool_authority: ordinary YAML must not get past the pin (round 7 N1) --
+    #
+    # The B1 refusal compared the text of each list item. A trailing comment
+    # after a quoted item left the quotes and the comment in the compared
+    # string, so a forbidden power written under `may` no longer matched its
+    # pin, while PyYAML read exactly the pinned string. A second top-level
+    # `tool_authority:` block was merged with the first, and PyYAML keeps the
+    # LAST duplicate. Both are one-file edits.
+
+    def _with_raw_tool_authority(self, block, *, append=""):
+        text = AUTHORITY_YAML.replace(tool_authority_yaml(), block) + append
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = build(Path(directory))
+            (tmp / "badf" / "authority.yaml").write_text(text, encoding="utf-8")
+            return run(tmp)
+
+    def _may_item_lines(self, *lines):
+        block = tool_authority_yaml()
+        anchor = "  may_not:" + NL
+        self.assertEqual(block.count(anchor), 1)
+        return block.replace(anchor, "".join(line + NL for line in lines) + anchor)
+
+    def test_a_tool_power_item_with_a_trailing_comment_is_refused_not_skipped(self):
+        forbidden = "Grant, extend or infer authority, including its own"
+        for label, line in (
+            ("double-quoted", "    - " + chr(34) + forbidden + chr(34) + "  # per operator"),
+            ("single-quoted", "    - " + chr(39) + forbidden + chr(39) + " # per operator"),
+            ("plain", "    - " + forbidden + " # per operator"),
+        ):
+            with self.subTest(form=label):
+                result = self._with_raw_tool_authority(self._may_item_lines(line))
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn(
+                    "not exactly one quoted scalar or one plain scalar", result.stderr
+                )
+
+    def test_a_tool_power_item_with_a_comment_under_may_not_is_refused_too(self):
+        block = tool_authority_yaml().replace(
+            chr(34) + "Push to main" + chr(34) + NL,
+            chr(34) + "Push to main" + chr(34) + "  # retired" + NL,
+        )
+        self.assertIn("# retired", block)
+        result = self._with_raw_tool_authority(block)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("not exactly one quoted scalar or one plain scalar", result.stderr)
+
+    def test_a_tool_power_item_that_is_not_a_scalar_is_refused(self):
+        for label, line in (
+            ("flow sequence", "    - [" + chr(34) + "Push to main" + chr(34) + "]"),
+            ("flow mapping", "    - {a: b}"),
+            ("anchor", "    - &pin Push to main"),
+            ("empty", "    - "),
+            ("unterminated quote", "    - " + chr(34) + "Push to main"),
+            ("text after a closing quote", "    - " + chr(34) + "a" + chr(34) + " b"),
+        ):
+            with self.subTest(form=label):
+                result = self._with_raw_tool_authority(self._may_item_lines(line))
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn(
+                    "not exactly one quoted scalar or one plain scalar", result.stderr
+                )
+
+    def test_plain_and_single_quoted_tool_power_items_are_still_read(self):
+        """The refusal is not a ban on YAML: an ordinary scalar still passes."""
+        block = self._may_item_lines(
+            "    - Read the audit trail",
+            "    - " + chr(39) + "Open a branch, it" + chr(39) * 2 + "s under a Work Package" + chr(39),
+            "    - " + chr(34) + "Say " + chr(92) + chr(34) + "no" + chr(92) + chr(34) + chr(34),
+        )
+        result = self._with_raw_tool_authority(block)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_second_tool_authority_block_is_reported(self):
+        second = (
+            "tool_authority:" + NL
+            + "  may:" + NL
+            + "    - " + chr(34) + "Everything the operator can do" + chr(34) + NL
+            + "  may_not:" + NL
+            + "    - " + chr(34) + "Nothing" + chr(34) + NL
+        )
+        result = self._with_raw_tool_authority(tool_authority_yaml(), append=second)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("top-level key 'tool_authority' appears more than once", result.stderr)
+
+    def test_a_second_list_of_the_same_name_inside_tool_authority_is_reported(self):
+        """The same bypass one level down: YAML keeps the last `may_not`."""
+        block = tool_authority_yaml() + (
+            "  may_not:" + NL + "    - " + chr(34) + "Nothing" + chr(34) + NL
+        )
+        result = self._with_raw_tool_authority(block)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("tool_authority.may_not appears more than once", result.stderr)
+
+    def test_a_second_top_level_section_of_any_kind_is_reported(self):
+        result = self._with_raw_tool_authority(
+            tool_authority_yaml(), append="not_granted:" + NL
+        )
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("top-level key 'not_granted' appears more than once", result.stderr)
+
     def test_a_credential_in_the_tree_is_reported(self):
         result = self._broken(
             extra_files={"docs/leak.md": "token: ghp_" + "A" * 36 + "\n"}
