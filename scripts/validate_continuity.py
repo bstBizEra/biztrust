@@ -34,6 +34,7 @@ import re
 import subprocess
 import sys
 import traceback
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -44,6 +45,18 @@ CHECKPOINTS = ROOT / "sessions" / "checkpoints"
 RFC3339 = re.compile(
     r"^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(\.\d+)?([Zz]|[+-]\d{2}:\d{2})$"
 )
+
+#: How far ahead of this machine's clock a checkpoint's created_at may be before
+#: it counts as written in the future. A little slack, because the clock that
+#: stamped a record and the clock that validates it are not the same clock.
+CHECKPOINT_CLOCK_SLACK = timedelta(minutes=5)
+
+#: The one historical checkpoint whose created_at precedes one of its own
+#: observations: the round-six record was written and then amended, and history
+#: is not rewritten. It is exempt from the ORDERING rule only; the future and
+#: dangling-action rules still apply to it. Found by the round-ten spec review
+#: (n5) and reported to the operator.
+CHECKPOINT_ORDER_EXEMPT = {"sessions/checkpoints/BIZTRUST-WP-001-review-round-6.json"}
 
 #: The registries under badf/ that must exist, be non-empty and declare a
 #: version. signing-policy.yaml joined them in the task that added
@@ -248,6 +261,7 @@ def validate_records(errors: list[str]) -> None:
         record = load_json(relative, errors)
         if record is not None:
             check(record, checkpoint_schema, relative, errors)
+            validate_checkpoint_chronology(record, relative, actions, errors)
 
     # --- handoffs, if any ---------------------------------------------------
     handoff_dir = ROOT / "sessions" / "handoffs"
@@ -260,6 +274,55 @@ def validate_records(errors: list[str]) -> None:
                 check(record, handoff_schema, relative, errors)
 
     cross_record_rules(state, actions, decisions, errors)
+
+
+def parse_timestamp(text) -> datetime | None:
+    """An RFC 3339 timestamp as an aware datetime, or None when it is not one.
+
+    None is not an error here: the schema check has already refused a value that
+    is not a date-time, and this reader must not crash on what it refused.
+    """
+    if not isinstance(text, str) or RFC3339.match(text) is None:
+        return None
+    try:
+        return datetime.fromisoformat(text[:-1] + "+00:00" if text[-1] in "Zz" else text)
+    except ValueError:
+        return None
+
+
+def validate_checkpoint_chronology(record, relative: str, actions, errors: list[str]) -> None:
+    """A checkpoint must agree with itself and with the records around it.
+
+    The schema checks the SHAPE of a timestamp and of an action id. It does not
+    check that a checkpoint was created after it observed what it reports, that
+    it was not created in the future, or that the next action it recommends is
+    an action that exists (round-ten spec review, n5). A record that says it was
+    written before it ran its own commands, or that hands over to NS-404, is not
+    a record of anything that happened.
+    """
+    if not isinstance(record, dict):
+        return
+    created_text = record.get("created_at")
+    created = parse_timestamp(created_text)
+    if created is not None and created > datetime.now(timezone.utc) + CHECKPOINT_CLOCK_SLACK:
+        errors.append(f"{relative}: created_at {created_text} is in the future")
+    if created is not None and relative not in CHECKPOINT_ORDER_EXEMPT:
+        for row in record.get("validation") or []:
+            observed_text = row.get("observed_at") if isinstance(row, dict) else None
+            observed = parse_timestamp(observed_text)
+            if observed is not None and observed > created:
+                errors.append(
+                    f"{relative}: created_at {created_text} is earlier than the observation "
+                    f"at {observed_text}, so the checkpoint records something that had not "
+                    f"happened when it was written"
+                )
+    if isinstance(actions, dict) and isinstance(actions.get("actions"), list):
+        known = {a.get("id") for a in actions["actions"] if isinstance(a, dict)}
+        named = record.get("next_action_id")
+        if isinstance(named, str) and named not in known:
+            errors.append(
+                f"{relative}: next_action_id {named!r} names no action in badf/next-actions.json"
+            )
 
 
 def cross_record_rules(state, actions, decisions, errors: list[str]) -> None:
@@ -362,13 +425,22 @@ _DOUBLE_QUOTED_SCALAR = re.compile(r'^"(?:[^"\\]|\\.)*"$')
 _SINGLE_QUOTED_SCALAR = re.compile(r"^'(?:[^']|'')*'$")
 
 
-def _open_quote_in_flow(value: str) -> bool:
-    """Whether a flow collection on one line holds a quote it does not close.
+def _scan_flow(value: str) -> tuple[bool, bool]:
+    """Reads a flow collection written on one line: (quote left open, brackets balance).
 
     A quote only OPENS a scalar at the start of a token (after `[`, `{`, `,`
     or `:`), so `[it's]` is not one, and `["it's"]` is a complete double-quoted
-    scalar with an apostrophe inside.
+    scalar with an apostrophe inside. A bracket inside a quoted scalar is text.
+
+    The brackets balance when every `[` and `{` is closed by its own kind, in
+    order, and the outermost one closes at the last character. Round ten S-6:
+    the check used to test only that the LAST character was the matching
+    closer, so `[a, [b]` passed with one `[` still open, and an ordinary YAML
+    reader then read on into the lines below it.
     """
+    closer_of = {"[": "]", "{": "}"}
+    expected: list[str] = []
+    balanced = True
     quote = None
     index = 0
     previous = ""
@@ -388,10 +460,22 @@ def _open_quote_in_flow(value: str) -> bool:
                 quote = None
         elif char in "\"'" and previous in ("", "[", "{", ",", ":"):
             quote = char
+        elif char in closer_of:
+            expected.append(closer_of[char])
+        elif char in "]}":
+            if not expected or expected.pop() != char:
+                balanced = False
+            elif not expected and index != len(value) - 1:
+                balanced = False
         if not char.isspace() and quote is None:
             previous = char
         index += 1
-    return quote is not None
+    return quote is not None, balanced and not expected
+
+
+def _open_quote_in_flow(value: str) -> bool:
+    """Whether a flow collection on one line holds a quote it does not close."""
+    return _scan_flow(value)[0]
 
 
 def scalar_refusal(value: str) -> str | None:
@@ -420,6 +504,8 @@ def scalar_refusal(value: str) -> str | None:
             return "a flow collection holding a quote that is not one complete quoted scalar on its line"
         if not value.endswith("]" if value.startswith("[") else "}"):
             return "a flow collection that does not close on its line"
+        if not _scan_flow(value)[1]:
+            return "a flow collection with brackets that do not balance on its line"
         return None
     if value.startswith(("&", "*", "!")):
         return "an anchor, an alias or a tag, none of which this reader resolves"
@@ -3314,17 +3400,21 @@ def validate_checkpoint_agrees(state, errors: list[str]) -> None:
 
 
 def tracked_files() -> set[str]:
-    """The paths git tracks, as posix paths relative to ROOT.
+    """The paths git tracks, as posix paths relative to ROOT, or None.
 
-    Empty when git cannot say (no repository, no git): then nothing is treated
-    as tracked, which is the old behaviour, and the skip lists apply.
+    None when git cannot say (no repository, no git, a refused directory, a
+    corrupt index). It is NOT an empty set: "nothing is tracked" is an answer,
+    and it put the secret scan back on its skip list whenever git failed, which
+    let a force-added file under dist/ or __pycache__ go unscanned with a clean
+    pass (round ten S-7). The caller treats None as "cannot tell", and scans
+    more, never less.
     """
     try:
         listing = subprocess.run(
             ["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, check=True
         ).stdout
     except (OSError, subprocess.CalledProcessError):
-        return set()
+        return None
     return {name.decode("utf-8", "replace") for name in listing.split(b"\0") if name}
 
 
@@ -3364,6 +3454,13 @@ def validate_no_secrets(errors: list[str]) -> None:
     tracked = tracked_files()
     skip_prefixes = (".git/", "node_modules/", "dist/", ".pnpm-store/")
     skip_segments = ("__pycache__",)
+    if tracked is None:
+        # Round ten S-7. Git cannot say what is tracked, so nothing may be
+        # skipped on the ground that it is untracked. Only git's own directory
+        # stays out: it is not repository content.
+        tracked = set()
+        skip_prefixes = (".git/",)
+        skip_segments = ()
     for path in ROOT.rglob("*"):
         if not path.is_file():
             continue

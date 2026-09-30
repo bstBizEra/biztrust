@@ -19,6 +19,7 @@ import copy
 import hashlib
 import importlib.util
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -925,6 +926,78 @@ class ValidatorFailsClosed(unittest.TestCase):
         self.assertIn("sessions/checkpoints/other.JSON", result.stderr)
         self.assertIn("its extension is not exactly '.json'", result.stderr)
 
+    # ---- a checkpoint's own chronology and its next action (round ten, spec n5) --
+    #
+    # A checkpoint that says it was created before it observed something, or in
+    # the future, or that names a next action nothing defines, was accepted: the
+    # schema checks the SHAPE of a timestamp and of an id, not that they agree
+    # with the rest of the record. Each control below fails alone.
+
+    def test_a_checkpoint_created_in_the_future_is_reported(self):
+        checkpoint = copy.deepcopy(CHECKPOINT)
+        checkpoint["created_at"] = "2099-01-01T00:00:00Z"
+        result = self._broken(checkpoint=checkpoint)
+        self.assertIn("created_at 2099-01-01T00:00:00Z is in the future", result.stderr)
+
+    def test_a_checkpoint_created_before_one_of_its_observations_is_reported(self):
+        checkpoint = copy.deepcopy(CHECKPOINT)
+        checkpoint["validation"][0]["observed_at"] = "2026-01-02T00:00:00Z"
+        result = self._broken(checkpoint=checkpoint)
+        self.assertIn("is earlier than the observation at 2026-01-02T00:00:00Z", result.stderr)
+
+    def test_a_checkpoint_naming_a_next_action_nothing_defines_is_reported(self):
+        checkpoint = copy.deepcopy(CHECKPOINT)
+        checkpoint["next_action_id"] = "NS-404"
+        result = self._broken(checkpoint=checkpoint)
+        self.assertIn("next_action_id 'NS-404' names no action in badf/next-actions.json", result.stderr)
+
+    def test_a_checkpoint_created_after_its_observations_and_naming_a_real_action_passes(self):
+        checkpoint = copy.deepcopy(CHECKPOINT)
+        checkpoint["created_at"] = "2026-01-03T00:00:00Z"
+        checkpoint["validation"] = [
+            {"command": "a", "exit_status": 0, "observed_at": "2026-01-01T00:00:00Z"},
+            {"command": "b", "exit_status": 0, "observed_at": "2026-01-03T00:00:00Z"},
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            result = run(build(Path(directory), checkpoint=checkpoint))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    # The one historical checkpoint whose created_at precedes its observations
+    # (the round-six record, written and then amended). History is not
+    # rewritten, so that ONE name is exempt from the ordering rule, and from
+    # nothing else.
+
+    ROUND_SIX = "sessions/checkpoints/BIZTRUST-WP-001-review-round-6.json"
+
+    def _inverted(self):
+        checkpoint = copy.deepcopy(CHECKPOINT)
+        checkpoint["created_at"] = "2026-01-01T00:00:00Z"
+        checkpoint["validation"][0]["observed_at"] = "2026-01-02T00:00:00Z"
+        return json.dumps(checkpoint, indent=2)
+
+    def test_the_round_six_checkpoint_alone_is_exempt_from_the_ordering_rule(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result = run(build(Path(directory), extra_files={self.ROUND_SIX: self._inverted()}))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_another_checkpoint_with_the_same_inversion_is_not_exempt(self):
+        other = "sessions/checkpoints/BIZTRUST-WP-001-review-round-7.json"
+        with tempfile.TemporaryDirectory() as directory:
+            result = run(build(Path(directory), extra_files={other: self._inverted()}))
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn(f"{other}: created_at", result.stderr)
+
+    def test_the_exempt_round_six_checkpoint_is_still_held_to_the_other_two_rules(self):
+        checkpoint = json.loads(self._inverted())
+        checkpoint["next_action_id"] = "NS-404"
+        with tempfile.TemporaryDirectory() as directory:
+            result = run(build(Path(directory), extra_files={self.ROUND_SIX: json.dumps(checkpoint)}))
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("names no action in badf/next-actions.json", result.stderr)
+
+    def test_the_ordering_exemption_names_exactly_one_checkpoint(self):
+        self.assertEqual(load_validator().CHECKPOINT_ORDER_EXEMPT, {self.ROUND_SIX})
+
     # ---- the authority REGISTRY, not just its mirror -----------------------
     #
     # The state file was hardened first, which left the source of record
@@ -1372,10 +1445,45 @@ class ValidatorFailsClosed(unittest.TestCase):
                 result = self._in_a_git_repository(path, track=False)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-    def test_a_build_directory_outside_any_git_repository_is_skipped(self):
+    # Round ten S-7. `tracked_files` answered "nothing is tracked" when git
+    # failed, so a git that was missing, refused the directory ("dubious
+    # ownership") or hit a corrupt index quietly put the scan back on its skip
+    # list, and a force-added file under dist/ or __pycache__ went unscanned
+    # with the validator reporting a clean pass. When git cannot say, the scan
+    # cannot tell tracked from untracked, so it now scans the build directories
+    # too: a git failure can only ever make the scan wider. `.git/` itself is
+    # not repository content and is still skipped.
+
+    def _where_git_cannot_answer(self, path):
+        """Runs the validator with GIT_DIR pointing nowhere, so git fails whatever
+        repository the temporary directory happens to sit inside."""
         with tempfile.TemporaryDirectory() as directory:
-            tmp = build(Path(directory), extra_files={"dist/notes.txt": "note: " + self.TOKEN + NL})
-            result = run(tmp)
+            tmp = build(Path(directory), extra_files={path: "note: " + self.TOKEN + NL})
+            pins = _pins_following_the_fixture(tmp)
+            patch_bootstrap_pins(tmp, pins)
+            return subprocess.run(
+                [sys.executable, str(tmp / "scripts" / "validate_continuity.py")],
+                capture_output=True, text=True, cwd=tmp, check=False,
+                env={**os.environ, "GIT_DIR": str(tmp / "no-such-git-directory")},
+            )
+
+    def test_a_top_level_dist_directory_is_scanned_when_git_cannot_say_what_is_tracked(self):
+        result = self._where_git_cannot_answer("dist/notes.txt")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("dist/notes.txt: contains what looks like", result.stderr)
+
+    def test_a_pycache_directory_is_scanned_when_git_cannot_say_what_is_tracked(self):
+        result = self._where_git_cannot_answer("docs/__pycache__/notes.txt")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("docs/__pycache__/notes.txt: contains what looks like", result.stderr)
+
+    def test_a_node_modules_directory_is_scanned_when_git_cannot_say_what_is_tracked(self):
+        result = self._where_git_cannot_answer("node_modules/notes.txt")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("node_modules/notes.txt: contains what looks like", result.stderr)
+
+    def test_the_git_directory_itself_is_not_scanned_when_git_cannot_say_what_is_tracked(self):
+        result = self._where_git_cannot_answer(".git/objects/notes.txt")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_words_that_only_resemble_a_credential_prefix_are_allowed(self):
@@ -3570,6 +3678,37 @@ class ScalarRefusalReadsOneLine(unittest.TestCase):
         for value in ("[a, b", "{a: b", "[a, b] # trailing", "{a: b}}x"):
             with self.subTest(value=value):
                 self.assertIn("does not close on its line", self.refusal(value) or "")
+
+    # Round ten S-6. The closing-character check accepted `[a, [b]`: it ends in
+    # `]` with one `[` still open, so PyYAML read on into the lines below and then
+    # refused the whole file, while this reader took the value. One control per
+    # arm of the balance check, so that loosening one turns exactly one red.
+
+    def test_balanced_flow_collections_are_read(self):
+        for value in (
+            "[a, [b]]",
+            "{a: [b, c], d: {e: f}}",
+            "[" + self.D + "]" + self.D + ", b]",
+            "[" + self.S + "}" + self.S + "]",
+            "[[[]]]",
+        ):
+            with self.subTest(value=value):
+                self.assertIsNone(self.refusal(value))
+
+    def test_a_flow_collection_with_an_opener_left_open_is_not_read_whole(self):
+        for value in ("[a, [b]", "[[a, b]", "{a: {b: c}"):
+            with self.subTest(value=value):
+                self.assertIn("brackets that do not balance", self.refusal(value) or "")
+
+    def test_a_flow_collection_closed_by_the_wrong_kind_of_bracket_is_not_read_whole(self):
+        for value in ("[[}]", "{{]}"):
+            with self.subTest(value=value):
+                self.assertIn("brackets that do not balance", self.refusal(value) or "")
+
+    def test_a_flow_collection_that_closes_before_its_last_character_is_not_read_whole(self):
+        for value in ("[a] [b]", "{a: b} {c: d}"):
+            with self.subTest(value=value):
+                self.assertIn("brackets that do not balance", self.refusal(value) or "")
 
     def test_an_anchor_an_alias_and_a_tag_are_not_read(self):
         for value in ("&pin GRANTED", "*pin", "!!str GRANTED"):
