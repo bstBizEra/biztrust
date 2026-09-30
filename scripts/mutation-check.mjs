@@ -3153,7 +3153,7 @@ const MUTATIONS = [
     suite: "validator",
     name: "records: read a single-quoted value with text after its closing quote (R10-S1)",
     witness: "test_a_single_quoted_scalar_with_text_after_its_closing_quote_is_not_read_whole",
-    from: "        if _SINGLE_QUOTED_LINE.match(value) is None:",
+    from: "        if _SINGLE_QUOTED_SCALAR.match(value) is None:",
     to: "        if False:",
   },
   {

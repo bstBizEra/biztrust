@@ -356,7 +356,10 @@ QUARANTINE = "__refused_section__"
 #: A double-quoted YAML scalar and nothing after its closing quote. An escape is
 #: a backslash and any one character, so `\"` does not close it. Round nine S-1.
 _DOUBLE_QUOTED_SCALAR = re.compile(r'^"(?:[^"\\]|\\.)*"$')
-_SINGLE_QUOTED_LINE = re.compile(r"^'(?:[^']|'')*'$")
+
+#: A single-quoted YAML scalar, and nothing after its closing quote. A doubled
+#: quote inside it is one literal quote.
+_SINGLE_QUOTED_SCALAR = re.compile(r"^'(?:[^']|'')*'$")
 
 
 def _open_quote_in_flow(value: str) -> bool:
@@ -409,7 +412,7 @@ def scalar_refusal(value: str) -> str | None:
             return "a double-quoted scalar that is not one complete quoted scalar on its line"
         return None
     if value.startswith("'"):
-        if _SINGLE_QUOTED_LINE.match(value) is None:
+        if _SINGLE_QUOTED_SCALAR.match(value) is None:
             return "a single-quoted scalar that is not one complete quoted scalar on its line"
         return None
     if value.startswith(("[", "{")):
@@ -678,9 +681,6 @@ PINNED_TOOL_MAY_NOT = (
 
 TOOL_AUTHORITY_LISTS = ("may", "may_not")
 
-
-#: A single-quoted YAML scalar, and nothing after its closing quote.
-_SINGLE_QUOTED_SCALAR = re.compile(r"^'(?:[^']|'')*'$")
 
 #: A plain YAML scalar this reader is willing to read: it opens on a letter,
 #: digit or parenthesis (so no indicator, quote, anchor, tag, flow bracket or
