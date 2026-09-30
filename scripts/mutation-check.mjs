@@ -2836,11 +2836,15 @@ const MUTATIONS = [
     // exemption back.
     name: "records: exempt the validator file itself from the credential scan",
     witness: "test_a_credential_planted_in_the_validator_itself_is_reported",
-    from: '        if any(segment in relative.split("/") for segment in skip_segments):',
+    from: lines(
+      "        if (",
+      '            any(segment in relative.split("/") for segment in skip_segments)',
+    ),
     to: lines(
       '        if relative == "scripts/validate_continuity.py":',
       "            continue",
-      '        if any(segment in relative.split("/") for segment in skip_segments):',
+      "        if (",
+      '            any(segment in relative.split("/") for segment in skip_segments)',
     ),
   },
   // ---- round ten, S-1: a hand reader reads the file YAML reads ------------
