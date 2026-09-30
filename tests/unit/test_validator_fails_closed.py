@@ -1202,6 +1202,18 @@ class ValidatorFailsClosed(unittest.TestCase):
                 result = self._leaks(prefix + "_" + "A" * 36)
                 self.assertIn("docs/leak.md: contains what looks like a GitHub", result.stderr)
 
+    def test_a_github_refresh_token_in_the_tree_is_reported(self):
+        # Round seven m2. `ghr_` is GitHub's refresh token, and the scan named
+        # ghp, gho, ghs and ghu but not this one.
+        result = self._leaks("gh" + "r_" + "A" * 36)
+        self.assertIn("docs/leak.md: contains what looks like a GitHub refresh token", result.stderr)
+
+    def test_a_stripe_restricted_key_in_the_tree_is_reported(self):
+        # Round seven m2. `rk_live_` is Stripe's restricted key, and only
+        # `sk_live_` was covered.
+        result = self._leaks("rk" + "_live_" + "a1B2" * 6)
+        self.assertIn("docs/leak.md: contains what looks like a Stripe restricted key", result.stderr)
+
     def test_a_credential_planted_in_the_validator_itself_is_reported(self):
         """Round seven m1. The whole validator file used to be exempt from the scan.
 
