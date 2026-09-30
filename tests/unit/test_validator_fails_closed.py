@@ -573,6 +573,12 @@ protected_paths:
   - schemas
   - package.json
   - .github
+  - scripts/python.mjs
+  - scripts/mutation-check.mjs
+  - tests/unit
+  - tests/signing
+  - badf/decision-log.jsonl
+  - badf/next-actions.json
 
 accepted_keys: NONE_ENROLLED
 """
@@ -1968,6 +1974,35 @@ class SigningPolicyClosed(unittest.TestCase):
 
     def test_dropping_a_pinned_instrument_path_is_reported(self):
         for path in self.INSTRUMENT_PATHS:
+            with self.subTest(path=path):
+                policy = SIGNING_POLICY_YAML.replace("  - " + path + NL, "", 1)
+                self.assertNotEqual(policy, SIGNING_POLICY_YAML, "the replace target did not match")
+                self._refused(
+                    "'" + path + "' is pinned in scripts/validate_continuity.py "
+                    "(PINNED_PROTECTED_PATHS)",
+                    policy,
+                )
+
+    # ---- round seven N2: the launcher, the witnesses and two records --------
+    #
+    # `validate:records` and `test:validator` both run through
+    # scripts/python.mjs, and neither it, tests/unit, tests/signing nor the
+    # mutation sweep was a protected path: with a key enrolled, one injected
+    # line in the launcher printed PASS for the validator, and the tests that
+    # witness the signing check could be edited in the change they judge.
+    # badf/decision-log.jsonl and badf/next-actions.json are records an agent
+    # writes and a human is meant to be able to bind.
+    LAUNCHER_AND_WITNESS_PATHS = (
+        "scripts/python.mjs",
+        "scripts/mutation-check.mjs",
+        "tests/unit",
+        "tests/signing",
+        "badf/decision-log.jsonl",
+        "badf/next-actions.json",
+    )
+
+    def test_dropping_a_pinned_launcher_or_witness_path_is_reported(self):
+        for path in self.LAUNCHER_AND_WITNESS_PATHS:
             with self.subTest(path=path):
                 policy = SIGNING_POLICY_YAML.replace("  - " + path + NL, "", 1)
                 self.assertNotEqual(policy, SIGNING_POLICY_YAML, "the replace target did not match")

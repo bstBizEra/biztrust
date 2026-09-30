@@ -2324,6 +2324,17 @@ PINNED_PROTECTED_PATHS = (
     "schemas",
     "package.json",
     ".github",
+    # Round seven N2. `validate:records` and `test:validator` both run through
+    # the launcher, and a key-enrolled tree with one injected line in it
+    # printed PASS for both. The tests that witness the signing check, and the
+    # sweep that witnesses the tests, ship in the change they judge, and the
+    # decision log and the next-action list are records an agent writes.
+    "scripts/python.mjs",
+    "scripts/mutation-check.mjs",
+    "tests/unit",
+    "tests/signing",
+    "badf/decision-log.jsonl",
+    "badf/next-actions.json",
 )
 
 #: The identity that signs every commit GitHub's own merge writes, and that

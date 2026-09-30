@@ -2668,6 +2668,53 @@ const MUTATIONS = [
   {
     file: RECORDS,
     suite: "validator",
+    // Round seven N2. The launcher, the tests that witness the validator and
+    // the signing check, the sweep, and the two records an agent writes.
+    name: "records: stop pinning the launcher, the witnesses and two agent-written records",
+    witness: "test_dropping_a_pinned_launcher_or_witness_path_is_reported",
+    from: lines(
+      '    "scripts/python.mjs",',
+      '    "scripts/mutation-check.mjs",',
+      '    "tests/unit",',
+      '    "tests/signing",',
+      '    "badf/decision-log.jsonl",',
+      '    "badf/next-actions.json",',
+    ),
+    to: "    # (the launcher and witness paths are no longer pinned)",
+  },
+  {
+    file: SIGNING_CHECK,
+    suite: "signing",
+    // Round seven N2, the refusal itself. Without it the check takes its
+    // protected set from the policy under judgement and prints PASS over
+    // commits it would fail on with the list intact.
+    name: "signing: take the protected set from the policy under judgement, with no floor",
+    witness: "a policy that shortens its own protected set is refused, not read as the set to check",
+    from: "  if (omitted.length > 0) {",
+    to: "  if (false) {",
+  },
+  {
+    file: SIGNING_CHECK,
+    suite: "signing",
+    // The comparison inside the floor: report nothing as missing.
+    name: "signing: report no floor path as missing from a policy",
+    witness: "a protected set missing any one floor path is reported as missing exactly that path",
+    from: "  return PROTECTED_PATH_FLOOR.filter((path) => !held.has(path));",
+    to: "  return PROTECTED_PATH_FLOOR.filter((path) => false);",
+  },
+  {
+    file: SIGNING_CHECK,
+    suite: "signing",
+    // The floor's own contents: one entry lost from the list is a path a
+    // shortened policy may drop unreported.
+    name: "signing: drop tests/signing from the floor the check holds",
+    witness: "the floor this check holds is exactly the floor recorded in this test",
+    from: lines('  "tests/signing",', '  "badf/decision-log.jsonl",'),
+    to: '  "badf/decision-log.jsonl",',
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
     // M5, the shape. Allowing a bare dot would make `.` a protected path: a
     // pathspec for the whole tree, which git reads as everything.
     name: "records: accept a bare dot as a plain protected path",

@@ -89,6 +89,24 @@ enforcement_point: FIRST_COMMIT_OF_THIS_POLICY
 # path below in PINNED_PROTECTED_PATHS and refuses this file if one is
 # missing. Adding a path here is allowed and widens protection; removing one
 # is a reviewed change to the validator, under a Work Package that says why.
+#
+# The floor is now held in TWO places that cannot both be edited by editing
+# this file: PINNED_PROTECTED_PATHS in scripts/validate_continuity.py, and
+# PROTECTED_PATH_FLOOR in scripts/check-signing.mjs, which refuses to run
+# against a policy that protects less (SIGNING_CHECK FAIL PROTECTED_PATH_FLOOR).
+# Round seven N2 showed the check used to take its protected set from this very
+# file and nothing else, so a change that shortened the list chose which of
+# its own commits were examined.
+#
+# WHAT THAT DOES NOT DO, stated plainly. This policy, and the copy of
+# scripts/check-signing.mjs that reads it, are both taken from the WORKING
+# TREE, which in a pull request is the change under review. Evaluating the
+# policy and the instrument from the BASE ref (for example
+# `git show origin/main:badf/signing-policy.yaml`) is NOT implemented here. It
+# is a CI design decision for the operator, and it is listed as such rather
+# than done. Until it is, a change that edits check-signing.mjs and its floor
+# together is judged by the edited copy; the floor closes the shortened-list
+# forgery and not that one.
 protected_paths:
   - badf/authority.yaml
   - badf/gates.yaml
@@ -109,6 +127,17 @@ protected_paths:
   - schemas
   - package.json
   - .github
+  # Round seven N2. The launcher that runs the record validator and its tests
+  # (one injected line in scripts/python.mjs printed PASS for both), the tests
+  # that witness the validator and the signing check, the sweep that witnesses
+  # those tests, and the two records an agent writes and a person should be
+  # able to bind: the decision log and the next-action list.
+  - scripts/python.mjs
+  - scripts/mutation-check.mjs
+  - tests/unit
+  - tests/signing
+  - badf/decision-log.jsonl
+  - badf/next-actions.json
 
 # The identities whose signature counts as a human decision on the paths
 # above. NONE_ENROLLED is not a placeholder to be tidied away by an agent: it
