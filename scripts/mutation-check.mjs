@@ -420,8 +420,18 @@ const MUTATIONS = [
     file: GENERATOR,
     name: "generator: stop comparing the generated files (A2)",
     witness: "--check fails on a hand-edited .dependency-cruiser.cjs, naming it stale",
-    from: "      if (found !== wanted) {",
-    to: "      if (false && found !== wanted) {",
+    from: "    if (found !== wanted) {",
+    to: "    if (false && found !== wanted) {",
+  },
+  {
+    file: GENERATOR,
+    // Round seven, controls N3. The three tests the mutation above is killed
+    // by all pass --out-dir, so a conditional that read that seam left them
+    // green while the check CI runs (no --out-dir) compared nothing.
+    name: "generator: compare the generated files only when --out-dir is given (N3)",
+    witness: "--check with no --out-dir compares the files at the repository root",
+    from: "    const stale = staleOutputs(outputs);",
+    to: "    const stale = outDir ? staleOutputs(outputs) : [];",
   },
   {
     file: RULES,
