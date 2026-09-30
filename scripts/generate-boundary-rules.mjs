@@ -28,7 +28,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { ROOT, REGISTRY_PATH, loadRegistry, RegistryError } from "./registry.mjs";
-import { buildRules } from "./boundary-rules.mjs";
+import { buildRules, DO_NOT_FOLLOW } from "./boundary-rules.mjs";
 
 const DEPCRUISE_OUT = join(ROOT, ".dependency-cruiser.cjs");
 const PATHS_OUT = join(ROOT, "tsconfig.paths.json");
@@ -84,10 +84,15 @@ function renderDepcruise(registry, rules) {
   // followed, which is all the fixture tree (built to violate) and build output
   // (not source) need. tests/boundaries/production-options.test.mjs plants one
   // violation per option here that could hide it.
+  //
+  // Round eleven, controls C10-1 and C10-2. The pattern is DO_NOT_FOLLOW in
+  // scripts/boundary-rules.mjs, where each alternative is anchored and stated;
+  // an unanchored `node_modules` had left every first-party file whose path
+  // contained the word unjudged.
   const body = {
     forbidden: rules,
     options: {
-      doNotFollow: { path: "node_modules|(^|/)dist/|^tests/boundaries/fixtures/" },
+      doNotFollow: { path: DO_NOT_FOLLOW },
       tsPreCompilationDeps: true,
       tsConfig: { fileName: "tsconfig.json" },
       enhancedResolveOptions: {

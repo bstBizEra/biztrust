@@ -10,6 +10,46 @@
  * conforming import is not.
  */
 
+/** The directories under the repository root that hold first-party source. */
+const SOURCE_ROOTS = ["modules", "packages", "services", "apps"];
+const ROOTS = "(?:" + SOURCE_ROOTS.join("|") + ")";
+
+/**
+ * The paths the checker neither follows nor scans, each ANCHORED.
+ *
+ * Round ten, controls C10-1. dependency-cruiser tests `doNotFollow.path`
+ * against each resolved path as a regular expression, and a module that
+ * matches is not followed and is not picked up as a scan root. The old
+ * pattern `node_modules|(^|/)dist/|...` matched any path that merely CONTAINED
+ * the word, so a re-export in `services/api/src/node_modules-bridge.ts`, or any
+ * file under a directory named `dist` at any depth, had its imports judged by
+ * no rule while `boundaries:check` printed "no dependency violations". What is
+ * left unfollowed is exactly this, and anything else is source and is followed,
+ * whatever it is called:
+ *
+ *   thirdParty   the root node_modules, where pnpm puts every package
+ *   linkFarm     a package's own node_modules: pnpm's symlinks. A workspace
+ *                link there (`services/api/node_modules/@biztrust/audit`)
+ *                is a SECOND PATH to a first-party file that rules 1 to 7 key
+ *                on `^modules/...` and would judge as foreign, so it is not
+ *                scanned; the file is cruised once, at its real path
+ *   buildOutput  a package's dist/, one directory below a source root
+ *   fixtures     the fixture tree, built to violate
+ *
+ * scripts/check-module-packages.mjs refuses a TRACKED file under the first
+ * three, because that is the one way first-party source could sit where the
+ * checker does not look.
+ */
+export const UNFOLLOWED = {
+  thirdParty: "^node_modules/",
+  linkFarm: "^" + ROOTS + "/[^/]+/node_modules/",
+  buildOutput: "^" + ROOTS + "/[^/]+/dist/",
+  fixtures: "^tests/boundaries/fixtures/",
+};
+
+/** The `doNotFollow.path` the generator writes. */
+export const DO_NOT_FOLLOW = Object.values(UNFOLLOWED).join("|");
+
 /** Escapes a module name for embedding in a regular expression literal. */
 export function rx(name) {
   return name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -240,6 +280,29 @@ export function buildRules(registry) {
     severity: "error",
     from: { path: "^apps/control-plane/" },
     to: { path: "^modules/" },
+  });
+
+  // Backstop. The by-name rules above name the spellings of a deep import that
+  // the package exports field refuses, and the spellings are open-ended:
+  // round nine added case, percent escapes, backslashes and dot segments, and
+  // round ten found percent-encoded scopes and module names, double encoding
+  // and Unicode lookalikes still silent in a `.js` source. A `.js` file is not
+  // type-checked, so nothing else reports an import that resolves to nothing.
+  // This rule does not try to recognise a bypass by its spelling. An import
+  // from first-party source that resolves to nothing is an error whatever it
+  // says, which also closes the relative import into a `dist/` directory that
+  // has not been built (controls C10-3 and C10-4). Node built-ins are not
+  // "could not resolve" to the checker, so they are not reported.
+  rules.push({
+    name: "backstop-no-unresolvable-imports",
+    comment:
+      "Backstop: an import from modules/, packages/, services/ or apps/ that " +
+      "resolves to nothing is an error, however it is spelled. It covers every " +
+      "by-name spelling the rules above do not name, and a path into a dist/ " +
+      "directory that has not been built.",
+    severity: "error",
+    from: { path: "^" + ROOTS + "/" },
+    to: { couldNotResolve: true },
   });
 
   return rules;

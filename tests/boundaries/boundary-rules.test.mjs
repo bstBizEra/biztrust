@@ -47,7 +47,7 @@ function cruiseFixture() {
   const config = {
     forbidden: buildRules(registry),
     options: {
-      doNotFollow: { path: "node_modules" },
+      doNotFollow: { path: "^node_modules/" },
       tsPreCompilationDeps: true,
       enhancedResolveOptions: { extensions: [".ts", ".js", ".mjs", ".cjs"] },
     },
@@ -313,6 +313,53 @@ CONTROLS.push(
     file: "packages/shared/src/violates-rule-1-by-name-scope-dot.ts",
     rule: "rule-1-internals-private-by-name-alpha",
   },
+  // Round eleven, controls C10-3 and C10-4. The spellings below are silent to
+  // every by-name rule and, from a .js file, to the compiler. The backstop does
+  // not recognise them; it reports any import from first-party source that
+  // resolves to nothing. One file per family, so that narrowing the backstop
+  // cannot hide behind a sibling.
+  {
+    control: 1,
+    threat: "a .js file imports internals through a percent-encoded scope (%40biztrust)",
+    file: "packages/shared/src/violates-backstop-percent-scope.js",
+    rule: "backstop-no-unresolvable-imports",
+  },
+  {
+    control: 1,
+    threat: "a .js file imports internals through a percent-encoded module name (%61lpha)",
+    file: "packages/shared/src/violates-backstop-percent-module.js",
+    rule: "backstop-no-unresolvable-imports",
+  },
+  {
+    control: 1,
+    threat: "a .js file imports internals through a double percent-encoded letter (%2569nternal)",
+    file: "packages/shared/src/violates-backstop-double-percent.js",
+    rule: "backstop-no-unresolvable-imports",
+  },
+  {
+    control: 1,
+    threat: "a .js file imports internals through a Cyrillic lookalike letter",
+    file: "packages/shared/src/violates-backstop-lookalike.js",
+    rule: "backstop-no-unresolvable-imports",
+  },
+  {
+    control: 1,
+    threat: "a .js file imports internals with a trailing dot on the directory",
+    file: "packages/shared/src/violates-backstop-trailing-dot.js",
+    rule: "backstop-no-unresolvable-imports",
+  },
+  {
+    control: 1,
+    threat: "a .js file imports internals with a trailing space on the directory",
+    file: "packages/shared/src/violates-backstop-trailing-space.js",
+    rule: "backstop-no-unresolvable-imports",
+  },
+  {
+    control: 5,
+    threat: "a .js entry point imports a module's dist/ when nothing has been built",
+    file: "services/api/src/violates-backstop-relative-dist.js",
+    rule: "backstop-no-unresolvable-imports",
+  },
 );
 
 for (const { control, threat, file, rule } of CONTROLS) {
@@ -332,7 +379,7 @@ const CONFORMING = [
   "modules/alpha/src/public/index.ts",
   "modules/beta/src/public/index.ts",
   "packages/shared/src/index.ts",
-  "packages/shared/src/conforming-internal-lookalike.ts",
+  "packages/shared/src/conforming-builtin-import.js",
   "services/api/src/index.ts",
   "apps/control-plane/src/index.ts",
   "apps/broker-portal/src/index.ts",
@@ -347,6 +394,19 @@ for (const file of CONFORMING) {
     );
   });
 }
+
+// The lookalike paths are not internals: `internalization` is not `internal`
+// and `alphabet` is not `alpha`, so no rule about internals may report them.
+// They resolve to nothing in the fixture workspace, so the backstop does, and it
+// is the ONLY rule that does. Round nine had this file in CONFORMING; the
+// backstop makes "reported by no rule" too strong, and the claim that matters
+// is that no by-name rule over-matches.
+test("conforming: a lookalike of an internal path is reported by the backstop and by no by-name rule", () => {
+  assert.deepEqual(
+    [...new Set(firedFor("packages/shared/src/conforming-internal-lookalike.ts"))],
+    ["backstop-no-unresolvable-imports"],
+  );
+});
 
 test("every rule the generator produces is exercised or explicitly not", () => {
   const registry = parseRegistry(readFileSync(join(FIXTURES, "modules.yaml"), "utf8"));

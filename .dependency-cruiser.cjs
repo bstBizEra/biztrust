@@ -279,11 +279,22 @@ module.exports = {
       "to": {
         "path": "^modules/"
       }
+    },
+    {
+      "name": "backstop-no-unresolvable-imports",
+      "comment": "Backstop: an import from modules/, packages/, services/ or apps/ that resolves to nothing is an error, however it is spelled. It covers every by-name spelling the rules above do not name, and a path into a dist/ directory that has not been built.",
+      "severity": "error",
+      "from": {
+        "path": "^(?:modules|packages|services|apps)/"
+      },
+      "to": {
+        "couldNotResolve": true
+      }
     }
   ],
   "options": {
     "doNotFollow": {
-      "path": "node_modules|(^|/)dist/|^tests/boundaries/fixtures/"
+      "path": "^node_modules/|^(?:modules|packages|services|apps)/[^/]+/node_modules/|^(?:modules|packages|services|apps)/[^/]+/dist/|^tests/boundaries/fixtures/"
     },
     "tsPreCompilationDeps": true,
     "tsConfig": {

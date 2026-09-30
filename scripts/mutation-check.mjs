@@ -398,6 +398,7 @@ const RECORDS = join(WT_ROOT, "scripts", "validate_continuity.py");
 const ATTRIBUTION = join(WT_ROOT, "scripts", "mutation-attribution.mjs");
 const SIGNING_POLICY = join(WT_ROOT, "scripts", "signing-policy.mjs");
 const GENERATOR = join(WT_ROOT, "scripts", "generate-boundary-rules.mjs");
+const MODULE_CHECK = join(WT_ROOT, "scripts", "check-module-packages.mjs");
 const SIGNING_CHECK = join(WT_ROOT, "scripts", "check-signing.mjs");
 // Not a script. The ORDER of the verify chain is a control - the JS signing
 // policy reader is fail-closed only because validate:records runs before
@@ -3180,7 +3181,7 @@ const MUTATIONS = [
     witness:
       "production options: a service importing the fixture tree is reported as " +
       "rule-6-test-packages-stay-in-tests",
-    from: '      doNotFollow: { path: "node_modules|(^|/)dist/|^tests/boundaries/fixtures/" },',
+    from: '      doNotFollow: { path: DO_NOT_FOLLOW },',
     to: lines(
       '      doNotFollow: { path: "node_modules" },',
       '      exclude: { path: "(^|/)dist/|^tests/boundaries/fixtures/" },',
@@ -3192,9 +3193,9 @@ const MUTATIONS = [
     witness:
       "production options: a js file importing modules/tenancy/src/internal is reported as " +
       "rule-1-internals-private-tenancy",
-    from: '      doNotFollow: { path: "node_modules|(^|/)dist/|^tests/boundaries/fixtures/" },',
+    from: '      doNotFollow: { path: DO_NOT_FOLLOW },',
     to: lines(
-      '      doNotFollow: { path: "node_modules|(^|/)dist/|^tests/boundaries/fixtures/" },',
+      '      doNotFollow: { path: DO_NOT_FOLLOW },',
       '      exclude: { path: "/internal/" },',
     ),
   },
@@ -3204,8 +3205,8 @@ const MUTATIONS = [
     witness:
       "production options: an import of @biztrust/audit/dist/internal by name is reported as " +
       "rule-1-internals-private-by-name-audit",
-    from: '      doNotFollow: { path: "node_modules|(^|/)dist/|^tests/boundaries/fixtures/" },',
-    to: '      doNotFollow: { path: "node_modules|(^|/)dist/|^tests/boundaries/fixtures/|^services/" },',
+    from: '      doNotFollow: { path: DO_NOT_FOLLOW },',
+    to: '      doNotFollow: { path: DO_NOT_FOLLOW + "|^services/" },',
   },
   {
     file: GENERATOR,
@@ -3260,6 +3261,236 @@ const MUTATIONS = [
       "rule-5-entry-points-see-contracts-only",
     from: '      path: "^modules/[^/]+/(?:src|dist)/",',
     to: '      path: "^modules/[^/]+/src/",',
+  },
+  // ---- round eleven, C10-1 and C10-2: doNotFollow, anchored, and witnessed per source root ----
+  //
+  // Round ten's plants all sat in services/api/src, packages/ and one module's
+  // public directory, so widening doNotFollow to any OTHER source directory
+  // turned nothing red and no mutation loosened it. One mutation per root
+  // below, each with a plant of its own in tests/boundaries/production-options.test.mjs.
+  {
+    file: RULES,
+    name: "options: do not follow what a path merely CONTAINING node_modules imports (C10-1)",
+    witness:
+      "production options: a file whose name contains node_modules is followed, and its " +
+      "import of tests is reported as rule-6-test-packages-stay-in-tests",
+    from: '  thirdParty: "^node_modules/",',
+    to: '  thirdParty: "node_modules",',
+  },
+  {
+    file: RULES,
+    name: "options: do not follow a first-party directory named node_modules at any depth (C10-1)",
+    witness:
+      "production options: a first-party directory named node_modules is followed, and its " +
+      "import of internals is reported as rule-1-internals-private-tenancy",
+    from: '  linkFarm: "^" + ROOTS + "/[^/]+/node_modules/",',
+    to: '  linkFarm: "(^|/)node_modules/",',
+  },
+  {
+    file: RULES,
+    name: "options: do not follow a directory named dist at any depth (C10-1)",
+    witness:
+      "production options: a directory named dist below a source directory is followed, and " +
+      "its import of internals is reported as rule-5-entry-points-see-contracts-only",
+    from: '  buildOutput: "^" + ROOTS + "/[^/]+/dist/",',
+    to: '  buildOutput: "(^|/)dist/",',
+  },
+  {
+    file: RULES,
+    name: "options: do not follow the imports of a module's internal directory (C10-2)",
+    witness:
+      "production options: a module's internal file importing another module's internals is " +
+      "reported as rule-1-internals-private-audit",
+    from: 'export const DO_NOT_FOLLOW = Object.values(UNFOLLOWED).join("|");',
+    to: 'export const DO_NOT_FOLLOW = Object.values(UNFOLLOWED).join("|") + "|/internal/";',
+  },
+  {
+    file: RULES,
+    name: "options: do not follow the imports of apps (C10-2)",
+    witness:
+      "production options: an app file importing a module's internals is reported as " +
+      "rule-7-control-plane-sees-packages-only",
+    from: 'export const DO_NOT_FOLLOW = Object.values(UNFOLLOWED).join("|");',
+    to: 'export const DO_NOT_FOLLOW = Object.values(UNFOLLOWED).join("|") + "|^apps/";',
+  },
+  {
+    file: RULES,
+    name: "options: do not follow the imports of tests (C10-2)",
+    witness:
+      "production options: a file under tests importing a module's internals is reported as " +
+      "rule-1-internals-private-tenancy",
+    from: 'export const DO_NOT_FOLLOW = Object.values(UNFOLLOWED).join("|");',
+    to: 'export const DO_NOT_FOLLOW = Object.values(UNFOLLOWED).join("|") + "|^tests/";',
+  },
+  {
+    file: RULES,
+    name: "options: do not follow the imports of packages (C10-2)",
+    witness:
+      "production options: a package file importing a module's internals is reported as " +
+      "rule-4-packages-import-no-module",
+    from: 'export const DO_NOT_FOLLOW = Object.values(UNFOLLOWED).join("|");',
+    to: 'export const DO_NOT_FOLLOW = Object.values(UNFOLLOWED).join("|") + "|^packages/";',
+  },
+  {
+    file: RULES,
+    name: "options: do not follow the imports of modules (C10-2)",
+    witness:
+      "production options: a module's public file importing another module's internals is " +
+      "reported as rule-2-contracts-only-identity-access",
+    from: 'export const DO_NOT_FOLLOW = Object.values(UNFOLLOWED).join("|");',
+    to: 'export const DO_NOT_FOLLOW = Object.values(UNFOLLOWED).join("|") + "|^modules/";',
+  },
+  {
+    file: GENERATOR,
+    name: "generator: exclude apps from the checker (C10-2)",
+    witness:
+      "production options: a package importing an app is reported as " +
+      "rule-5-nothing-imports-an-entry-point",
+    from: "      doNotFollow: { path: DO_NOT_FOLLOW },",
+    to: lines(
+      "      doNotFollow: { path: DO_NOT_FOLLOW },",
+      '      exclude: { path: "^apps/" },',
+    ),
+  },
+  {
+    file: GENERATOR,
+    name: "generator: exclude services from the checker (C10-2)",
+    witness:
+      "production options: a package importing a service is reported as " +
+      "rule-5-nothing-imports-an-entry-point",
+    from: "      doNotFollow: { path: DO_NOT_FOLLOW },",
+    to: lines(
+      "      doNotFollow: { path: DO_NOT_FOLLOW },",
+      '      exclude: { path: "^services/" },',
+    ),
+  },
+  {
+    file: GENERATOR,
+    name: "generator: exclude tests from the checker (C10-2)",
+    witness:
+      "production options: a file under tests importing a module's internals is reported as " +
+      "rule-1-internals-private-tenancy",
+    shared:
+      "exclude removes an import of tests/ as well as the imports OF it, so the plant that " +
+      "shows the first half is the one the doNotFollow mutation for tests above declares; " +
+      "the edge into tests/ is judged by the fixture-tree and bridge controls as well",
+    from: "      doNotFollow: { path: DO_NOT_FOLLOW },",
+    to: lines(
+      "      doNotFollow: { path: DO_NOT_FOLLOW },",
+      '      exclude: { path: "^tests/" },',
+    ),
+  },
+  {
+    file: GENERATOR,
+    name: "generator: exclude modules from the checker (C10-2)",
+    witness:
+      "production options: a module's public file importing another module's internals is " +
+      "reported as rule-2-contracts-only-identity-access",
+    shared:
+      "exclude removes the edges INTO modules as well as the imports OF them; every rule-1 " +
+      "and rule-2 plant goes red, and the public-file plant is the one the doNotFollow " +
+      "mutation for modules above declares",
+    from: "      doNotFollow: { path: DO_NOT_FOLLOW },",
+    to: lines(
+      "      doNotFollow: { path: DO_NOT_FOLLOW },",
+      '      exclude: { path: "^modules/" },',
+    ),
+  },
+  // ---- round eleven, C10-3 and C10-4: the catch-all for an import that resolves to nothing ----
+  {
+    file: RULES,
+    name: "backstop: stop reporting an import that resolves to nothing (C10-3)",
+    witness:
+      "control 1: a .js file imports internals through a percent-encoded scope (%40biztrust) " +
+      "is reported as backstop-no-unresolvable-imports",
+    from: lines("  rules.push({", '    name: "backstop-no-unresolvable-imports",'),
+    to: lines("  [].push({", '    name: "backstop-no-unresolvable-imports",'),
+  },
+  {
+    file: RULES,
+    name: "backstop: report only what services import (C10-3)",
+    witness:
+      "control 1: a .js file imports internals through a Cyrillic lookalike letter is " +
+      "reported as backstop-no-unresolvable-imports",
+    from: '    from: { path: "^" + ROOTS + "/" },',
+    to: '    from: { path: "^services/" },',
+  },
+  {
+    file: RULES,
+    name: "backstop: do not report what services import (C10-4)",
+    witness:
+      "control 5: a .js entry point imports a module's dist/ when nothing has been built is " +
+      "reported as backstop-no-unresolvable-imports",
+    from: '    from: { path: "^" + ROOTS + "/" },',
+    to: '    from: { path: "^(?:modules|packages|apps)/" },',
+  },
+  {
+    file: RULES,
+    name: "backstop: do not report what modules import (C10-3)",
+    witness:
+      "production options: a js file in a module importing a double percent-encoded " +
+      "directory is reported as backstop-no-unresolvable-imports",
+    from: '    from: { path: "^" + ROOTS + "/" },',
+    to: '    from: { path: "^(?:packages|services|apps)/" },',
+  },
+  {
+    file: RULES,
+    name: "backstop: do not report what apps import (C10-3)",
+    witness:
+      "production options: a js file in an app importing a double percent-encoded " +
+      "directory is reported as backstop-no-unresolvable-imports",
+    from: '    from: { path: "^" + ROOTS + "/" },',
+    to: '    from: { path: "^(?:modules|packages|services)/" },',
+  },
+  // ---- round eleven, C10-1: first-party source where the checker does not look ----
+  {
+    file: MODULE_CHECK,
+    name: "modules: do not refuse a tracked file under the root node_modules (C10-1)",
+    witness: "a tracked file under the root node_modules is reported",
+    from: "  const hidden = [UNFOLLOWED.thirdParty, UNFOLLOWED.linkFarm, UNFOLLOWED.buildOutput].map(",
+    to: "  const hidden = [UNFOLLOWED.linkFarm, UNFOLLOWED.buildOutput].map(",
+  },
+  {
+    file: MODULE_CHECK,
+    name: "modules: do not refuse a tracked file under a package's node_modules (C10-1)",
+    witness: "a tracked file under a package's node_modules is reported",
+    from: "  const hidden = [UNFOLLOWED.thirdParty, UNFOLLOWED.linkFarm, UNFOLLOWED.buildOutput].map(",
+    to: "  const hidden = [UNFOLLOWED.thirdParty, UNFOLLOWED.buildOutput].map(",
+  },
+  {
+    file: MODULE_CHECK,
+    name: "modules: do not refuse a tracked file under a package's dist (C10-1)",
+    witness: "a tracked file under a package's dist is reported",
+    from: "  const hidden = [UNFOLLOWED.thirdParty, UNFOLLOWED.linkFarm, UNFOLLOWED.buildOutput].map(",
+    to: "  const hidden = [UNFOLLOWED.thirdParty, UNFOLLOWED.linkFarm].map(",
+  },
+  {
+    file: MODULE_CHECK,
+    name: "modules: refuse a tracked file under a directory merely NAMED node_modules (C10-1)",
+    witness:
+      "a tracked file under a directory merely NAMED node_modules or dist below src is not reported",
+    from: "    (pattern) => new RegExp(pattern),",
+    to: '    (pattern) => new RegExp(pattern.replace("^", "(^|/)")),',
+  },
+  {
+    file: MODULE_CHECK,
+    name: "modules: treat a git that cannot list the tracked files as an empty list (C10-1)",
+    witness: "the check fails closed when git cannot list the tracked files",
+    from: lines(
+      '  const listed = execFileSync("git", ["ls-files", "-z"], {',
+      "    cwd: ROOT,",
+      '    encoding: "utf8",',
+      "    maxBuffer: 64 * 1024 * 1024,",
+      "  });",
+    ),
+    to: lines(
+      '  let listed = "";',
+      "  try {",
+      '    listed = execFileSync("git", ["ls-files", "-z"], { cwd: ROOT, encoding: "utf8" });',
+      "  } catch {",
+      "    // fail open",
+      "  }",
+    ),
   },
   // ---- round ten, S-2, S-4 and S-5: the secret scan and the tool powers ------
   {
