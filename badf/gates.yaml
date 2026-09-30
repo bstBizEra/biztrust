@@ -76,7 +76,7 @@ instruments:
     gate_input_for: []
 
 not_covered:
-  - "The record of negative control 6 of P0.2. The control is observed in evidence/security-proof/negative-control-6.md, but no named human holds the repository administrator seat, so the protection is not recorded. See badf/authority.yaml, main_branch_protection."
+  - "The record of negative control 6 of P0.2. The control is observed in evidence/security-proof/negative-control-6.md. The repository administrator seat is held by BizEra through BOOTSTRAP-001, and the administrator has not recorded the protection. See badf/authority.yaml, main_branch_protection."
   - "The contract lint over openapi/ and events/. Those directories are reserved and empty; the rules are P0.8 and P0.9."
   - "The observability tests. The baseline is P0.11."
   - "Every runtime control. Nothing runs."

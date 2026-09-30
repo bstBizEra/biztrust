@@ -170,9 +170,45 @@ REGISTRIES = (
 #: so it has to carry the same keys the state file asserts. Hardening only the
 #: state file left this one checked for nothing but a version line, and a
 #: review appended a forged section to it and got a pass.
+#: What an agent may and may not do, copied VERBATIM from badf/authority.yaml
+#: and deliberately not imported from the validator: a fixture that took the
+#: pinned list from the code under test would prove the list equals itself.
+TOOL_MAY = (
+    "Read every file",
+    "Run the validators, the lint, the boundary check and the test suite",
+    "Open a branch and a pull request under a Work Package",
+    "Append to badf/decision-log.jsonl",
+    "Write a session checkpoint",
+)
+TOOL_MAY_NOT = (
+    "Push to main",
+    "Record a gate result",
+    "Mark a design or an ADR ACCEPTED",
+    "Grant, extend or infer authority, including its own",
+    "Create a domain table or implement a P0 epic",
+    "Claim that any capability is implemented, secure, compliant or production-ready",
+    "Place a secret, a credential, client data or regulated data in this repository",
+)
+
+
+def tool_authority_yaml(may=TOOL_MAY, may_not=TOOL_MAY_NOT) -> str:
+    """A tool_authority block with the given lists."""
+    text = "tool_authority:" + NL + "  may:" + NL
+    for item in may:
+        text += "    - " + chr(34) + item + chr(34) + NL
+    text += "  may_not:" + NL
+    for item in may_not:
+        text += "    - " + chr(34) + item + chr(34) + NL
+    return text
+
+
+#: The block sits BEFORE not_granted in the fixture, unlike the shipped file.
+#: Several tests below append text to the end of AUTHORITY_YAML expecting to
+#: land inside `granted`, so the last section has to stay `granted`.
 AUTHORITY_YAML = """version: "0.1.0"
 updated_at: "2026-01-01T00:00:00Z"
 
+""" + tool_authority_yaml() + """
 not_granted:
   architecture_contract_freeze:
     status: NOT_GRANTED
@@ -531,6 +567,18 @@ protected_paths:
   - badf/skills.yaml
   - badf/signing-policy.yaml
   - sessions/checkpoints
+  - scripts/check-signing.mjs
+  - scripts/signing-policy.mjs
+  - scripts/validate_continuity.py
+  - schemas
+  - package.json
+  - .github
+  - scripts/python.mjs
+  - scripts/mutation-check.mjs
+  - tests/unit
+  - tests/signing
+  - badf/decision-log.jsonl
+  - badf/next-actions.json
 
 accepted_keys: NONE_ENROLLED
 """
@@ -591,7 +639,69 @@ def build(tmp: Path, *, state=None, actions=None, decision_lines=None, checkpoin
     return tmp
 
 
-def run(tmp: Path) -> subprocess.CompletedProcess:
+BOOTSTRAP_PIN_NAMES = ("ACT", "STATE", "SEATS", "DIGEST")
+
+
+def bootstrap_pins_for(record: str, seats=("repository-administrator",)) -> dict:
+    """The four bootstrap pins a validator would carry for THIS spent act."""
+    is_seated = (NL + "state: SEATED" + NL) in record
+    act = re.search(r"^act_id: (\S+)$", record, re.MULTILINE)
+    return {
+        "ACT": act.group(1) if act else "BOOTSTRAP-001",
+        "STATE": "SEATED" if is_seated else "AWAITING_OPERATOR_INSTRUCTION",
+        "SEATS": list(seats),
+        "DIGEST": digest_of(record) if is_seated else None,
+    }
+
+
+def _pins_following_the_fixture(tmp: Path) -> dict | None:
+    """Pins that simply agree with whatever bootstrap fixture is on disk.
+
+    The bootstrap pins in scripts/validate_continuity.py name ONE real act. The
+    older tests here exercise the record's other rules against many invented
+    acts, and would otherwise all trip the pin. So the copy of the validator
+    they run has its pins set to what the fixture itself records, which makes
+    the pin trivially satisfied there. Tests of the pin itself pass explicit
+    pins instead (see BootstrapIsSingleUse), and never rely on this.
+
+    The pins follow the RECORD (bootstrap.yaml) and never the ledger in
+    current-state.json. A pin that followed the ledger would duplicate the
+    ledger rules it sits beside, so deleting one of THOSE rules would leave the
+    pin to report the same defect and the older mutation would survive: the
+    first sweep after these pins were added showed exactly that, for the
+    historical-digest comparison.
+    """
+    try:
+        record = (tmp / "badf" / "bootstrap.yaml").read_text(encoding="utf-8")
+    except OSError:
+        return None
+    seats = re.findall(r"^  - seat: (\S+)[ ]*$", record, re.MULTILINE)
+    pins = bootstrap_pins_for(record, seats)
+    try:
+        pins["DIGEST"] = digest_of(record) if pins["STATE"] == "SEATED" else None
+    except ValueError:
+        pins["DIGEST"] = None
+    return pins
+
+
+def patch_bootstrap_pins(tmp: Path, pins: dict) -> None:
+    """Rewrites the four single-line pin constants in the temporary copy."""
+    path = tmp / "scripts" / "validate_continuity.py"
+    text = path.read_text(encoding="utf-8")
+    for name in BOOTSTRAP_PIN_NAMES:
+        pattern = re.compile(r"^BOOTSTRAP_PINNED_" + name + r" = .*$", re.MULTILINE)
+        assert len(pattern.findall(text)) == 1, (
+            "the validator must define BOOTSTRAP_PINNED_" + name + " exactly once, on one line"
+        )
+        replacement = "BOOTSTRAP_PINNED_" + name + " = " + repr(pins[name])
+        text = pattern.sub(lambda _match: replacement, text)
+    path.write_text(text, encoding="utf-8")
+
+
+def run(tmp: Path, pins: dict | None = None) -> subprocess.CompletedProcess:
+    pins = _pins_following_the_fixture(tmp) if pins is None else pins
+    if pins is not None:
+        patch_bootstrap_pins(tmp, pins)
     return subprocess.run(
         [sys.executable, str(tmp / "scripts" / "validate_continuity.py")],
         capture_output=True, text=True, cwd=tmp, check=False,
@@ -849,6 +959,208 @@ class ValidatorFailsClosed(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("production_deployment", result.stderr)
 
+    # ---- a grant written into the registry ALONE ---------------------------
+    #
+    # Review finding M2. `badf/authority.yaml` is the source of record, so a
+    # grant written there while badf/current-state.json still reads NOT_* is
+    # the cheapest P0 forgery there is: one file. Exactly one rule stops it,
+    # and deleting that rule left every test green.
+
+    def test_a_registry_grant_the_state_file_still_reads_as_withheld_is_reported(self):
+        text = AUTHORITY_YAML.replace(
+            "  p0_implementation:\n    status: NOT_GRANTED\n", ""
+        ) + (
+            "  p0_implementation:\n"
+            "    status: GRANTED\n"
+            '    granted_by: "business authority seat"\n'
+            '    recorded_by: "business-authority"\n'
+            '    expires_at: "2099-01-01"\n'
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = build(Path(directory))
+            (tmp / "badf" / "authority.yaml").write_text(text, encoding="utf-8")
+            result = run(tmp)
+        self.assertEqual(
+            result.returncode, 1,
+            f"a P0 grant in the registry alone must be refused:\n{result.stdout}{result.stderr}",
+        )
+        self.assertIn(
+            "authority.p0_implementation: badf/authority.yaml records it under granted "
+            "but badf/current-state.json says 'NOT_GRANTED'",
+            result.stderr,
+        )
+
+    # ---- tool_authority: what an agent may NOT do is pinned ----------------
+    #
+    # Review finding M1. The block was never read: list items under it were
+    # skipped, so moving "Grant, extend or infer authority, including its own"
+    # from may_not into may passed, with one file edited.
+
+    def _with_tool_authority(self, may=TOOL_MAY, may_not=TOOL_MAY_NOT):
+        text = AUTHORITY_YAML.replace(
+            tool_authority_yaml(), tool_authority_yaml(may, may_not)
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = build(Path(directory))
+            (tmp / "badf" / "authority.yaml").write_text(text, encoding="utf-8")
+            return run(tmp)
+
+    def test_the_tool_authority_fixture_passes(self):
+        result = self._with_tool_authority()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_forbidden_tool_power_moved_into_may_is_reported(self):
+        item = "Grant, extend or infer authority, including its own"
+        result = self._with_tool_authority(
+            may=TOOL_MAY + (item,),
+            may_not=tuple(entry for entry in TOOL_MAY_NOT if entry != item),
+        )
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn(item, result.stderr)
+
+    def test_a_pinned_tool_power_missing_from_may_not_is_reported(self):
+        for item in TOOL_MAY_NOT:
+            with self.subTest(item=item):
+                result = self._with_tool_authority(
+                    may_not=tuple(entry for entry in TOOL_MAY_NOT if entry != item)
+                )
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn(
+                    "tool_authority.may_not no longer lists " + repr(item), result.stderr
+                )
+
+    def test_a_pinned_tool_power_listed_under_may_is_reported(self):
+        for item in TOOL_MAY_NOT:
+            with self.subTest(item=item):
+                # Still present under may_not: only the may-side rule can fire.
+                result = self._with_tool_authority(may=TOOL_MAY + (item,))
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn(
+                    "tool_authority.may lists " + repr(item), result.stderr
+                )
+
+    def test_a_pinned_tool_power_under_may_with_other_case_is_reported(self):
+        result = self._with_tool_authority(may=TOOL_MAY + ("  PUSH  to   MAIN ",))
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("tool_authority.may lists", result.stderr)
+
+    def test_a_registry_with_no_tool_authority_block_is_reported(self):
+        text = AUTHORITY_YAML.replace(tool_authority_yaml(), "")
+        self.assertNotEqual(text, AUTHORITY_YAML)
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = build(Path(directory))
+            (tmp / "badf" / "authority.yaml").write_text(text, encoding="utf-8")
+            result = run(tmp)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("tool_authority.may_not no longer lists", result.stderr)
+
+    def test_a_forbidden_tool_power_added_beyond_the_pinned_ones_is_allowed(self):
+        """The pin is a floor. Forbidding MORE is never a loosening."""
+        result = self._with_tool_authority(
+            may_not=TOOL_MAY_NOT + ("Deploy to any environment",)
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    # ---- tool_authority: ordinary YAML must not get past the pin (round 7 N1) --
+    #
+    # The B1 refusal compared the text of each list item. A trailing comment
+    # after a quoted item left the quotes and the comment in the compared
+    # string, so a forbidden power written under `may` no longer matched its
+    # pin, while PyYAML read exactly the pinned string. A second top-level
+    # `tool_authority:` block was merged with the first, and PyYAML keeps the
+    # LAST duplicate. Both are one-file edits.
+
+    def _with_raw_tool_authority(self, block, *, append=""):
+        text = AUTHORITY_YAML.replace(tool_authority_yaml(), block) + append
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = build(Path(directory))
+            (tmp / "badf" / "authority.yaml").write_text(text, encoding="utf-8")
+            return run(tmp)
+
+    def _may_item_lines(self, *lines):
+        block = tool_authority_yaml()
+        anchor = "  may_not:" + NL
+        self.assertEqual(block.count(anchor), 1)
+        return block.replace(anchor, "".join(line + NL for line in lines) + anchor)
+
+    def test_a_tool_power_item_with_a_trailing_comment_is_refused_not_skipped(self):
+        forbidden = "Grant, extend or infer authority, including its own"
+        for label, line in (
+            ("double-quoted", "    - " + chr(34) + forbidden + chr(34) + "  # per operator"),
+            ("single-quoted", "    - " + chr(39) + forbidden + chr(39) + " # per operator"),
+            ("plain", "    - " + forbidden + " # per operator"),
+        ):
+            with self.subTest(form=label):
+                result = self._with_raw_tool_authority(self._may_item_lines(line))
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn(
+                    "not exactly one quoted scalar or one plain scalar", result.stderr
+                )
+
+    def test_a_tool_power_item_with_a_comment_under_may_not_is_refused_too(self):
+        block = tool_authority_yaml().replace(
+            chr(34) + "Push to main" + chr(34) + NL,
+            chr(34) + "Push to main" + chr(34) + "  # retired" + NL,
+        )
+        self.assertIn("# retired", block)
+        result = self._with_raw_tool_authority(block)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("not exactly one quoted scalar or one plain scalar", result.stderr)
+
+    def test_a_tool_power_item_that_is_not_a_scalar_is_refused(self):
+        for label, line in (
+            ("flow sequence", "    - [" + chr(34) + "Push to main" + chr(34) + "]"),
+            ("flow mapping", "    - {a: b}"),
+            ("anchor", "    - &pin Push to main"),
+            ("empty", "    - "),
+            ("unterminated quote", "    - " + chr(34) + "Push to main"),
+            ("text after a closing quote", "    - " + chr(34) + "a" + chr(34) + " b"),
+        ):
+            with self.subTest(form=label):
+                result = self._with_raw_tool_authority(self._may_item_lines(line))
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn(
+                    "not exactly one quoted scalar or one plain scalar", result.stderr
+                )
+
+    def test_plain_and_single_quoted_tool_power_items_are_still_read(self):
+        """The refusal is not a ban on YAML: an ordinary scalar still passes."""
+        block = self._may_item_lines(
+            "    - Read the audit trail",
+            "    - " + chr(39) + "Open a branch, it" + chr(39) * 2 + "s under a Work Package" + chr(39),
+            "    - " + chr(34) + "Say " + chr(92) + chr(34) + "no" + chr(92) + chr(34) + chr(34),
+        )
+        result = self._with_raw_tool_authority(block)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_second_tool_authority_block_is_reported(self):
+        second = (
+            "tool_authority:" + NL
+            + "  may:" + NL
+            + "    - " + chr(34) + "Everything the operator can do" + chr(34) + NL
+            + "  may_not:" + NL
+            + "    - " + chr(34) + "Nothing" + chr(34) + NL
+        )
+        result = self._with_raw_tool_authority(tool_authority_yaml(), append=second)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("top-level key 'tool_authority' appears more than once", result.stderr)
+
+    def test_a_second_list_of_the_same_name_inside_tool_authority_is_reported(self):
+        """The same bypass one level down: YAML keeps the last `may_not`."""
+        block = tool_authority_yaml() + (
+            "  may_not:" + NL + "    - " + chr(34) + "Nothing" + chr(34) + NL
+        )
+        result = self._with_raw_tool_authority(block)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("tool_authority.may_not appears more than once", result.stderr)
+
+    def test_a_second_top_level_section_of_any_kind_is_reported(self):
+        result = self._with_raw_tool_authority(
+            tool_authority_yaml(), append="not_granted:" + NL
+        )
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("top-level key 'not_granted' appears more than once", result.stderr)
+
     def test_a_credential_in_the_tree_is_reported(self):
         result = self._broken(
             extra_files={"docs/leak.md": "token: ghp_" + "A" * 36 + "\n"}
@@ -874,6 +1186,91 @@ class ValidatorFailsClosed(unittest.TestCase):
             f"a credential in a binary must be reported:\n{result.stdout}{result.stderr}",
         )
         self.assertIn("blob.bin", result.stderr)
+
+    # ---- credential shapes the scan used to miss (review finding m5) --------
+    #
+    # Every token below is assembled at RUN TIME from parts, so no literal with
+    # the shape of a credential is committed: GitHub push protection would
+    # refuse the push, and this scan would refuse the tree.
+
+    def _leaks(self, token):
+        return self._broken(extra_files={"docs/leak.md": "note: " + token + NL})
+
+    def test_a_github_server_or_user_token_in_the_tree_is_reported(self):
+        for prefix in ("ghs", "ghu"):
+            with self.subTest(prefix=prefix):
+                result = self._leaks(prefix + "_" + "A" * 36)
+                self.assertIn("docs/leak.md: contains what looks like a GitHub", result.stderr)
+
+    def test_a_github_refresh_token_in_the_tree_is_reported(self):
+        # Round seven m2. `ghr_` is GitHub's refresh token, and the scan named
+        # ghp, gho, ghs and ghu but not this one.
+        result = self._leaks("gh" + "r_" + "A" * 36)
+        self.assertIn("docs/leak.md: contains what looks like a GitHub refresh token", result.stderr)
+
+    def test_a_stripe_restricted_key_in_the_tree_is_reported(self):
+        # Round seven m2. `rk_live_` is Stripe's restricted key, and only
+        # `sk_live_` was covered.
+        result = self._leaks("rk" + "_live_" + "a1B2" * 6)
+        self.assertIn("docs/leak.md: contains what looks like a Stripe restricted key", result.stderr)
+
+    def test_a_credential_planted_in_the_validator_itself_is_reported(self):
+        """Round seven m1. The whole validator file used to be exempt from the scan.
+
+        It is the file that carries every pin, and an exemption for a file
+        that "names the patterns" covered the file with the most room to hide a
+        token in a comment or a string. The patterns are regexes, and a regex
+        does not match itself, so the exemption bought nothing but the hole.
+        """
+        for label, token in (
+            ("ghp", "gh" + "p_" + "A" * 36),
+            ("sk_live", "sk" + "_live_" + "a1B2" * 6),
+        ):
+            with self.subTest(token=label):
+                with tempfile.TemporaryDirectory() as directory:
+                    tmp = build(Path(directory))
+                    validator = tmp / "scripts" / "validate_continuity.py"
+                    validator.write_text(
+                        validator.read_text(encoding="utf-8") + NL + "# " + token + NL,
+                        encoding="utf-8",
+                    )
+                    result = run(tmp)
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn(
+                    "scripts/validate_continuity.py: contains what looks like",
+                    result.stderr,
+                )
+
+    def test_the_unmodified_validator_holds_no_credential_shape(self):
+        """The other half of m1: with the exemption gone, the file must scan clean."""
+        with tempfile.TemporaryDirectory() as directory:
+            result = run(build(Path(directory)))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("validate_continuity.py: contains", result.stderr)
+
+    def test_a_stripe_live_key_in_the_tree_is_reported(self):
+        result = self._leaks("sk" + "_live_" + "a1B2" * 6)
+        self.assertIn("docs/leak.md: contains what looks like a Stripe live key", result.stderr)
+
+    def test_a_google_api_key_in_the_tree_is_reported(self):
+        result = self._leaks("AI" + "za" + "Sy" + "A" * 33)
+        self.assertIn("docs/leak.md: contains what looks like a Google API key", result.stderr)
+
+    def test_an_npm_token_in_the_tree_is_reported(self):
+        result = self._leaks("npm" + "_" + "a1B2c3" * 6)
+        self.assertIn("docs/leak.md: contains what looks like an npm access token", result.stderr)
+
+    def test_words_that_only_resemble_a_credential_prefix_are_allowed(self):
+        """The scan is not a substring ban: short and separated forms pass."""
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = build(Path(directory), extra_files={
+                "docs/prose.md": (
+                    "npm_config_user_agent and ghs_short and sk_live_ and AIza are names, "
+                    "not credentials." + NL
+                ),
+            })
+            result = run(tmp)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     # ---- a schema defect must be exit 2, not a quiet pass ------------------
 
@@ -1605,6 +2002,79 @@ class SigningPolicyClosed(unittest.TestCase):
             SIGNING_POLICY_YAML.replace("  - badf/authority.yaml" + NL, "", 1),
         )
 
+    # ---- review finding M5: the instrument is inside its own protected set --
+    #
+    # A one-line edit to scripts/check-signing.mjs (`|| true`) turned an
+    # enforcing check into a false PASS, and that file was not a protected
+    # path. Typed here rather than imported, so the test does not agree with
+    # the pin by construction.
+
+    INSTRUMENT_PATHS = (
+        "scripts/check-signing.mjs",
+        "scripts/signing-policy.mjs",
+        "scripts/validate_continuity.py",
+        "schemas",
+        "package.json",
+        ".github",
+    )
+
+    def test_dropping_a_pinned_instrument_path_is_reported(self):
+        for path in self.INSTRUMENT_PATHS:
+            with self.subTest(path=path):
+                policy = SIGNING_POLICY_YAML.replace("  - " + path + NL, "", 1)
+                self.assertNotEqual(policy, SIGNING_POLICY_YAML, "the replace target did not match")
+                self._refused(
+                    "'" + path + "' is pinned in scripts/validate_continuity.py "
+                    "(PINNED_PROTECTED_PATHS)",
+                    policy,
+                )
+
+    # ---- round seven N2: the launcher, the witnesses and two records --------
+    #
+    # `validate:records` and `test:validator` both run through
+    # scripts/python.mjs, and neither it, tests/unit, tests/signing nor the
+    # mutation sweep was a protected path: with a key enrolled, one injected
+    # line in the launcher printed PASS for the validator, and the tests that
+    # witness the signing check could be edited in the change they judge.
+    # badf/decision-log.jsonl and badf/next-actions.json are records an agent
+    # writes and a human is meant to be able to bind.
+    LAUNCHER_AND_WITNESS_PATHS = (
+        "scripts/python.mjs",
+        "scripts/mutation-check.mjs",
+        "tests/unit",
+        "tests/signing",
+        "badf/decision-log.jsonl",
+        "badf/next-actions.json",
+    )
+
+    def test_dropping_a_pinned_launcher_or_witness_path_is_reported(self):
+        for path in self.LAUNCHER_AND_WITNESS_PATHS:
+            with self.subTest(path=path):
+                policy = SIGNING_POLICY_YAML.replace("  - " + path + NL, "", 1)
+                self.assertNotEqual(policy, SIGNING_POLICY_YAML, "the replace target did not match")
+                self._refused(
+                    "'" + path + "' is pinned in scripts/validate_continuity.py "
+                    "(PINNED_PROTECTED_PATHS)",
+                    policy,
+                )
+
+    def test_a_dot_directory_is_a_plain_protected_path(self):
+        """`.github` has to be spellable, and the fixture carries it."""
+        result = self._run(SIGNING_POLICY_YAML)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("  - .github" + NL, SIGNING_POLICY_YAML)
+
+    def test_a_protected_path_that_is_only_a_dot_is_reported(self):
+        """One leading dot is allowed when a name follows it. `.` is the whole tree."""
+        for path in (".", ".."):
+            with self.subTest(path=path):
+                self._refused(
+                    "is not a plain relative path",
+                    SIGNING_POLICY_YAML.replace(
+                        "  - sessions/checkpoints", "  - sessions/checkpoints" + NL + "  - " + path, 1
+                    ),
+                )
+
     def test_a_protected_path_git_would_read_as_an_option_is_reported(self):
         self._refused(
             "is not a plain relative path",
@@ -1700,6 +2170,47 @@ class SigningPolicyClosed(unittest.TestCase):
                 1,
             ),
         )
+
+    # ---- review finding M4: the identity that signs every squash merge -----
+    #
+    # Main is written by GitHub's merge, signed by GitHub's web-flow key. Enrol
+    # that key and the check would pass any change merged in the web UI,
+    # including an agent-authored one: the signature binds nothing to a human.
+    # Those two literals are typed here, not imported from the validator.
+
+    WEB_FLOW_KEY_ID = "B5690EEEBB952194"
+
+    def _enrolled(self, identity):
+        return SIGNING_POLICY_WITH_KEY.replace(
+            '  - identity: "A Human <human@example.invalid>"',
+            '  - identity: "' + identity + '"',
+            1,
+        )
+
+    def test_enrolling_githubs_web_flow_key_is_reported(self):
+        for identity in (
+            self.WEB_FLOW_KEY_ID,
+            self.WEB_FLOW_KEY_ID.lower(),
+            "0x" + self.WEB_FLOW_KEY_ID,
+            "F" * 24 + self.WEB_FLOW_KEY_ID,  # a 40-hex fingerprint ending in it
+        ):
+            with self.subTest(identity=identity):
+                self._refused("GitHub's web-flow signing key", self._enrolled(identity))
+
+    def test_enrolling_githubs_web_flow_committer_identity_is_reported(self):
+        for identity in (
+            "GitHub <noreply@github.com>",
+            "github <NOREPLY@GitHub.com>",
+        ):
+            with self.subTest(identity=identity):
+                self._refused(
+                    "GitHub's web-flow committer identity", self._enrolled(identity)
+                )
+
+    def test_a_key_that_merely_resembles_the_web_flow_key_is_allowed(self):
+        """The refusal is not a blanket one: a different 16-hex key id passes."""
+        result = self._run(self._enrolled("B5690EEEBB952195"))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
 class BootstrapSeatingClosed(unittest.TestCase):
@@ -2270,6 +2781,91 @@ class BootstrapSeatingClosed(unittest.TestCase):
             "the sentences must still be PRESENT as prose, or this proves nothing",
         )
         self._refused("declares no top-level succession: key", agents=agents)
+
+
+class BootstrapIsSingleUse(unittest.TestCase):
+    """Review finding M3: the ledger is data, so the pin has to be code.
+
+    Each test below is a forgery that is CONSISTENT across the three files
+    (bootstrap.yaml, agents.yaml, current-state.json): the record, the
+    held_by values and the ledger all agree, and the digest is recomputed. Only
+    the pins in scripts/validate_continuity.py stand between it and a pass.
+
+    The pins are passed EXPLICITLY, and each test moves exactly one of them
+    out of agreement with the forgery while keeping the others in agreement
+    with it. That is what lets deleting one pin turn exactly one test red: a
+    forgery that also broke a second pin would leave the first unwitnessed.
+    """
+
+    SPENT = bootstrap_record(state="SEATED", seatings=(ADMIN_SEAT,))
+
+    def _forged(self, record, agents, seats, pins):
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = build(Path(directory), state=state_for(record, seats=seats))
+            (tmp / "badf" / "bootstrap.yaml").write_text(record, encoding="utf-8")
+            (tmp / "badf" / "agents.yaml").write_text(agents, encoding="utf-8")
+            return run(tmp, pins=pins)
+
+    def test_the_spent_act_passes_under_its_own_pins(self):
+        """The positive control: the pins accept the one act they describe."""
+        result = self._forged(
+            self.SPENT, agents_seated(ADMIN_SEAT), ("repository-administrator",),
+            bootstrap_pins_for(self.SPENT),
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_second_seating_by_the_spent_act_is_reported_even_when_the_ledger_agrees(self):
+        """An agent identifier seated in human-only business-authority."""
+        agent = ("business-authority", "claude-code/motor")
+        record = bootstrap_record(state="SEATED", seatings=(ADMIN_SEAT, agent))
+        pins = bootstrap_pins_for(record)  # act, state and digest follow the forgery
+        pins["SEATS"] = ["repository-administrator"]
+        result = self._forged(
+            record, agents_seated(ADMIN_SEAT, agent),
+            ("repository-administrator", "business-authority"), pins,
+        )
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("seated exactly", result.stderr)
+        self.assertIn("business-authority", result.stderr)
+
+    def test_a_second_bootstrap_act_is_reported_even_when_the_ledger_agrees(self):
+        record = bootstrap_record(
+            state="SEATED", act_id="BOOTSTRAP-002",
+            seatings=(("repository-administrator", OTHER_PRINCIPAL),),
+        )
+        pins = bootstrap_pins_for(record)
+        pins["ACT"] = "BOOTSTRAP-001"
+        result = self._forged(
+            record, agents_seated(("repository-administrator", OTHER_PRINCIPAL)),
+            ("repository-administrator",), pins,
+        )
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("BOOTSTRAP-001 is the only bootstrap act", result.stderr)
+        self.assertIn("BOOTSTRAP-002", result.stderr)
+
+    def test_a_rewritten_historical_record_is_reported_even_when_the_ledger_digest_is_repaired(self):
+        record = bootstrap_record(
+            state="SEATED", seatings=(("repository-administrator", OTHER_PRINCIPAL),)
+        )
+        pins = bootstrap_pins_for(record)
+        pins["DIGEST"] = digest_of(self.SPENT)
+        result = self._forged(
+            record, agents_seated(("repository-administrator", OTHER_PRINCIPAL)),
+            ("repository-administrator",), pins,
+        )
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("frozen historical region hashes to", result.stderr)
+        self.assertIn("pinned in scripts/validate_continuity.py", result.stderr)
+
+    def test_reverting_the_spent_act_to_awaiting_is_reported_even_when_the_ledger_agrees(self):
+        """Un-spending the act makes every other pin vacuous."""
+        record = bootstrap_record()
+        pins = bootstrap_pins_for(record)
+        pins["STATE"] = "SEATED"
+        result = self._forged(record, AGENTS_YAML, (), pins)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("records state 'AWAITING_OPERATOR_INSTRUCTION'", result.stderr)
+        self.assertIn("pinned as SEATED", result.stderr)
 
 
 class ValidatorRunsAgainstThisRepository(unittest.TestCase):

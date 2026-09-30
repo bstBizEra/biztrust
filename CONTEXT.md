@@ -80,9 +80,12 @@ occupant (`held_by`) and a property saying whether an agent may hold it
 `architecture-authority`, `business-authority`, `repository-administrator`,
 `legal-compliance-reviewer`.
 
-Every `held_by` is currently `null`, and the validator pins it there: seating
-someone is a change to the validator in the same pull request, which is the
-cost `DEC-007` chose for authority records generally.
+One `held_by` is set: `repository-administrator`, held by BizEra through
+`BOOTSTRAP-001` (`DEC-036`). The validator accepts it only because
+`badf/bootstrap.yaml` records that seating. Every other `held_by` is `null`, and
+the validator pins it there: any further seating is a reviewed change to the
+records and the validator, which is the cost `DEC-007` chose for authority
+records generally.
 
 ### Work Package
 

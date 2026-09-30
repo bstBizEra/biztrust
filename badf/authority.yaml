@@ -72,12 +72,14 @@ not_granted:
     status: NOT_RECORDED
     held_by: "repository administrator, a human role"
     why: >-
-      Recording a protection is not something an agent can do. The protection
-      itself exists - an agent applied it on an operator instruction, and
+      Recording a protection is the repository administrator's own act. The
+      protection exists - an agent applied it on an operator instruction, and
       negative control 6 of the P0.2 design is observed in
-      evidence/security-proof/negative-control-6.md. The status stays
-      NOT_RECORDED because no named human holds the repository administrator
-      seat. The mechanism is in place and the record is absent.
+      evidence/security-proof/negative-control-6.md. The seat is held by BizEra
+      through BOOTSTRAP-001 (DEC-036). The WP-001 independent review found that
+      seating indistinguishable from the agents' git identity (issue 8, finding
+      B6), which is open. The administrator has not recorded the protection,
+      so the status stays NOT_RECORDED.
 
 # ---------------------------------------------------------------------------
 # Granted. The one instruction this repository was created under.

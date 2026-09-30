@@ -352,6 +352,7 @@ def parse_authority(text: str) -> tuple[dict[str, dict[str, dict[str, str]]], li
     section: str | None = None
     key: str | None = None
     block_indent: int | None = None
+    seen_sections: set[str] = set()
 
     for number, raw in enumerate(text.splitlines(), start=1):
         if raw.strip() == "" or raw.lstrip().startswith("#"):
@@ -384,6 +385,17 @@ def parse_authority(text: str) -> tuple[dict[str, dict[str, dict[str, str]]], li
                 continue
             section, rest = match.group(1), match.group(2).strip()
             key = None
+            # Round seven finding N1. Two blocks under one key were MERGED
+            # here, while PyYAML keeps the last and drops the first: a second
+            # `tool_authority:` appended to the file replaced every pinned
+            # list for everyone but this reader. Refused, not merged.
+            if section in seen_sections:
+                problems.append(
+                    f"badf/authority.yaml line {number}: top-level key {section!r} "
+                    f"appears more than once. Two readings of one key are two files, "
+                    f"and YAML keeps only the last"
+                )
+            seen_sections.add(section)
             if section not in AUTHORITY_SECTIONS:
                 problems.append(
                     f"badf/authority.yaml line {number}: unknown top-level section "
@@ -458,6 +470,162 @@ def parse_authority(text: str) -> tuple[dict[str, dict[str, dict[str, str]]], li
     return sections, problems
 
 
+#: What an agent may NOT do in this repository, verbatim from the
+#: `tool_authority.may_not` list of badf/authority.yaml.
+#:
+#: Review finding M1. The block was never read: list items under it hit
+#: `continue` in parse_authority, so moving "Grant, extend or infer authority,
+#: including its own" from may_not into may passed `pnpm validate:records`
+#: with ONE file edited. That is a strictly cheaper forgery than the three-file
+#: one the signing policy declares. The list is a FLOOR, as PINNED_ROUTING and
+#: PINNED_PROTECTED_PATHS are: forbidding more is always allowed, and removing
+#: one is a reviewed change to this validator under a Work Package that says why.
+PINNED_TOOL_MAY_NOT = (
+    "Push to main",
+    "Record a gate result",
+    "Mark a design or an ADR ACCEPTED",
+    "Grant, extend or infer authority, including its own",
+    "Create a domain table or implement a P0 epic",
+    "Claim that any capability is implemented, secure, compliant or production-ready",
+    "Place a secret, a credential, client data or regulated data in this repository",
+)
+
+TOOL_AUTHORITY_LISTS = ("may", "may_not")
+
+
+#: A single-quoted YAML scalar, and nothing after its closing quote.
+_SINGLE_QUOTED_SCALAR = re.compile(r"^'(?:[^']|'')*'$")
+
+#: A plain YAML scalar this reader is willing to read: it opens on a letter,
+#: digit or parenthesis (so no indicator, quote, anchor, tag, flow bracket or
+#: nested `- `), and holds no ` #` or `#`, no `: ` and no closing colon.
+_PLAIN_SCALAR = re.compile(r"^[A-Za-z0-9(][^#]*$")
+
+
+def _tool_authority_item(raw: str) -> tuple[str | None, str | None]:
+    """One `- ...` list item as (text, None), or (None, why it was refused).
+
+    Round seven finding N1. This used to unquote an item only when the item
+    ENDED with a quote, and hand anything else back as text. A trailing
+    `# comment` after a quoted forbidden power therefore left the quotes and
+    the comment inside the compared string, the power no longer matched its
+    pin, and PyYAML read exactly the pinned string. Anything that is not
+    exactly one quoted scalar, or one plain scalar without a `#`, is REFUSED
+    here rather than guessed at: a reader that guesses is a reader with two
+    readings of the same file.
+    """
+    body = raw.strip()[2:].strip()
+    if body.startswith('"'):
+        try:
+            decoded = json.loads(body)
+        except ValueError:
+            decoded = None
+        if not isinstance(decoded, str):
+            return None, "a double-quoted scalar this reader cannot decode whole"
+        return decoded, None
+    if body.startswith("'"):
+        if _SINGLE_QUOTED_SCALAR.match(body) is None:
+            return None, "a single-quoted scalar with text outside its quotes"
+        return body[1:-1].replace("''", "'"), None
+    if _PLAIN_SCALAR.match(body) is None:
+        return None, "neither quoted nor a plain scalar this reader accepts"
+    if ": " in body or body.endswith(":"):
+        return None, "a plain scalar that reads as a mapping"
+    return body, None
+
+
+def _normalised(text: str) -> str:
+    """Case and whitespace folded, so `push  to MAIN` is `Push to main`."""
+    return " ".join(text.split()).casefold()
+
+
+def parse_tool_authority(text: str) -> tuple[dict[str, list[str]], list[str]]:
+    """Reads the `may` and `may_not` lists of the tool_authority section.
+
+    parse_authority classifies every line and skips list items under this
+    section; this reads them. Anything it cannot classify is a problem, so a
+    third list, or a field where a list belongs, is not a place to hide a power.
+    """
+    lists: dict[str, list[str]] = {name: [] for name in TOOL_AUTHORITY_LISTS}
+    problems: list[str] = []
+    in_section = False
+    current: str | None = None
+    opened: set[str] = set()
+    for number, raw in enumerate(text.splitlines(), start=1):
+        if raw.strip() == "" or raw.lstrip().startswith("#"):
+            continue
+        indent = len(raw) - len(raw.lstrip(" "))
+        if indent == 0:
+            in_section = raw.startswith("tool_authority:")
+            current = None
+            opened = set()
+            continue
+        if not in_section:
+            continue
+        if indent == 2:
+            match = re.match(r"^ {2}([A-Za-z0-9_]+):\s*$", raw)
+            if match is None or match.group(1) not in TOOL_AUTHORITY_LISTS:
+                problems.append(
+                    f"badf/authority.yaml line {number}: tool_authority takes only the "
+                    f"lists {list(TOOL_AUTHORITY_LISTS)}, written as blocks: {raw.strip()!r}"
+                )
+                current = None
+                continue
+            current = match.group(1)
+            if current in opened:
+                # PyYAML keeps the LAST of two equal keys; merging them here
+                # would read a different file from the one everyone else reads.
+                problems.append(
+                    f"badf/authority.yaml line {number}: tool_authority.{current} "
+                    f"appears more than once; a second list is not merged with the first"
+                )
+            opened.add(current)
+            continue
+        if indent == 4 and raw.lstrip().startswith("- ") and current is not None:
+            item, why = _tool_authority_item(raw)
+            if item is None:
+                problems.append(
+                    f"badf/authority.yaml line {number}: a tool_authority item that is "
+                    f"not exactly one quoted scalar or one plain scalar without '#' "
+                    f"({why}): {raw.strip()!r}"
+                )
+                continue
+            lists[current].append(item)
+            continue
+        problems.append(
+            f"badf/authority.yaml line {number}: not an item of tool_authority.may or "
+            f"tool_authority.may_not: {raw.strip()!r}"
+        )
+    return lists, problems
+
+
+def validate_tool_authority(text: str, errors: list[str]) -> None:
+    """Refuses a tool_authority block that grants an agent a pinned power.
+
+    Two refusals, and each has its own fixture so neither can be deleted alone:
+    a pinned power missing from `may_not`, and a pinned power listed under
+    `may`. The second compares with case and whitespace folded, so re-spelling
+    a forbidden power is not a way past it.
+    """
+    lists, problems = parse_tool_authority(text)
+    errors.extend(problems)
+    forbidden = {_normalised(item) for item in lists["may_not"]}
+    permitted = {_normalised(item) for item in lists["may"]}
+    for pinned in PINNED_TOOL_MAY_NOT:
+        if _normalised(pinned) not in forbidden:
+            errors.append(
+                f"badf/authority.yaml: tool_authority.may_not no longer lists {pinned!r}. "
+                f"The list is pinned in scripts/validate_continuity.py; removing a "
+                f"forbidden power is a reviewed change to the validator, not a data edit"
+            )
+    for pinned in PINNED_TOOL_MAY_NOT:
+        if _normalised(pinned) in permitted:
+            errors.append(
+                f"badf/authority.yaml: tool_authority.may lists {pinned!r}, which is "
+                f"pinned as forbidden to an agent"
+            )
+
+
 def validate_registries(errors: list[str]) -> None:
     """The five registries must exist, be non-empty and declare a version."""
     for name in REGISTRIES:
@@ -525,6 +693,7 @@ def validate_authority_registry(state, errors: list[str]) -> None:
 
     sections, problems = parse_authority(text)
     errors.extend(problems)
+    validate_tool_authority(text, errors)
 
     not_granted = sections.get("not_granted", {})
     granted = sections.get("granted", {})
@@ -1328,6 +1497,31 @@ BOOTSTRAP_STATEMENT = (
     "AUTHORITY PATH, AND IT IS SPENT BY ITS OWN USE."
 )
 
+# The bootstrap capability is single-use, and this is where that is PINNED.
+#
+# Review finding M3. badf/current-state.json carries a consumption ledger, but
+# a ledger is data: a second seating (business-authority seated by an agent
+# identifier) or a new BOOTSTRAP-002 act passed once the ledger was edited to
+# match and the digest recomputed. Nothing bound the ledger to what the first,
+# real act recorded. These four constants do, from code the data cannot reach:
+#
+#   - BOOTSTRAP-001 is the only act there is;
+#   - it is SEATED, and stays SEATED (reverting it to AWAITING would make the
+#     act unspent again, and every other pin would then be vacuous);
+#   - it seated exactly the repository administrator, and no other seat;
+#   - the frozen historical region hashes to the value recorded when it was
+#     seated.
+#
+# A later legitimate change - a second act, another seat - therefore needs a
+# reviewed change to THIS FILE, under a Work Package that says why, rather than
+# a consistent edit to three data files. tests/unit substitutes these four
+# lines in a temporary copy to exercise the older rules against other records;
+# each is a single line for that reason, so keep them single lines.
+BOOTSTRAP_PINNED_ACT = "BOOTSTRAP-001"
+BOOTSTRAP_PINNED_STATE = "SEATED"
+BOOTSTRAP_PINNED_SEATS = ["repository-administrator"]
+BOOTSTRAP_PINNED_DIGEST = "5989e6c2c7210c656bde85f0a57199816c881501cc2007e9427ca4628094d784"
+
 BOOTSTRAP_SCALARS = {
     "version",
     "updated_at",
@@ -1655,6 +1849,27 @@ def validate_bootstrap_record(state, errors: list[str]) -> dict[str, str]:
     trigger = scalars.get("separation_trigger", "").strip()
     exception = scalars.get("exception_type", "").strip()
 
+    # Review finding M3: the pins. Each is a separate rule with a separate
+    # control, because a check that four conditions share cannot be observed
+    # enforcing any one of them. See BOOTSTRAP_PINNED_ACT for why they are code.
+    if scalars.get("act_id", "").strip() != BOOTSTRAP_PINNED_ACT:
+        errors.append(
+            f"badf/bootstrap.yaml: records act {scalars.get('act_id', '')!r}, and "
+            f"{BOOTSTRAP_PINNED_ACT} is the only bootstrap act there is. The capability "
+            f"is single-use and was spent by that act; a second act is pinned out in "
+            f"scripts/validate_continuity.py because a ledger in a data file can be "
+            f"edited to agree with it. A legitimate later act is a reviewed change to "
+            f"that pin, under a Work Package that says why"
+        )
+
+    if declared_state != BOOTSTRAP_PINNED_STATE:
+        errors.append(
+            f"badf/bootstrap.yaml: records state {declared_state!r}, and the spent act "
+            f"is pinned as {BOOTSTRAP_PINNED_STATE} in scripts/validate_continuity.py. "
+            f"Reverting a spent act makes it unspent, which reopens the seating every "
+            f"other pin then guards nothing about"
+        )
+
     if declared_state == BOOTSTRAP_SEATED and not seatings:
         errors.append(
             f"badf/bootstrap.yaml: records state {BOOTSTRAP_SEATED} and no seating at "
@@ -1732,6 +1947,26 @@ def validate_bootstrap_record(state, errors: list[str]) -> dict[str, str]:
             )
             continue
         seated[seat] = principal
+
+    # M3, the seats and the frozen text of the one act that was spent.
+    if declared_state == BOOTSTRAP_SEATED:
+        if sorted(seats_named) != sorted(BOOTSTRAP_PINNED_SEATS):
+            errors.append(
+                f"badf/bootstrap.yaml: the record seats {sorted(seats_named)}, and "
+                f"{BOOTSTRAP_PINNED_ACT} seated exactly {sorted(BOOTSTRAP_PINNED_SEATS)}. "
+                f"That is pinned in scripts/validate_continuity.py, not in the ledger, "
+                f"because a ledger can be edited to agree with a second seating. Seating "
+                f"another office is a reviewed change to the pin, or the succession rule"
+            )
+        pinned_computed = bootstrap_digest(block) if block is not None else None
+        if pinned_computed != BOOTSTRAP_PINNED_DIGEST:
+            errors.append(
+                f"badf/bootstrap.yaml: the frozen historical region hashes to "
+                f"{pinned_computed!r}, and the digest pinned in "
+                f"scripts/validate_continuity.py for {BOOTSTRAP_PINNED_ACT} is "
+                f"{BOOTSTRAP_PINNED_DIGEST!r}. A digest recorded in badf/current-state.json "
+                f"can be repaired to match an edited record; this one cannot"
+            )
 
     # Constraint 4. DECLARED SEPARATION = ACTUAL SEPARATION, and the rule is
     # written in both directions on purpose: a dual seat that is not declared
@@ -2051,7 +2286,11 @@ COMMIT_SHA = re.compile(r"^[0-9a-f]{40}$")
 #: nothing a shell or `git log` could read as an option. The check hands these
 #: to git as pathspecs, so the shape is a security boundary and not a tidiness
 #: rule.
-PROTECTED_PATH = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._/-]*$")
+#:
+#: One leading dot is allowed, and only when a name follows it, so `.github` is
+#: a plain path while `.`, `..` and `./x` are not. `.` would be a pathspec for
+#: the whole tree. scripts/signing-policy.mjs carries the same shape.
+PROTECTED_PATH = re.compile(r"^\.?[A-Za-z0-9_][A-Za-z0-9._/-]*$")
 
 #: The paths whose protection is PINNED here, in the same doctrine as
 #: PINNED_SKILL_STATUS and PINNED_ROUTING: the data file is a FLOOR the records
@@ -2072,7 +2311,52 @@ PINNED_PROTECTED_PATHS = (
     "badf/signing-policy.yaml",
     "badf/bootstrap.yaml",
     "sessions/checkpoints",
+    # Review finding M5: the instrument. A one-line edit to
+    # scripts/check-signing.mjs (`if (verdict.verified || true) continue;`)
+    # turned an enforcing check into a false PASS, because the checker ships
+    # inside the change it judges and CI runs the PR's own copy. The checker,
+    # its reader, this validator (which holds every pin), the schemas the state
+    # is validated against, the scripts that run all of it and the workflow
+    # that calls them are governance, not tooling.
+    "scripts/check-signing.mjs",
+    "scripts/signing-policy.mjs",
+    "scripts/validate_continuity.py",
+    "schemas",
+    "package.json",
+    ".github",
+    # Round seven N2. `validate:records` and `test:validator` both run through
+    # the launcher, and a key-enrolled tree with one injected line in it
+    # printed PASS for both. The tests that witness the signing check, and the
+    # sweep that witnesses the tests, ship in the change they judge, and the
+    # decision log and the next-action list are records an agent writes.
+    "scripts/python.mjs",
+    "scripts/mutation-check.mjs",
+    "tests/unit",
+    "tests/signing",
+    "badf/decision-log.jsonl",
+    "badf/next-actions.json",
 )
+
+#: The identity that signs every commit GitHub's own merge writes, and that
+#: no policy may ever accept (review finding M4).
+#:
+#: GitHub's merge button writes squash merges committed by
+#: `GitHub <noreply@github.com>` and signed by GitHub's web-flow key. Four of
+#: them (#4 to #7) are on PR #1's head branch; main itself still holds only its
+#: "Initial commit", so this is what a squash merge into main WOULD do, seen in
+#: how those four behaved. Enrolling THAT key turns this check green for every change merged in
+#: the web UI - including one an agent authored and a human never read - so the
+#: signature would bind nothing to a person. A person's own signature does not
+#: survive a squash merge through the UI, which is the incompatibility
+#: badf/signing-policy.yaml states. Which merge strategy resolves it is a human
+#: decision this validator does not make; what it does is refuse the one
+#: "solution" that makes the check pass while meaning nothing.
+#:
+#: Two literals and two separate rules below, so each has a control and a
+#: mutation of its own: git reports the signer (%GS) and the key (%GK)
+#: separately, and a policy can name either.
+WEB_FLOW_KEY_ID = "B5690EEEBB952194"
+WEB_FLOW_COMMITTER_EMAIL = "noreply@github.com"
 
 #: What an accepted-key entry must record, as one alternation rather than three
 #: hand-written conditions, for the reason VERDICT_TERMS in
@@ -2329,6 +2613,29 @@ def validate_signing_policy(errors: list[str]) -> None:
                 f"must be {expectation}"
             )
 
+        # Review finding M4. Compared with case and spacing folded, and by
+        # containment: git's %GK may print a 16-hex key id or a 40-hex
+        # fingerprint that ends in it, and an identity may carry a 0x prefix.
+        identity = "".join(key.get("identity", "").split()).casefold()
+        line = key.get("__line__", "?")
+        if WEB_FLOW_KEY_ID.casefold() in identity:
+            errors.append(
+                f"badf/signing-policy.yaml: accepted key {position} (line {line}) names "
+                f"GitHub's web-flow signing key {WEB_FLOW_KEY_ID}. That key signs every "
+                f"commit GitHub's merge writes, so accepting it makes the check pass any "
+                f"change merged in the web UI, an agent-authored one included, and binds "
+                f"nothing to a human. It is pinned in scripts/validate_continuity.py as "
+                f"never acceptable"
+            )
+        if WEB_FLOW_COMMITTER_EMAIL in identity:
+            errors.append(
+                f"badf/signing-policy.yaml: accepted key {position} (line {line}) names "
+                f"GitHub's web-flow committer identity (GitHub <{WEB_FLOW_COMMITTER_EMAIL}>). "
+                f"That identity is the committer of every squash merge made in the web UI "
+                f"and stands for no person. It is pinned in scripts/validate_continuity.py "
+                f"as never acceptable"
+            )
+
 
 #: The delivery gates, and the states no agent may move a Work Package into
 #: without a recorded acceptance by someone who is not its implementer.
@@ -2550,6 +2857,16 @@ def validate_no_secrets(errors: list[str]) -> None:
         (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"), "a private key"),
         (re.compile(r"AKIA[0-9A-Z]{16}"), "an AWS access key id"),
         (re.compile(r"xox[baprs]-[A-Za-z0-9-]{10,}"), "a Slack token"),
+        # Review finding m5. The four above missed these shapes: a review
+        # planted each and the scan said nothing. Each is its own line so each
+        # can carry its own control and its own mutation.
+        (re.compile(r"gh[su]_[A-Za-z0-9]{20,}"), "a GitHub server or user token"),
+        (re.compile(r"sk_live_[A-Za-z0-9]{20,}"), "a Stripe live key"),
+        # Round seven m2: the two shapes the list above still missed.
+        (re.compile(r"ghr_[A-Za-z0-9]{20,}"), "a GitHub refresh token"),
+        (re.compile(r"rk_live_[A-Za-z0-9]{20,}"), "a Stripe restricted key"),
+        (re.compile(r"AIza[0-9A-Za-z_-]{35}"), "a Google API key"),
+        (re.compile(r"npm_[A-Za-z0-9]{30,}"), "an npm access token"),
     ]
     # Build output and dependencies are not repository content. Everything else
     # is scanned, binaries included.
@@ -2563,8 +2880,12 @@ def validate_no_secrets(errors: list[str]) -> None:
             continue
         if any(segment in relative.split("/") for segment in skip_segments):
             continue
-        if relative == "scripts/validate_continuity.py":
-            continue  # this file names the patterns it searches for
+        # No exemption for this file (round seven m1). It used to be skipped
+        # because it "names the patterns it searches for", but a pattern is a
+        # regex and a regex does not match itself, so the exemption bought
+        # nothing except a file that carries every pin and cannot be scanned.
+        # tests/unit plants a token here and requires it to be found, and
+        # requires the unmodified file to scan clean.
         # Read BYTES, not text. Skipping anything that is not valid UTF-8 made
         # the scan blind to every binary in the tree, and a peer review found a
         # tracked .pyc containing an assembled token literal that the source

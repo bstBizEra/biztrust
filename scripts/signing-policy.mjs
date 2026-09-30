@@ -58,7 +58,11 @@ export const ENFORCEMENT_POINT_LITERAL = "FIRST_COMMIT_OF_THIS_POLICY";
  * as an OPTION. A policy that could name `--all` as a protected path would be
  * a policy that could rewrite the question this check asks.
  */
-const PLAIN_PATH = /^[A-Za-z0-9_][A-Za-z0-9._/-]*$/;
+// One leading dot is allowed, and only when a name follows it, so `.github`
+// (the workflow that runs this check) is a plain path while `.`, `..` and
+// `./x` are not: `.` is a pathspec for the whole tree. The same shape as
+// PROTECTED_PATH in scripts/validate_continuity.py.
+const PLAIN_PATH = /^\.?[A-Za-z0-9_][A-Za-z0-9._/-]*$/;
 
 /** The enforcement point: the declared literal, or an explicit 40-character sha. */
 const SAFE_REVISION = /^(FIRST_COMMIT_OF_THIS_POLICY|[0-9a-f]{40})$/;
@@ -84,10 +88,15 @@ function unclassified(lineNo, raw) {
  * able to rewrite the question this check asks.
  *
  * Everything else about the policy's MEANING - the version, whether
- * accepted_keys is coherent, whether the pinned paths are all present, whether
- * a key was enrolled by a seat an agent may occupy - is refused by
- * parse_signing_policy/validate_signing_policy in
+ * accepted_keys is coherent, whether a key was enrolled by a seat an agent may
+ * occupy - is refused by parse_signing_policy/validate_signing_policy in
  * scripts/validate_continuity.py, and is deliberately not duplicated here.
+ *
+ * One exception, added in round seven (finding N2): the floor of protected
+ * paths. The validator's copy (PINNED_PROTECTED_PATHS) runs through a launcher
+ * and is not something scripts/check-signing.mjs can rely on having run, so
+ * that script holds a floor of its own (PROTECTED_PATH_FLOOR) and refuses a
+ * policy that protects less. This reader still only reads.
  *
  * BE PRECISE ABOUT WHAT THAT MAKES SAFE, because an earlier version of this
  * comment was not, and review caught it. This reader does NOT fail closed on

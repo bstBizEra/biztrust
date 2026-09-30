@@ -120,6 +120,58 @@ test("a value the policy hands to git that is not the shape it must be is refuse
   );
 });
 
+test("the policy protects the signing instrument and what it stands on", () => {
+  // Review finding M5. A one-line edit to scripts/check-signing.mjs gave a
+  // false PASS with a key enrolled, because the checker was not a protected
+  // path. Typed here rather than read from the validator's pin, so this
+  // control does not agree with the pin by construction.
+  const { protectedPaths } = loadSigningPolicy();
+  for (const path of [
+    "scripts/check-signing.mjs",
+    "scripts/signing-policy.mjs",
+    "scripts/validate_continuity.py",
+    "schemas",
+    "package.json",
+    ".github",
+  ]) {
+    assert.ok(
+      protectedPaths.includes(path),
+      `${path} must be a protected path; got ${protectedPaths.join(", ")}`,
+    );
+  }
+});
+
+test("the policy protects the launcher, the witnesses and the two records an agent writes", () => {
+  // Round seven N2. `validate:records` and `test:validator` run through
+  // scripts/python.mjs; with it unprotected, one injected line printed PASS for
+  // both. The tests that witness the signing check, and the sweep that
+  // witnesses the tests, were editable in the change they judge. Typed here.
+  const { protectedPaths } = loadSigningPolicy();
+  for (const path of [
+    "scripts/python.mjs",
+    "scripts/mutation-check.mjs",
+    "tests/unit",
+    "tests/signing",
+    "badf/decision-log.jsonl",
+    "badf/next-actions.json",
+  ]) {
+    assert.ok(
+      protectedPaths.includes(path),
+      `${path} must be a protected path; got ${protectedPaths.join(", ")}`,
+    );
+  }
+});
+
+test("a protected path may begin with one dot when a name follows it, and is never only a dot", () => {
+  // `.github` has to be spellable. `.` is a pathspec for the whole tree and
+  // `..` leaves it, so neither is a shape this reader hands to git.
+  const withPath = (path) =>
+    POLICY.replace("  - sessions/checkpoints", `  - sessions/checkpoints\n  - ${path}`);
+  assert.ok(parseSigningPolicy(withPath(".hidden-dir")).protectedPaths.includes(".hidden-dir"));
+  refused(withPath("."), 'protected path "." is not the shape it must be');
+  refused(withPath(".."), 'protected path ".." is not the shape it must be');
+});
+
 test("only a %G? of G is read as a verified signature", () => {
   // Four of git's eight codes contain the word "good" and not one of them is
   // an identity this repository has bound anything to. R is the sharp case: a

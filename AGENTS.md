@@ -62,12 +62,12 @@ An agent must not continue from chat recollection alone.
 | Gate results | `badf/gates.yaml` — every gate is recorded by a human |
 | Roles and routing | `badf/agents.yaml` |
 | Available capabilities | `badf/skills.yaml` |
-| **The module list** | `modules/modules.yaml` — the one list; the boundary rules, the path map and the migration lint are generated from it |
+| **The module list** | `modules/modules.yaml` — the one list; the boundary rules and the path map are generated from it, and the migration lint reads it |
 | Human coordination | GitHub Issue / Project item |
 | Delivery scope | Active Work Package |
 | Architecture contract | `BIZTRUST-ARCH-001` in the guide repository — a **draft** |
 | Architecture decision | An **accepted** ADR. None is accepted. |
-| Code | Git commit on `main`. Protection is **applied and not recorded**. It refuses a direct push and an unreviewed merge (`evidence/security-proof/negative-control-6.md`). The record stays `NOT_RECORDED` until a named human holds the repository administrator seat |
+| Code | Git commit on `main`. Protection is **applied and not recorded**. It refuses a direct push and an unreviewed merge (`evidence/security-proof/negative-control-6.md`). The record stays `NOT_RECORDED` until the repository administrator records it. The seat is held by BizEra through `BOOTSTRAP-001` (`DEC-036`) |
 | Test result | CI run bound to a commit SHA |
 | Session recovery | Latest valid checkpoint plus handoff |
 | Approval | An explicit authority record; never inferred |

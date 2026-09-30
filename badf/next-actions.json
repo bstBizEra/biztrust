@@ -10,7 +10,7 @@
       "title": "Fill the repository administrator seat and record branch protection on main",
       "owner_role": "repository-administrator",
       "blocked_by": [],
-      "acceptance": "A named human holds the seat in badf/agents.yaml. main is protected with the CI jobs required, force-push and deletion blocked, and one independent approval per merge. Negative control 6 of the P0.2 design is then observed: a direct push is refused and a pull request with a failing boundary check cannot merge, with the refusal message and a protection settings export recorded as evidence."
+      "acceptance": "HALF DONE: the seat is held by BizEra through BOOTSTRAP-001 (DEC-036); review finding B6 (issue 8) contests that seating and is open. REMAINING: A named human holds the seat in badf/agents.yaml. main is protected with the CI jobs required, force-push and deletion blocked, and one independent approval per merge. Negative control 6 of the P0.2 design is then observed: a direct push is refused and a pull request with a failing boundary check cannot merge, with the refusal message and a protection settings export recorded as evidence."
     },
     {
       "id": "NS-002",
@@ -19,7 +19,7 @@
       "title": "Independent review of WP-001 by a verifier who is not the implementer",
       "owner_role": "peer-reviewer",
       "blocked_by": ["NS-001"],
-      "acceptance": "A fresh-context review of the branch head against the P0.2 design acceptance criteria, recorded on the Work Package. It confirms the registry lists every candidate module of the ARCH-001 capability map, the rules are generated and not hand-written, and the controls were observed failing before passing. Only then may WP-001 move to ACCEPTED, and only the verifier may move it."
+      "acceptance": "A fresh-context review of the branch head against the P0.2 design acceptance criteria, recorded on the Work Package. It confirms the registry lists every candidate module of the ARCH-001 capability map, the rules are generated and not hand-written, and the controls were observed failing before passing. Only then may WP-001 move to ACCEPTED, and only the verifier may move it. NOTE (DEC-037, 2026-09-30): the operator has decided the reviewers return a verdict and the operator records ACCEPTED, so the last clause is narrowed for this package; badf/authority.yaml wp_001_acceptance still names the peer reviewer and is the operator's to change."
     },
     {
       "id": "NS-003",
@@ -56,6 +56,15 @@
       "owner_role": "platform-engineer",
       "blocked_by": ["NS-005"],
       "acceptance": "The lint runs as a required check on main rather than only in the test suite, and the first tenancy schema is created once P0.6 names its tables. Controls 4, 5, 11 and 12 are re-observed against the required check, verified by the data reviewer and not the implementer."
+    },
+    {
+      "id": "NS-007",
+      "priority": 7,
+      "primary": false,
+      "title": "Re-review WP-001 at the revised head, after the issue 8 fixes",
+      "owner_role": "peer-reviewer",
+      "blocked_by": [],
+      "acceptance": "Three fresh-context reviewers, none the implementer, review the revised head of motor/p0.2/repository-and-boundaries against the P0.2-A criteria and return ACCEPT, posted to issue 8. The operator then records ACCEPTED (DEC-037); no agent does. Run ahead of NS-001 on the operator's instruction."
     }
   ]
 }

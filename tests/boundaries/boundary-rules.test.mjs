@@ -190,6 +190,60 @@ const CONTROLS = [
   },
 ];
 
+// The same controls by PACKAGE NAME. The exports field refuses
+// @biztrust/<module>/<deep path>, so the checker records the import as
+// unresolvable; a relative-path rule never sees it. Found by the WP-001
+// independent review (issue #8, A1): the design's own control-1 form passed
+// boundaries:check with exit 0, and a .js file passed every step of CI.
+CONTROLS.push(
+  {
+    control: 1,
+    threat: "a module reaches into another's internals by package name",
+    file: "modules/beta/src/public/violates-rule-1-by-name.ts",
+    rule: "rule-1-internals-private-by-name-alpha",
+  },
+  {
+    control: 1,
+    threat: "the same, from a .js file the typecheck never sees",
+    file: "modules/beta/src/public/violates-rule-1-by-name-js.js",
+    rule: "rule-1-internals-private-by-name-alpha",
+  },
+  {
+    control: 2,
+    threat: "a module imports another by a deep package path, not its contract",
+    file: "modules/beta/src/public/violates-rule-2-by-name.ts",
+    rule: "rule-2-contracts-only-by-name-beta",
+  },
+  {
+    control: 5,
+    threat: "an entry point reaches past a contract by package name",
+    file: "services/api/src/violates-rule-5-by-name.ts",
+    rule: "rule-5-entry-points-see-contracts-only-by-name",
+  },
+  // Round seven, controls N1. The rule above matched only the literal prefix
+  // @biztrust/<m>/src/internal/, and the specifier is not normalised before it
+  // is matched. These three are what it missed, from packages/ where no other
+  // rule is there to hide the gap.
+  {
+    control: 1,
+    threat: "the same, spelled with a .. segment (src/public/../internal/)",
+    file: "packages/shared/src/violates-rule-1-by-name-dotdot.ts",
+    rule: "rule-1-internals-private-by-name-alpha",
+  },
+  {
+    control: 1,
+    threat: "the same, naming the internal directory with no trailing slash",
+    file: "packages/shared/src/violates-rule-1-by-name-no-slash.ts",
+    rule: "rule-1-internals-private-by-name-alpha",
+  },
+  {
+    control: 1,
+    threat: "the same, spelled with a . segment (src/./internal/)",
+    file: "packages/shared/src/violates-rule-1-by-name-dot-segment.ts",
+    rule: "rule-1-internals-private-by-name-alpha",
+  },
+);
+
 for (const { control, threat, file, rule } of CONTROLS) {
   test(`control ${control}: ${threat} is reported as ${rule}`, () => {
     const fired = firedFor(file);

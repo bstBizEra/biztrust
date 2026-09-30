@@ -397,6 +397,7 @@ const CODEOWNERS = join(WT_ROOT, "scripts", "generate-codeowners.mjs");
 const RECORDS = join(WT_ROOT, "scripts", "validate_continuity.py");
 const ATTRIBUTION = join(WT_ROOT, "scripts", "mutation-attribution.mjs");
 const SIGNING_POLICY = join(WT_ROOT, "scripts", "signing-policy.mjs");
+const GENERATOR = join(WT_ROOT, "scripts", "generate-boundary-rules.mjs");
 const SIGNING_CHECK = join(WT_ROOT, "scripts", "check-signing.mjs");
 // Not a script. The ORDER of the verify chain is a control - the JS signing
 // policy reader is fail-closed only because validate:records runs before
@@ -414,6 +415,63 @@ const BT = String.fromCharCode(96);
 const DOLLAR = String.fromCharCode(36);
 
 const MUTATIONS = [
+  // ---- found by the WP-001 independent review, issue #8 ------------------
+  {
+    file: GENERATOR,
+    name: "generator: stop comparing the generated files (A2)",
+    witness: "--check fails on a hand-edited .dependency-cruiser.cjs, naming it stale",
+    from: "    if (found !== wanted) {",
+    to: "    if (false && found !== wanted) {",
+  },
+  {
+    file: GENERATOR,
+    // Round seven, controls N3. The three tests the mutation above is killed
+    // by all pass --out-dir, so a conditional that read that seam left them
+    // green while the check CI runs (no --out-dir) compared nothing.
+    name: "generator: compare the generated files only when --out-dir is given (N3)",
+    witness: "--check with no --out-dir compares the files at the repository root",
+    from: "    const stale = staleOutputs(outputs);",
+    to: "    const stale = outDir ? staleOutputs(outputs) : [];",
+  },
+  {
+    file: RULES,
+    name: "rule 1 by package name: stop matching unresolved internal imports (A1)",
+    witness:
+      "control 1: a module reaches into another's internals by package name is reported as " +
+      "rule-1-internals-private-by-name-alpha",
+    from: "      to: { couldNotResolve: true, path: " + BT + "^@biztrust/" + DOLLAR + "{rx(m.name)}/(?:internal|.*/internal)(?:/|" + DOLLAR + ")" + BT + " },",
+    to: "      to: { couldNotResolve: false, path: " + BT + "^@biztrust/" + DOLLAR + "{rx(m.name)}/(?:internal|.*/internal)(?:/|" + DOLLAR + ")" + BT + " },",
+  },
+  {
+    file: RULES,
+    // Round seven, controls N1. The rule used to match only the literal prefix
+    // @biztrust/<m>/src/internal/. Narrowing it back to that prefix leaves the
+    // three specifiers below unreported by anything.
+    name: "rule 1 by package name: match only the literal src/internal/ prefix (N1)",
+    witness:
+      "control 1: the same, spelled with a .. segment (src/public/../internal/) is reported as " +
+      "rule-1-internals-private-by-name-alpha",
+    from: "      to: { couldNotResolve: true, path: " + BT + "^@biztrust/" + DOLLAR + "{rx(m.name)}/(?:internal|.*/internal)(?:/|" + DOLLAR + ")" + BT + " },",
+    to: "      to: { couldNotResolve: true, path: " + BT + "^@biztrust/" + DOLLAR + "{rx(m.name)}/src/internal/" + BT + " },",
+  },
+  {
+    file: RULES,
+    name: "rule 2 by package name: stop matching unresolved deep imports (A1)",
+    witness:
+      "control 2: a module imports another by a deep package path, not its contract is reported as " +
+      "rule-2-contracts-only-by-name-beta",
+    from: "        couldNotResolve: true,",
+    to: "        couldNotResolve: false,",
+  },
+  {
+    file: RULES,
+    name: "rule 5 by package name: stop matching unresolved deep imports (A1)",
+    witness:
+      "control 5: an entry point reaches past a contract by package name is reported as " +
+      "rule-5-entry-points-see-contracts-only-by-name",
+    from: '    to: { couldNotResolve: true, path: "^@biztrust/" + anyModule + "/.+" },',
+    to: '    to: { couldNotResolve: false, path: "^@biztrust/" + anyModule + "/.+" },',
+  },
   // ---- the dependency rules ----------------------------------------------
   {
     file: RULES,
@@ -2467,6 +2525,315 @@ const MUTATIONS = [
     witness: "pnpm verify runs the signing check, and runs the record validator before it",
     from: "pnpm validate:records && pnpm test:validator && pnpm check:signing",
     to: "pnpm check:signing && pnpm validate:records && pnpm test:validator",
+  },
+
+  // ---- review fixes for BIZTRUST-WP-001, issue #8: validator hardening ------
+  {
+    file: RECORDS,
+    suite: "validator",
+    // M1, first half. Without it a forbidden power can be deleted from
+    // may_not, in one file, and the registry still passes.
+    name: "records: stop requiring every pinned forbidden tool power to stay in may_not",
+    witness: "test_a_pinned_tool_power_missing_from_may_not_is_reported",
+    from: "        if _normalised(pinned) not in forbidden:",
+    to: "        if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // M1, second half. Without it a forbidden power is granted by listing it
+    // under may while it is still (falsely) recorded as forbidden.
+    name: "records: stop refusing a pinned forbidden tool power listed under may",
+    witness: "test_a_pinned_tool_power_listed_under_may_is_reported",
+    from: "        if _normalised(pinned) in permitted:",
+    to: "        if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // Round seven N1, double quotes. A quoted item that json.loads cannot read
+    // whole (a trailing comment, text after the closing quote) used to fall
+    // back to the text between the outer quotes, which no longer matched its
+    // pin while PyYAML read exactly the pinned string.
+    name: "records: read a double-quoted tool power it cannot decode instead of refusing it",
+    witness: "test_a_tool_power_item_with_a_comment_under_may_not_is_refused_too",
+    from: "        if not isinstance(decoded, str):",
+    to: lines(
+      "        if not isinstance(decoded, str):",
+      "            return body[1:-1], None",
+      "        if False:",
+    ),
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // Round seven N1, single quotes.
+    name: "records: read a single-quoted tool power with text outside its quotes",
+    witness: "test_a_tool_power_item_with_a_trailing_comment_is_refused_not_skipped",
+    from: "        if _SINGLE_QUOTED_SCALAR.match(body) is None:",
+    to: "        if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // Round seven N1, plain scalars: ` # comment`, flow brackets, anchors.
+    name: "records: read a plain tool power item without checking it is one plain scalar",
+    witness: "test_a_tool_power_item_that_is_not_a_scalar_is_refused",
+    from: "    if _PLAIN_SCALAR.match(body) is None:",
+    to: "    if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // Round seven N1, the second block. Merged rather than refused, so a
+    // `tool_authority:` appended to the file replaced the lists for PyYAML only.
+    name: "records: merge a second top-level block instead of refusing the duplicate key",
+    witness: "test_a_second_tool_authority_block_is_reported",
+    from: "            if section in seen_sections:",
+    to: "            if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // Round seven N1, the same bypass one level down: two `may_not:` lists.
+    name: "records: merge a second list of the same name inside tool_authority",
+    witness: "test_a_second_list_of_the_same_name_inside_tool_authority_is_reported",
+    from: "            if current in opened:",
+    to: "            if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // M2. The only rule between a P0 grant written into authority.yaml alone
+    // and a passing validate:records. Deleting it turned nothing red.
+    name: "records: stop refusing a registry grant the state file still reads as withheld",
+    witness: "test_a_registry_grant_the_state_file_still_reads_as_withheld_is_reported",
+    from: "        if in_granted and withheld:",
+    to: "        if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // M3, the act. A NEW act (BOOTSTRAP-002) recorded consistently in the
+    // record and the ledger is a second bootstrap; only the pin refuses it.
+    name: "records: stop pinning BOOTSTRAP-001 as the only bootstrap act",
+    witness: "test_a_second_bootstrap_act_is_reported_even_when_the_ledger_agrees",
+    from: '    if scalars.get("act_id", "").strip() != BOOTSTRAP_PINNED_ACT:',
+    to: "    if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // M3, the state. Reverting the spent act to AWAITING un-spends it.
+    name: "records: stop pinning the spent bootstrap act as SEATED",
+    witness: "test_reverting_the_spent_act_to_awaiting_is_reported_even_when_the_ledger_agrees",
+    from: "    if declared_state != BOOTSTRAP_PINNED_STATE:",
+    to: "    if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // M3, the seats. A second seating in the spent act, ledger edited to match.
+    name: "records: stop pinning the seats the spent bootstrap act seated",
+    witness: "test_a_second_seating_by_the_spent_act_is_reported_even_when_the_ledger_agrees",
+    from: "        if sorted(seats_named) != sorted(BOOTSTRAP_PINNED_SEATS):",
+    to: "        if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // M3, the text. A rewritten frozen region with the ledger digest repaired.
+    name: "records: stop pinning the digest of the spent bootstrap act's frozen record",
+    witness: "test_a_rewritten_historical_record_is_reported_even_when_the_ledger_digest_is_repaired",
+    from: "        if pinned_computed != BOOTSTRAP_PINNED_DIGEST:",
+    to: "        if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // M4, the key. GitHub's web-flow key signs every squash merge on main;
+    // enrolling it would make the check pass changes no human signed.
+    name: "records: stop refusing GitHub's web-flow key as an accepted signing key",
+    witness: "test_enrolling_githubs_web_flow_key_is_reported",
+    from: "        if WEB_FLOW_KEY_ID.casefold() in identity:",
+    to: "        if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // M4, the committer. git reports the signer and the key separately, so a
+    // policy can name either; each refusal has a control of its own.
+    name: "records: stop refusing GitHub's web-flow committer identity as an accepted signer",
+    witness: "test_enrolling_githubs_web_flow_committer_identity_is_reported",
+    from: "        if WEB_FLOW_COMMITTER_EMAIL in identity:",
+    to: "        if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // M5. The instrument paths, dropped from the floor the validator pins. The
+    // narrower witness than the existing floor mutation: it is killed by the
+    // instrument-path test alone, where dropping the whole floor also kills
+    // the older badf/authority.yaml one.
+    name: "records: stop pinning the signing instrument and its inputs as protected paths",
+    witness: "test_dropping_a_pinned_instrument_path_is_reported",
+    from: lines(
+      '    "scripts/check-signing.mjs",',
+      '    "scripts/signing-policy.mjs",',
+      '    "scripts/validate_continuity.py",',
+      '    "schemas",',
+      '    "package.json",',
+      '    ".github",',
+    ),
+    to: "    # (the instrument paths are no longer pinned)",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // Round seven N2. The launcher, the tests that witness the validator and
+    // the signing check, the sweep, and the two records an agent writes.
+    name: "records: stop pinning the launcher, the witnesses and two agent-written records",
+    witness: "test_dropping_a_pinned_launcher_or_witness_path_is_reported",
+    from: lines(
+      '    "scripts/python.mjs",',
+      '    "scripts/mutation-check.mjs",',
+      '    "tests/unit",',
+      '    "tests/signing",',
+      '    "badf/decision-log.jsonl",',
+      '    "badf/next-actions.json",',
+    ),
+    to: "    # (the launcher and witness paths are no longer pinned)",
+  },
+  {
+    file: SIGNING_CHECK,
+    suite: "signing",
+    // Round seven N2, the refusal itself. Without it the check takes its
+    // protected set from the policy under judgement and prints PASS over
+    // commits it would fail on with the list intact.
+    name: "signing: take the protected set from the policy under judgement, with no floor",
+    witness: "a policy that shortens its own protected set is refused, not read as the set to check",
+    from: "  if (omitted.length > 0) {",
+    to: "  if (false) {",
+  },
+  {
+    file: SIGNING_CHECK,
+    suite: "signing",
+    // The comparison inside the floor: report nothing as missing.
+    name: "signing: report no floor path as missing from a policy",
+    witness: "a protected set missing any one floor path is reported as missing exactly that path",
+    from: "  return PROTECTED_PATH_FLOOR.filter((path) => !held.has(path));",
+    to: "  return PROTECTED_PATH_FLOOR.filter((path) => false);",
+  },
+  {
+    file: SIGNING_CHECK,
+    suite: "signing",
+    // The floor's own contents: one entry lost from the list is a path a
+    // shortened policy may drop unreported.
+    name: "signing: drop tests/signing from the floor the check holds",
+    witness: "the floor this check holds is exactly the floor recorded in this test",
+    from: lines('  "tests/signing",', '  "badf/decision-log.jsonl",'),
+    to: '  "badf/decision-log.jsonl",',
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // M5, the shape. Allowing a bare dot would make `.` a protected path: a
+    // pathspec for the whole tree, which git reads as everything.
+    name: "records: accept a bare dot as a plain protected path",
+    witness: "test_a_protected_path_that_is_only_a_dot_is_reported",
+    from: 'PROTECTED_PATH = re.compile(r"^\\.?[A-Za-z0-9_][A-Za-z0-9._/-]*$")',
+    to: 'PROTECTED_PATH = re.compile(r"^[A-Za-z0-9_.][A-Za-z0-9._/-]*$")',
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // M5, the other direction. `.github` could not be spelled, so the workflow
+    // that runs the check could not be a protected path.
+    name: "records: refuse a protected path that begins with a dot",
+    witness: "test_a_dot_directory_is_a_plain_protected_path",
+    from: 'PROTECTED_PATH = re.compile(r"^\\.?[A-Za-z0-9_][A-Za-z0-9._/-]*$")',
+    to: 'PROTECTED_PATH = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._/-]*$")',
+  },
+  {
+    file: SIGNING_POLICY,
+    // M5, the second reader. The shape must agree with the Python one, or the
+    // two readers disagree about which paths are protected.
+    name: "signing: refuse a protected path that begins with a dot in the second reader",
+    witness: "the policy protects the signing instrument and what it stands on",
+    from: "const PLAIN_PATH = /^\\.?[A-Za-z0-9_][A-Za-z0-9._/-]*$/;",
+    to: "const PLAIN_PATH = /^[A-Za-z0-9_][A-Za-z0-9._/-]*$/;",
+  },
+  {
+    file: SIGNING_POLICY,
+    name: "signing: accept a bare dot as a plain protected path in the second reader",
+    witness: "a protected path may begin with one dot when a name follows it, and is never only a dot",
+    from: "const PLAIN_PATH = /^\\.?[A-Za-z0-9_][A-Za-z0-9._/-]*$/;",
+    to: "const PLAIN_PATH = /^[A-Za-z0-9_.][A-Za-z0-9._/-]*$/;",
+  },
+  // Review finding m5: credential shapes the scan for secrets in the tree
+  // missed. One mutation per shape, each rewriting only that shape's regex.
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: stop scanning the tree for GitHub server and user tokens",
+    witness: "test_a_github_server_or_user_token_in_the_tree_is_reported",
+    from: 're.compile(r"gh[su]_[A-Za-z0-9]{20,}")',
+    to: 're.compile(r"NEVERMATCHES")',
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: stop scanning the tree for Stripe live keys",
+    witness: "test_a_stripe_live_key_in_the_tree_is_reported",
+    from: 're.compile(r"sk_live_[A-Za-z0-9]{20,}")',
+    to: 're.compile(r"NEVERMATCHES")',
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: stop scanning the tree for Google API keys",
+    witness: "test_a_google_api_key_in_the_tree_is_reported",
+    from: 're.compile(r"AIza[0-9A-Za-z_-]{35}")',
+    to: 're.compile(r"NEVERMATCHES")',
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: stop scanning the tree for npm access tokens",
+    witness: "test_an_npm_token_in_the_tree_is_reported",
+    from: 're.compile(r"npm_[A-Za-z0-9]{30,}")',
+    to: 're.compile(r"NEVERMATCHES")',
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: stop scanning the tree for GitHub refresh tokens",
+    witness: "test_a_github_refresh_token_in_the_tree_is_reported",
+    from: 're.compile(r"ghr_[A-Za-z0-9]{20,}")',
+    to: 're.compile(r"NEVERMATCHES")',
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: stop scanning the tree for Stripe restricted keys",
+    witness: "test_a_stripe_restricted_key_in_the_tree_is_reported",
+    from: 're.compile(r"rk_live_[A-Za-z0-9]{20,}")',
+    to: 're.compile(r"NEVERMATCHES")',
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    // Round seven m1. The whole validator file used to be skipped by the scan,
+    // and it is the file that carries every pin. The mutation puts the
+    // exemption back.
+    name: "records: exempt the validator file itself from the credential scan",
+    witness: "test_a_credential_planted_in_the_validator_itself_is_reported",
+    from: '        if any(segment in relative.split("/") for segment in skip_segments):',
+    to: lines(
+      '        if relative == "scripts/validate_continuity.py":',
+      "            continue",
+      '        if any(segment in relative.split("/") for segment in skip_segments):',
+    ),
   },
 ];
 

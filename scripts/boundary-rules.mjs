@@ -18,6 +18,11 @@ export function rx(name) {
 export function buildRules(registry) {
   const packaged = registry.modules.filter((m) => m.package === true);
   const rules = [];
+  // Every registered module, as one alternation. A deep import of a module by
+  // package name, @biztrust/<module>/<path>, is refused by that package's
+  // exports field, so the checker records it as unresolvable and a rule over
+  // resolved paths never sees it. The by-name rules below match those.
+  const anyModule = "(" + registry.modules.map((m) => rx(m.name)).join("|") + ")";
 
   // Rule 1. A module's internals are private.
   for (const m of packaged) {
@@ -34,6 +39,25 @@ export function buildRules(registry) {
     });
   }
 
+  for (const m of packaged) {
+    rules.push({
+      name: `rule-1-internals-private-by-name-${m.name}`,
+      comment:
+        `Rule 1 by package name: @biztrust/${m.name}/src/internal/... from outside ` +
+        `modules/${m.name}/, however the path is spelled (a .. or . segment, or ` +
+        `no trailing slash). The exports field refuses it at resolution; this rule ` +
+        `makes the refusal a named violation instead of a silent unresolved import.`,
+      severity: "error",
+      from: { pathNot: "^modules/" + rx(m.name) + "/" },
+      // Any `internal` segment under the package, however the path is spelled.
+      // The specifier is matched AS WRITTEN, not normalised, so
+      // src/public/../internal/x, src/./internal/x and a bare src/internal
+      // are all specifiers a literal `src/internal/` prefix never matches
+      // (round seven, controls N1).
+      to: { couldNotResolve: true, path: `^@biztrust/${rx(m.name)}/(?:internal|.*/internal)(?:/|$)` },
+    });
+  }
+
   // Rule 2. Modules depend on contracts.
   for (const m of packaged) {
     rules.push({
@@ -47,6 +71,21 @@ export function buildRules(registry) {
       to: {
         path: "^modules/(?!" + rx(m.name) + "/)[^/]+/src/",
         pathNot: "^modules/[^/]+/src/public/index\\.ts$",
+      },
+    });
+  }
+
+  for (const m of packaged) {
+    rules.push({
+      name: `rule-2-contracts-only-by-name-${m.name}`,
+      comment:
+        `Rule 2 by package name: modules/${m.name} imports another module by a ` +
+        `deep path, @biztrust/<module>/<path>, instead of its bare contract.`,
+      severity: "error",
+      from: { path: `^modules/${rx(m.name)}/` },
+      to: {
+        couldNotResolve: true,
+        path: "^@biztrust/(?!" + rx(m.name) + "/)" + anyModule + "/.+",
       },
     });
   }
@@ -94,6 +133,16 @@ export function buildRules(registry) {
     severity: "error",
     from: { pathNot: "^(services|apps)/" },
     to: { path: "^(services|apps)/" },
+  });
+
+  rules.push({
+    name: "rule-5-entry-points-see-contracts-only-by-name",
+    comment:
+      "Rule 5 by package name: services/* and apps/* import a module by a deep " +
+      "path, @biztrust/<module>/<path>, which bypasses its contract.",
+    severity: "error",
+    from: { path: "^(apps|services)/" },
+    to: { couldNotResolve: true, path: "^@biztrust/" + anyModule + "/.+" },
   });
 
   // Rule 6. Test packages stay in tests.

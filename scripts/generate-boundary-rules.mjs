@@ -23,8 +23,9 @@
  * invalid; 2 an unforeseen defect in this script.
  */
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { ROOT, REGISTRY_PATH, loadRegistry, RegistryError } from "./registry.mjs";
 import { buildRules } from "./boundary-rules.mjs";
@@ -120,6 +121,35 @@ function readOrNull(path) {
   }
 }
 
+/**
+ * The generated files that are not what the registry would produce now.
+ *
+ * `outputs` is `[[path, wanted, label], ...]`. Returns one message per file
+ * that is missing or differs. This is the ONE comparison `--check` makes, for
+ * the repository root and for `--out-dir` alike, and it is a function of its
+ * arguments so it can be witnessed directly.
+ *
+ * Round seven, controls N3: the comparison used to sit inline in main(), and
+ * the only tests that exercised it passed `--out-dir`, so a conditional that
+ * read the seam (`if (outDir && found !== wanted)`) left all of them green
+ * while the real-root check compared nothing.
+ */
+export function staleOutputs(outputs, read = readOrNull) {
+  const stale = [];
+  for (const [path, wanted, label] of outputs) {
+    const found = read(path);
+    // Compared, not stripped. The old revision line was excluded from the
+    // comparison because it changed per commit, which meant the one field
+    // recording WHICH registry produced these rules was never checked. A
+    // content hash is stable across commits, so it is compared like
+    // everything else.
+    if (found !== wanted) {
+      stale.push(found === null ? `${label} is missing` : `${label} is stale`);
+    }
+  }
+  return stale;
+}
+
 function main() {
   const check = process.argv.includes("--check");
   let registry;
@@ -133,24 +163,24 @@ function main() {
     throw error;
   }
 
+  // --out-dir <dir> reads and writes the two generated files there instead of
+  // the repository root. It exists so the staleness comparison below can be
+  // witnessed against copies (tests/boundaries/generate-boundary-rules.test.mjs);
+  // it is an argument and not an environment variable, per DEC-026.
+  const at = process.argv.indexOf("--out-dir");
+  const outDir = at === -1 ? null : process.argv[at + 1];
+  if (at !== -1 && !outDir) {
+    process.stderr.write("BOUNDARY_GENERATION FAIL --out-dir needs a directory\n");
+    return 1;
+  }
+  const where = (defaultPath, label) => (outDir ? join(outDir, label) : defaultPath);
   const outputs = [
-    [DEPCRUISE_OUT, renderDepcruise(registry, buildRules(registry)), ".dependency-cruiser.cjs"],
-    [PATHS_OUT, renderPaths(registry), "tsconfig.paths.json"],
+    [where(DEPCRUISE_OUT, ".dependency-cruiser.cjs"), renderDepcruise(registry, buildRules(registry)), ".dependency-cruiser.cjs"],
+    [where(PATHS_OUT, "tsconfig.paths.json"), renderPaths(registry), "tsconfig.paths.json"],
   ];
 
   if (check) {
-    const stale = [];
-    for (const [path, wanted, label] of outputs) {
-      const found = readOrNull(path);
-      // Compared, not stripped. The old revision line was excluded from the
-      // comparison because it changed per commit, which meant the one field
-      // recording WHICH registry produced these rules was never checked. A
-      // content hash is stable across commits, so it is compared like
-      // everything else.
-      if (found !== wanted) {
-        stale.push(found === null ? `${label} is missing` : `${label} is stale`);
-      }
-    }
+    const stale = staleOutputs(outputs);
     if (stale.length > 0) {
       process.stderr.write(
         `BOUNDARY_GENERATION FAIL ${stale.join("; ")}. ` +
@@ -171,9 +201,18 @@ function main() {
   return 0;
 }
 
-try {
-  process.exitCode = main();
-} catch (error) {
-  process.stderr.write(`BOUNDARY_GENERATION FAIL validator defect: ${error?.stack ?? error}\n`);
-  process.exitCode = 2;
+// Run only when invoked as a command, so a test can import staleOutputs above
+// without generating or checking anything as a side effect. The same guard
+// scripts/check-signing.mjs and scripts/generate-codeowners.mjs carry.
+const invokedDirectly =
+  process.argv[1] !== undefined &&
+  realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+
+if (invokedDirectly) {
+  try {
+    process.exitCode = main();
+  } catch (error) {
+    process.stderr.write(`BOUNDARY_GENERATION FAIL validator defect: ${error?.stack ?? error}\n`);
+    process.exitCode = 2;
+  }
 }
