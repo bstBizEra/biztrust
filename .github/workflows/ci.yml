@@ -55,10 +55,16 @@ jobs:
     # 170 to 210 of today's 292. The head after these measurements has 307
     # mutations (146 of them validator mutations) and a 244-test suite, and its
     # own run (36742503170) took 51:32 in the mutation step, 52:37 for the job.
-    # The slow runner would put that at about an hour, so 90 leaves half as much
-    # again. The sweep grows with every guard added, so re-measure and move this
-    # number with it. A cancelled job is not a passing one: main requires Verify.
-    timeout-minutes: 90
+    # The slow runner would put that at about an hour, so 90 left half as much
+    # again: that run (36763917747, the round-ten head, 307 mutations) took 62:10
+    # in the mutation step and 62:56 for the job. Round eleven added 44
+    # mutations (351, of which 163 run the validator suite, 259 tests now) and
+    # 15 validator tests; at that run's rate the slow runner puts the job at
+    # about 75 minutes, which would leave 15 of 90. So the cap is 120 until a run
+    # at the round-eleven head is measured. The sweep grows with every guard
+    # added, so re-measure and move this number with it. A cancelled job is not a
+    # passing one: main requires Verify.
+    timeout-minutes: 120
 
     steps:
       - name: Checkout

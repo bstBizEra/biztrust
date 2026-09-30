@@ -145,8 +145,10 @@ incomplete in fact.
 - **The mutation check does not cover everything.** It covers the dependency
   rules and their generator, the migration lint, the record validator, the
   signing check and the CODEOWNERS generator. The registry reader
-  (`scripts/registry.mjs`) and the module-package check have their own suites
-  and are not mutation-tested.
+  (`scripts/registry.mjs`) has its own suite and is not mutation-tested. The
+  module-package check is mutation-tested only for its round-eleven refusal of a
+  tracked file where the dependency checker does not look; its other refusals
+  have a suite and no mutation.
 - **CI is one job with sequential steps**, not the nine independently required
   checks the design names, and there is no build job. Merge-blocking effect is
   equivalent; the divergence is recorded rather than hidden.
@@ -161,9 +163,9 @@ independent review found four rules in exactly that state: loosened by one
 line, suite still fully green.
 
 So `pnpm check:mutations` loosens each rule in turn and **requires the suite to
-go red**. 307 mutations at round ten, every one caught by the control it
-names, and a mutation whose anchor no longer matches the source is a failure
-too, because it has silently stopped testing anything.
+go red**. 351 mutations at round eleven (307 at round ten), every one caught by
+the control it names, and a mutation whose anchor no longer matches the source
+is a failure too, because it has silently stopped testing anything.
 
 Two mutations survived even after the missing fixtures were added. That was a
 test defect rather than a rule defect: a fixture carrying two violations of one
