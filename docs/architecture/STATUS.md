@@ -31,8 +31,19 @@ compliance, finance and accounting, and architecture — and it stops outright
 when an agent is asked to infer contract authority from a product name or a
 workflow.
 
-None of those seats is filled. `S01` is not complete. No later slice may be
-activated early.
+Two of those five seats are held and three are unfilled. Business authority and
+architecture are held by the operator, on the operator's statement of
+2026-09-28; insurance domain, legal and compliance, and finance and accounting
+are `UNFILLED` (the guide's `docs/architecture/ADR_REGISTER.md`, section "Review
+seats", at guide revision `3b5690b`). Two of five is not five: `S01` is not
+complete. No later slice may be activated early.
+
+These are the guide's `S01` review seats, not this repository's. The
+`architecture-authority` and `business-authority` seats in `badf/agents.yaml`
+are still `held_by: null`, and a seat held in the guide does not fill the seat
+of the same name here. The only seat held in this repository is
+`repository-administrator`, through `BOOTSTRAP-001`, and finding B6 contests
+that seating.
 
 ## The ADRs this repository depends on
 

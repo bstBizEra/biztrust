@@ -11,9 +11,11 @@ left to be guessed at.
 > **status:** NOT_GRANTED
 > **held_by:** architecture authority seat
 
-Every ADR the P0.2 design depends on — ADR-001 (modular monolith), ADR-004
-(PostgreSQL and RLS), ADR-005 (contract-first APIs), ADR-010 (durable
-workflows), ADR-011 (tenant packs) — is `DRAFT_REQUIRED`. The dependency rules
+None of the ADRs the P0.2 design depends on is accepted: ADR-001 (modular
+monolith), ADR-004 (PostgreSQL and RLS) and ADR-010 (durable workflows) are
+`PROPOSED`, and ADR-005 (contract-first APIs) and ADR-011 (tenant packs) are
+`DRAFT_REQUIRED`, as `docs/architecture/STATUS.md` records from the guide's
+`docs/architecture/ADR_REGISTER.md`. The dependency rules
 this repository generates and tests are therefore the **proposal** of a design
 at `IN_REVIEW`, not an accepted decision.
 
@@ -47,12 +49,18 @@ places for that reason.
 
 `BT-G0`, the architecture contract freeze, is `UNRECORDED`. It requires
 `FOUNDATION_SEQUENCE.md` slices S01 to S11 accepted in order, and S01 alone
-needs five human review seats that are unfilled. When an architecture authority
-records `BT-G0`, the ADRs behind it land here.
+needs five human review seats, of which two are held (business authority and
+architecture, by the operator, on the operator's statement of 2026-09-28) and
+three are unfilled (insurance domain, legal and compliance, finance and
+accounting); that is the guide's count, in `docs/architecture/ADR_REGISTER.md`.
+It is not this repository's: the `architecture-authority` seat in
+`badf/agents.yaml`, the one that accepts an ADR, is a different seat and is
+still `held_by: null`. When an architecture authority records `BT-G0`, the
+ADRs behind it land here.
 
-Until then, an empty directory beside a 30-entry decision log is the honest
-picture: the engineering decisions are made and recorded, and the architecture
-decisions are not.
+Until then, an empty directory beside a decision log that holds the engineering
+decisions is the honest picture: the engineering decisions are made and
+recorded, and the architecture decisions are not.
 
 ## Format
 

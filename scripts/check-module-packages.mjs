@@ -13,9 +13,39 @@
  * Exit codes: 0 pass; 1 a data defect; 2 a defect in this script.
  */
 
+import { execFileSync } from "node:child_process";
 import { readdirSync, existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { ROOT, loadRegistry, RegistryError } from "./registry.mjs";
+import { UNFOLLOWED } from "./boundary-rules.mjs";
+
+/**
+ * The tracked files the dependency checker does not look at.
+ *
+ * Round eleven, controls C10-1. The checker neither scans nor follows the root
+ * node_modules, a package's own node_modules (pnpm's link farm) or a package's
+ * dist/ (see UNFOLLOWED in boundary-rules.mjs). All three are gitignored, so
+ * first-party source can be there only if someone runs `git add -f`, and the
+ * imports of such a file would be judged by no rule. This refuses it. A
+ * directory merely NAMED node_modules or dist lower down is source, is
+ * followed, and is not refused.
+ *
+ * It asks git, and a git that cannot answer is not an empty answer: the error
+ * propagates and main()'s caller exits 2, a check that could not run.
+ */
+function trackedFilesTheCheckerDoesNotSee() {
+  const hidden = [UNFOLLOWED.thirdParty, UNFOLLOWED.linkFarm, UNFOLLOWED.buildOutput].map(
+    (pattern) => new RegExp(pattern),
+  );
+  const listed = execFileSync("git", ["ls-files", "-z"], {
+    cwd: ROOT,
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  return listed
+    .split("\0")
+    .filter((path) => path !== "" && hidden.some((pattern) => pattern.test(path)));
+}
 
 function main() {
   let registry;
@@ -78,6 +108,14 @@ function main() {
     if (!existsSync(manifest)) {
       errors.push(`modules/${row.name}: no package.json, so the exports field cannot encapsulate it`);
     }
+  }
+
+  for (const path of trackedFilesTheCheckerDoesNotSee()) {
+    errors.push(
+      `${path}: a tracked file where the dependency checker does not scan or follow, ` +
+        `so the imports of it are judged by no rule; move it under a source directory ` +
+        `or untrack it`,
+    );
   }
 
   if (errors.length > 0) {

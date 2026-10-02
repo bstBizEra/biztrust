@@ -52,14 +52,19 @@
 # observed, and where. `git ls-remote origin refs/heads/main` (run 2026-09-30)
 # gives 062a0f7c1b350e4af695978b238b28e323b7d0e0, and main holds exactly that
 # one commit, "Initial commit", committed by `GitHub <noreply@github.com>`.
-# Main does NOT yet hold any squash merge. The four squash merges #4 to #7
-# (cbaa950, 0e388ce, dbae365, ce989e7) are on PR #1's head branch,
-# motor/p0.2/repository-and-boundaries, not on main. Each is committed by
+# Main does NOT yet hold any squash merge. Five merges are on PR #1's head
+# branch, motor/p0.2/repository-and-boundaries, not on main: four squash merges,
+# #4 to #7 (cbaa950, 0e388ce, dbae365, ce989e7, one parent each), and one MERGE
+# COMMIT, #9 (ec80d1f, parents ce989e7 and 5a5cd92). Each is committed by
 # `GitHub <noreply@github.com>` and carries GitHub's web-flow key
-# B5690EEEBB952194. What follows is therefore a statement about what a squash
-# merge INTO main would do, seen in how those four behaved, and not a record of
-# what main contains. A squash merge made in the web UI replaces the author's
-# commit with a new one, so the author's own signature does not survive it.
+# B5690EEEBB952194. What follows is therefore a statement about what a merge
+# made in the web UI INTO main would do, seen in how those five behaved, and not
+# a record of what main contains. A squash merge replaces the author's commit
+# with a new one, so the author's own signature does not survive it. A merge
+# commit, like #9, keeps the author's commits reachable in history, each with
+# the signature it was made with, and adds one new commit signed by the web-flow
+# key; that is the observation the merge-strategy decision (D3) can use. Which
+# strategy to use is the operator's; this file states what was seen.
 # The two ways to make this check pass are both bad:
 #
 #   - Enrol a human's key, and every change merged by squash fails the check.

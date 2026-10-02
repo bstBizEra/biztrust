@@ -106,3 +106,15 @@ place, the record absent — is unusual and is stated rather than smoothed over.
 An agent applied a setting on an operator's instruction; that is not the same as
 a named human recording that they decided it, and only the second is what the
 P0.2 design asks for.
+
+## Update, 2026-09-30 (appended; the observation above is unchanged)
+
+"What is still missing" was written on 2026-09-08 and describes that day. Item 2
+is out of date: on 2026-09-30 the `repository-administrator` seat was filled by
+BizEra through `BOOTSTRAP-001` (`DEC-036`; `badf/bootstrap.yaml`, and `held_by` in
+`badf/agents.yaml`). That seating is contested by review finding B6 (decision D2
+on issue 8): its first-fill verification by a different human seat has not
+happened. What remains of `NS-001` is therefore that verification and the
+administrator's record of the protection, which `badf/authority.yaml` and
+`badf/current-state.json` still read as not recorded. The protection and the
+refusal observed above are unchanged.

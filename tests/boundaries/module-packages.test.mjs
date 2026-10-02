@@ -56,11 +56,21 @@ function withTree(changes, body) {
     cpSync(join(ROOT, "scripts"), join(dir, "scripts"), { recursive: true, filter: skipNodeModules });
     cpSync(join(ROOT, "modules"), join(dir, "modules"), { recursive: true, filter: skipNodeModules });
 
+    // The check asks git which files are tracked (round eleven, C10-1), so the
+    // copy has to be a repository. Nothing is committed: `git ls-files` lists
+    // the index, and only what a case stages with `git add -f` is in it.
+    execFileSync("git", ["init", "-q"], { cwd: dir, stdio: "ignore" });
+
     for (const { dir: relDir, files } of changes.dirs ?? []) {
       mkdirSync(join(dir, relDir), { recursive: true });
       for (const [name, content] of Object.entries(files ?? {})) {
         writeFileSync(join(dir, relDir, name), content, "utf8");
       }
+    }
+    for (const [relative, content] of changes.tracked ?? []) {
+      mkdirSync(dirname(join(dir, relative)), { recursive: true });
+      writeFileSync(join(dir, relative), content, "utf8");
+      execFileSync("git", ["add", "-f", relative], { cwd: dir, stdio: "ignore" });
     }
     if (changes.registry) {
       const registryPath = join(dir, "modules", "modules.yaml");
@@ -172,5 +182,57 @@ test("every module directory on disk has a package.json", () => {
       existsSync(join(ROOT, "modules", name, "package.json")),
       `modules/${name} has no package.json, so its exports field cannot encapsulate it`,
     );
+  }
+});
+
+// ---- round eleven, C10-1: first-party source where the checker does not look ----
+//
+// The dependency checker does not scan or follow the root node_modules, a
+// package's own node_modules (pnpm's link farm) or a package's dist/. All three
+// are gitignored, so first-party source can only sit there if someone runs
+// `git add -f`, and the checker would then judge none of its imports.
+
+for (const [where, relative] of [
+  ["the root node_modules", "node_modules/plant/index.ts"],
+  ["a package's node_modules", "services/api/node_modules/plant/index.ts"],
+  ["a package's dist", "modules/tenancy/dist/plant.ts"],
+]) {
+  test(`a tracked file under ${where} is reported`, () => {
+    const result = withTree({ tracked: [[relative, "export const hidden = 1;\n"]] }, (checkPath, dir) =>
+      run(checkPath, dir),
+    );
+    assert.equal(result.code, 1, `expected a tracked file at ${relative} to fail:\n${result.out}`);
+    assert.ok(result.out.includes(relative), `the report must name ${relative}:\n${result.out}`);
+    assert.match(result.out, /the dependency checker does not scan or follow/);
+  });
+}
+
+test("a tracked file under a directory merely NAMED node_modules or dist below src is not reported", () => {
+  const result = withTree(
+    {
+      tracked: [
+        ["services/api/src/node_modules/plant.ts", "export const a = 1;\n"],
+        ["services/api/src/dist/plant.ts", "export const b = 1;\n"],
+        ["services/api/src/node_modules-bridge.ts", "export const c = 1;\n"],
+      ],
+    },
+    (checkPath, dir) => run(checkPath, dir),
+  );
+  assert.equal(result.code, 0, `source is followed wherever it sits, so it must not be refused:\n${result.out}`);
+});
+
+test("the check fails closed when git cannot list the tracked files", () => {
+  // A .git that points nowhere, so git answers "not a git repository" here
+  // and does not climb to whatever repository the temp directory sits in.
+  const dir = mkdtempSync(join(tmpdir(), "biztrust-module-packages-nogit-"));
+  try {
+    writeFileSync(join(dir, ".git"), "gitdir: ./nowhere\n", "utf8");
+    cpSync(join(ROOT, "scripts"), join(dir, "scripts"), { recursive: true, filter: skipNodeModules });
+    cpSync(join(ROOT, "modules"), join(dir, "modules"), { recursive: true, filter: skipNodeModules });
+    const result = run(join(dir, "scripts", "check-module-packages.mjs"), dir);
+    assert.equal(result.code, 2, `expected exit 2, a check that could not run:\n${result.out}`);
+    assert.match(result.out, /MODULE_PACKAGES FAIL check defect/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });

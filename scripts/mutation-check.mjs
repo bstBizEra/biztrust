@@ -398,12 +398,18 @@ const RECORDS = join(WT_ROOT, "scripts", "validate_continuity.py");
 const ATTRIBUTION = join(WT_ROOT, "scripts", "mutation-attribution.mjs");
 const SIGNING_POLICY = join(WT_ROOT, "scripts", "signing-policy.mjs");
 const GENERATOR = join(WT_ROOT, "scripts", "generate-boundary-rules.mjs");
+const MODULE_CHECK = join(WT_ROOT, "scripts", "check-module-packages.mjs");
+const CI_WORKFLOW = join(WT_ROOT, ".github", "workflows", "ci.yml");
+const WORKSPACE = join(WT_ROOT, "pnpm-workspace.yaml");
 const SIGNING_CHECK = join(WT_ROOT, "scripts", "check-signing.mjs");
 // Not a script. The ORDER of the verify chain is a control - the JS signing
 // policy reader is fail-closed only because validate:records runs before
 // check:signing - and a control that lives in data rather than in code is
 // still a control, so it is mutated like one.
 const PACKAGE = join(WT_ROOT, "package.json");
+// Also data, and also a control: the compiler option that makes an unresolvable
+// side-effect import an error is the second layer under the boundary check.
+const TSCONFIG_BASE = join(WT_ROOT, "tsconfig.base.json");
 
 /** Joins anchor lines, so no source string carries an embedded newline. */
 const lines = (...parts) => parts.join("\n");
@@ -413,6 +419,10 @@ const lines = (...parts) => parts.join("\n");
 // still interpolates ${...}, so the anchor would evaluate rather than match.
 const BT = String.fromCharCode(96);
 const DOLLAR = String.fromCharCode(36);
+// A backslash, spelled out, for the same reason: an anchor that quotes a regular
+// expression source needs backslashes, and an escape inside an escape is where
+// these anchors have been corrupted before.
+const BACKSLASH = String.fromCharCode(92);
 
 const MUTATIONS = [
   // ---- found by the WP-001 independent review, issue #8 ------------------
@@ -439,8 +449,8 @@ const MUTATIONS = [
     witness:
       "control 1: a module reaches into another's internals by package name is reported as " +
       "rule-1-internals-private-by-name-alpha",
-    from: "      to: { couldNotResolve: true, path: " + BT + "^@biztrust/" + DOLLAR + "{rx(m.name)}/(?:internal|.*/internal)(?:/|" + DOLLAR + ")" + BT + " },",
-    to: "      to: { couldNotResolve: false, path: " + BT + "^@biztrust/" + DOLLAR + "{rx(m.name)}/(?:internal|.*/internal)(?:/|" + DOLLAR + ")" + BT + " },",
+    from: "      to: { couldNotResolve: true, path: internalByName(m.name) },",
+    to: "      to: { couldNotResolve: false, path: internalByName(m.name) },",
   },
   {
     file: RULES,
@@ -451,7 +461,7 @@ const MUTATIONS = [
     witness:
       "control 1: the same, spelled with a .. segment (src/public/../internal/) is reported as " +
       "rule-1-internals-private-by-name-alpha",
-    from: "      to: { couldNotResolve: true, path: " + BT + "^@biztrust/" + DOLLAR + "{rx(m.name)}/(?:internal|.*/internal)(?:/|" + DOLLAR + ")" + BT + " },",
+    from: "      to: { couldNotResolve: true, path: internalByName(m.name) },",
     to: "      to: { couldNotResolve: true, path: " + BT + "^@biztrust/" + DOLLAR + "{rx(m.name)}/src/internal/" + BT + " },",
   },
   {
@@ -469,8 +479,8 @@ const MUTATIONS = [
     witness:
       "control 5: an entry point reaches past a contract by package name is reported as " +
       "rule-5-entry-points-see-contracts-only-by-name",
-    from: '    to: { couldNotResolve: true, path: "^@biztrust/" + anyModule + "/.+" },',
-    to: '    to: { couldNotResolve: false, path: "^@biztrust/" + anyModule + "/.+" },',
+    from: '    to: { couldNotResolve: true, path: SCOPE + anyModule + SEP + ".+" },',
+    to: '    to: { couldNotResolve: false, path: SCOPE + anyModule + SEP + ".+" },',
   },
   // ---- the dependency rules ----------------------------------------------
   {
@@ -521,11 +531,11 @@ const MUTATIONS = [
     // this task added found it; `anchorDefect` now refuses an anchor that
     // matches twice, so it cannot come back silently.)
     from: lines(
-      '      path: "^modules/[^/]+/src/",',
+      '      path: "^modules/[^/]+/(?:src|dist)/",',
       '      pathNot: "^modules/[^/]+/src/public/index\\\\.ts$",',
     ),
     to: lines(
-      '      path: "^modules/[^/]+/src/",',
+      '      path: "^modules/[^/]+/(?:src|dist)/",',
       '      pathNot: "^modules/[^/]+/src/public/",',
     ),
   },
@@ -1460,7 +1470,8 @@ const MUTATIONS = [
     file: CODEOWNERS,
     // The forgery this generator exists to refuse: a bare @handle asserts that
     // some named account owns the path, where a team slug asserts only that a
-    // seat does - and every seat in badf/agents.yaml records held_by: null.
+    // seat does - and who holds a seat is a fact badf/agents.yaml records and
+    // badf/bootstrap.yaml alone may seat, not something a CODEOWNERS line asserts.
     // Caught by the never-a-person test.
     name: "codeowners: emit a bare handle instead of a team slug under the organisation",
     witness: "the generator never emits a person, only a team slug under the org",
@@ -2828,11 +2839,1198 @@ const MUTATIONS = [
     // exemption back.
     name: "records: exempt the validator file itself from the credential scan",
     witness: "test_a_credential_planted_in_the_validator_itself_is_reported",
-    from: '        if any(segment in relative.split("/") for segment in skip_segments):',
+    from: lines(
+      "        if (",
+      '            any(segment in relative.split("/") for segment in skip_segments)',
+    ),
     to: lines(
       '        if relative == "scripts/validate_continuity.py":',
       "            continue",
-      '        if any(segment in relative.split("/") for segment in skip_segments):',
+      "        if (",
+      '            any(segment in relative.split("/") for segment in skip_segments)',
+    ),
+  },
+  // ---- round ten, S-1: a hand reader reads the file YAML reads ------------
+  //
+  // Every value that opens a quote is exactly one complete quoted scalar on
+  // its line, and no field, entry or top-level key is read twice. One
+  // mutation per call site, each with a test that breaks exactly that shape.
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: read an authority field whose quote never closes (R10-S1)",
+    witness: "test_an_authority_field_that_opens_a_quote_it_does_not_close_is_refused",
+    from: '            if refuse_value("badf/authority.yaml", number, field, value, problems):',
+    to: "            if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: read an authority top-level value whose quote never closes (R10-S1)",
+    witness: "test_an_authority_top_level_value_that_opens_a_quote_is_refused",
+    from: '            refuse_value("badf/authority.yaml", number, section, rest, problems)',
+    to: "            pass",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: keep the last of two equal fields in an authority entry (R10-S1)",
+    witness: "test_a_repeated_field_in_an_authority_entry_is_refused",
+    from: lines(
+      "            if refuse_repeat(",
+      '                "badf/authority.yaml", number, field, f"{section}.{key}",',
+    ),
+    to: lines(
+      "            if False and refuse_repeat(",
+      '                "badf/authority.yaml", number, field, f"{section}.{key}",',
+    ),
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: merge two equal entries in an authority section (R10-S1)",
+    witness: "test_a_repeated_entry_in_an_authority_section_is_refused",
+    from: lines(
+      "            refuse_repeat(",
+      '                "badf/authority.yaml", number, key, section, sections[section], problems',
+      "            )",
+    ),
+    to: "            pass",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: read a skills field whose quote never closes (R10-S1)",
+    witness: "test_a_skills_field_that_opens_a_quote_it_does_not_close_is_refused",
+    from: '            if refuse_value("badf/skills.yaml", number, field, value, problems):',
+    to: "            if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: read a skill id whose quote never closes (R10-S1)",
+    witness: "test_a_skills_id_that_opens_a_quote_is_refused",
+    from: '            refuse_value("badf/skills.yaml", number, "id", current, problems)',
+    to: "            pass",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: read a skills top-level value whose quote never closes (R10-S1)",
+    witness: "test_a_skills_top_level_value_that_opens_a_quote_is_refused",
+    from: '            refuse_value("badf/skills.yaml", number, key, rest, problems)',
+    to: "            pass",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: keep the last of two equal top-level keys in skills (R10-S1)",
+    witness: "test_a_repeated_top_level_section_in_skills_is_refused",
+    from: '            refuse_repeat("badf/skills.yaml", number, key, "this file", seen_top, problems)',
+    to: "            pass",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: keep the last of two equal fields in a skill entry (R10-S1)",
+    witness: "test_a_repeated_field_in_a_skill_entry_is_refused",
+    from: lines(
+      "            if refuse_repeat(",
+      '                "badf/skills.yaml", number, field, f"skill {current!r}",',
+    ),
+    to: lines(
+      "            if False and refuse_repeat(",
+      '                "badf/skills.yaml", number, field, f"skill {current!r}",',
+    ),
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: read a role or routing field whose quote never closes (R10-S1)",
+    witness: "test_a_role_field_that_opens_a_quote_it_does_not_close_is_refused",
+    from: '            if refuse_value("badf/agents.yaml", number, field, value, problems):',
+    to: "            if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: read an agents top-level value whose quote never closes (R10-S1)",
+    witness: "test_an_agents_top_level_value_that_opens_a_quote_is_refused",
+    from: '            refuse_value("badf/agents.yaml", number, key, rest, problems)',
+    to: "            pass",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: keep the last of two equal top-level keys in agents (R10-S1)",
+    witness: "test_a_repeated_top_level_section_in_agents_is_refused",
+    from: '            refuse_repeat("badf/agents.yaml", number, key, "this file", seen_top, problems)',
+    to: "            pass",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: read a role id whose quote never closes (R10-S1)",
+    witness: "test_a_role_id_that_opens_a_quote_is_refused",
+    from: '                refuse_value("badf/agents.yaml", number, "id", current_role, problems)',
+    to: "                pass",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: read a routing path whose quote never closes (R10-S1)",
+    witness: "test_a_routing_path_that_opens_a_quote_is_refused",
+    from: lines(
+      "                refuse_value(",
+      '                    "badf/agents.yaml", number, "path", current_route["path"], problems',
+      "                )",
+    ),
+    to: "                pass",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: keep the last of two equal fields in a role (R10-S1)",
+    witness: "test_a_repeated_field_in_a_role_is_refused",
+    from: lines(
+      "                if refuse_repeat(",
+      '                    "badf/agents.yaml", number, field, f"role {current_role!r}",',
+    ),
+    to: lines(
+      "                if False and refuse_repeat(",
+      '                    "badf/agents.yaml", number, field, f"role {current_role!r}",',
+    ),
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: keep the last of two equal fields in a routing entry (R10-S1)",
+    witness: "test_a_repeated_field_in_a_routing_entry_is_refused",
+    from: "                    current_route, problems,",
+    to: "                    {}, problems,",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: read a bootstrap scalar whose quote never closes (R10-S1)",
+    witness: "test_a_bootstrap_scalar_that_opens_a_quote_is_refused",
+    from: '                refuse_value("badf/bootstrap.yaml", number, key, value, problems)',
+    to: "                pass",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: keep the last of two equal top-level keys in the bootstrap record (R10-S1)",
+    witness: "test_a_repeated_scalar_in_the_bootstrap_record_is_refused",
+    from: lines(
+      "                refuse_repeat(",
+      '                    "badf/bootstrap.yaml", number, key, "this file", seen_top, problems',
+      "                )",
+    ),
+    to: "                pass",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: read a bootstrap seat whose quote never closes (R10-S1)",
+    witness: "test_a_bootstrap_seat_that_opens_a_quote_is_refused",
+    from: lines(
+      "                refuse_value(",
+      '                    "badf/bootstrap.yaml", number, "seat", opener.group(1).strip(), problems',
+      "                )",
+    ),
+    to: "                pass",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: read a bootstrap seating field whose quote never closes (R10-S1)",
+    witness: "test_a_bootstrap_seating_field_that_opens_a_quote_is_refused",
+    from: '                if refuse_value("badf/bootstrap.yaml", number, field, value, problems):',
+    to: "                if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: keep the last of two equal fields in a bootstrap seating (R10-S1)",
+    witness: "test_a_repeated_field_in_a_bootstrap_seating_is_refused",
+    from: lines(
+      "                if refuse_repeat(",
+      '                    "badf/bootstrap.yaml", number, field,',
+    ),
+    to: lines(
+      "                if False and refuse_repeat(",
+      '                    "badf/bootstrap.yaml", number, field,',
+    ),
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: read a signing-policy top-level value whose quote never closes (R10-S1)",
+    witness: "test_a_signing_policy_scalar_that_opens_a_quote_is_refused",
+    from: '                refuse_value("badf/signing-policy.yaml", number, key, value, problems)',
+    to: "                pass",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: keep the last of two equal top-level keys in the signing policy (R10-S1)",
+    witness: "test_a_repeated_scalar_in_the_signing_policy_is_refused",
+    from: lines(
+      "                refuse_repeat(",
+      '                    "badf/signing-policy.yaml", number, key, "this file", seen_top, problems',
+      "                )",
+    ),
+    to: "                pass",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: read a signing-policy protected path whose quote never closes (R10-S1)",
+    witness: "test_a_signing_policy_path_that_opens_a_quote_is_refused",
+    from: lines(
+      "                refuse_value(",
+      '                    "badf/signing-policy.yaml", number, "protected_paths item",',
+      "                    item.group(1), problems,",
+      "                )",
+    ),
+    to: "                pass",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: read a signing-policy key identity whose quote never closes (R10-S1)",
+    witness: "test_a_signing_policy_key_identity_that_opens_a_quote_is_refused",
+    from: lines(
+      "                refuse_value(",
+      '                    "badf/signing-policy.yaml", number, "identity",',
+      "                    opener.group(1).strip(), problems,",
+      "                )",
+    ),
+    to: "                pass",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: read a signing-policy key field whose quote never closes (R10-S1)",
+    witness: "test_a_signing_policy_key_field_that_opens_a_quote_is_refused",
+    from: '                if refuse_value("badf/signing-policy.yaml", number, field, value, problems):',
+    to: "                if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: keep the last of two equal fields in a signing-policy key (R10-S1)",
+    witness: "test_a_repeated_field_in_a_signing_policy_key_is_refused",
+    from: lines(
+      "                if refuse_repeat(",
+      '                    "badf/signing-policy.yaml", number, field,',
+    ),
+    to: lines(
+      "                if False and refuse_repeat(",
+      '                    "badf/signing-policy.yaml", number, field,',
+    ),
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: read a double-quoted value with text after its closing quote (R10-S1)",
+    witness: "test_a_double_quoted_scalar_with_text_after_its_closing_quote_is_not_read_whole",
+    from: "        if _DOUBLE_QUOTED_SCALAR.match(value) is None:",
+    to: "        if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: read a single-quoted value with text after its closing quote (R10-S1)",
+    witness: "test_a_single_quoted_scalar_with_text_after_its_closing_quote_is_not_read_whole",
+    from: "        if _SINGLE_QUOTED_SCALAR.match(value) is None:",
+    to: "        if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: read a flow collection that holds an unclosed quote (R10-S1)",
+    witness: "test_a_flow_collection_holding_an_unclosed_quote_is_not_read_whole",
+    from: "        if _open_quote_in_flow(value):",
+    to: "        if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: read a flow collection that does not close on its line (R10-S1)",
+    witness: "test_a_flow_collection_that_does_not_close_on_its_line_is_not_read_whole",
+    from: '        if not value.endswith("]" if value.startswith("[") else "}"):',
+    to: "        if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: read a value that starts with an anchor, alias or tag (R10-S1)",
+    witness: "test_an_anchor_an_alias_and_a_tag_are_not_read",
+    from: '    if value.startswith(("&", "*", "!")):',
+    to: "    if False:",
+  },
+  // ---- round ten, R9-C1 and R9-C2: the checker options the generator writes ----
+  //
+  // tests/boundaries/production-options.test.mjs cruises a copy of the
+  // workspace with the options the generator writes, byte for byte, and plants
+  // one violation per option that could hide it. Each mutation below loosens
+  // exactly one of them, and each has a plant of its own.
+  {
+    file: GENERATOR,
+    name: "generator: judge no edge into build output or the fixture tree again (R9-C1)",
+    witness:
+      "production options: a service importing the fixture tree is reported as " +
+      "rule-6-test-packages-stay-in-tests",
+    from: '      doNotFollow: { path: DO_NOT_FOLLOW },',
+    to: lines(
+      '      doNotFollow: { path: "node_modules" },',
+      '      exclude: { path: "(^|/)dist/|^tests/boundaries/fixtures/" },',
+    ),
+  },
+  {
+    file: GENERATOR,
+    name: "generator: exclude every internal directory from the checker (R9-C2)",
+    witness:
+      "production options: a js file importing modules/tenancy/src/internal is reported as " +
+      "rule-1-internals-private-tenancy",
+    from: '      doNotFollow: { path: DO_NOT_FOLLOW },',
+    to: lines(
+      '      doNotFollow: { path: DO_NOT_FOLLOW },',
+      '      exclude: { path: "/internal/" },',
+    ),
+  },
+  {
+    file: GENERATOR,
+    name: "generator: do not follow the imports of services (R9-C2)",
+    witness:
+      "production options: an import of @biztrust/audit/dist/internal by name is reported as " +
+      "rule-1-internals-private-by-name-audit",
+    from: '      doNotFollow: { path: DO_NOT_FOLLOW },',
+    to: '      doNotFollow: { path: DO_NOT_FOLLOW + "|^services/" },',
+  },
+  {
+    file: GENERATOR,
+    name: "generator: stop counting type-only imports (R9-C2)",
+    witness:
+      "production options: a type-only import of src/internal is reported as " +
+      "rule-1-internals-private-tenancy",
+    from: "      tsPreCompilationDeps: true,",
+    to: "      tsPreCompilationDeps: false,",
+  },
+  {
+    file: GENERATOR,
+    name: "generator: stop reading the tsconfig path map (R9-C2)",
+    witness:
+      "production options: a package importing a module by its bare name is reported as " +
+      "rule-4-packages-import-no-module",
+    from: '      tsConfig: { fileName: "tsconfig.json" },',
+    to: "",
+  },
+  {
+    file: GENERATOR,
+    name: "generator: stop resolving .ts files (R9-C2)",
+    witness:
+      "production options: an import of src/internal spelled with no extension is reported as " +
+      "rule-1-internals-private-tenancy",
+    from: '        extensions: [".ts", ".js", ".mjs", ".cjs"],',
+    to: '        extensions: [".js", ".mjs", ".cjs"],',
+  },
+  {
+    file: RULES,
+    name: "rule 1: stop protecting a built internal directory (R9-C1)",
+    witness:
+      "production options: a relative import of modules/tenancy/dist/internal is reported as " +
+      "rule-1-internals-private-tenancy",
+    from: "      to: { path: " + BT + "^modules/" + DOLLAR + "{rx(m.name)}/(?:src|dist)/internal/" + BT + " },",
+    to: "      to: { path: " + BT + "^modules/" + DOLLAR + "{rx(m.name)}/src/internal/" + BT + " },",
+  },
+  {
+    file: RULES,
+    name: "rule 2: allow a module to import another module's built files (R9-C1)",
+    witness:
+      "production options: a module importing another module's dist is reported as " +
+      "rule-2-contracts-only-identity-access",
+    from: '        path: "^modules/(?!" + rx(m.name) + "/)[^/]+/(?:src|dist)/",',
+    to: '        path: "^modules/(?!" + rx(m.name) + "/)[^/]+/src/",',
+  },
+  {
+    file: RULES,
+    name: "rule 5: allow an entry point to import a module's built files (R9-C1)",
+    witness:
+      "production options: a relative import of modules/tenancy/dist/internal is reported as " +
+      "rule-5-entry-points-see-contracts-only",
+    from: '      path: "^modules/[^/]+/(?:src|dist)/",',
+    to: '      path: "^modules/[^/]+/src/",',
+  },
+  // ---- round eleven, C10-1 and C10-2: doNotFollow, anchored, and witnessed per source root ----
+  //
+  // Round ten's plants all sat in services/api/src, packages/ and one module's
+  // public directory, so widening doNotFollow to any OTHER source directory
+  // turned nothing red and no mutation loosened it. One mutation per root
+  // below, each with a plant of its own in tests/boundaries/production-options.test.mjs.
+  {
+    file: RULES,
+    name: "options: do not follow what a path merely CONTAINING node_modules imports (C10-1)",
+    witness:
+      "production options: a file whose name contains node_modules is followed, and its " +
+      "import of tests is reported as rule-6-test-packages-stay-in-tests",
+    from: '  thirdParty: "^node_modules/",',
+    to: '  thirdParty: "node_modules",',
+  },
+  {
+    file: RULES,
+    name: "options: do not follow a first-party directory named node_modules at any depth (C10-1)",
+    witness:
+      "production options: a first-party directory named node_modules is followed, and its " +
+      "import of internals is reported as rule-1-internals-private-tenancy",
+    from: '  linkFarm: "^" + ROOTS + "/[^/]+/node_modules/",',
+    to: '  linkFarm: "(^|/)node_modules/",',
+  },
+  {
+    file: RULES,
+    name: "options: do not follow a directory named dist at any depth (C10-1)",
+    witness:
+      "production options: a directory named dist below a source directory is followed, and " +
+      "its import of internals is reported as rule-5-entry-points-see-contracts-only",
+    from: '  buildOutput: "^" + ROOTS + "/[^/]+/dist/",',
+    to: '  buildOutput: "(^|/)dist/",',
+  },
+  {
+    file: RULES,
+    name: "options: do not follow the imports of a module's internal directory (C10-2)",
+    witness:
+      "production options: a module's internal file importing another module's internals is " +
+      "reported as rule-1-internals-private-audit",
+    from: 'export const DO_NOT_FOLLOW = Object.values(UNFOLLOWED).join("|");',
+    to: 'export const DO_NOT_FOLLOW = Object.values(UNFOLLOWED).join("|") + "|/internal/";',
+  },
+  {
+    file: RULES,
+    name: "options: do not follow the imports of apps (C10-2)",
+    witness:
+      "production options: an app file importing a module's internals is reported as " +
+      "rule-7-control-plane-sees-packages-only",
+    from: 'export const DO_NOT_FOLLOW = Object.values(UNFOLLOWED).join("|");',
+    to: 'export const DO_NOT_FOLLOW = Object.values(UNFOLLOWED).join("|") + "|^apps/";',
+  },
+  {
+    file: RULES,
+    name: "options: do not follow the imports of tests (C10-2)",
+    witness:
+      "production options: a file under tests importing a module's internals is reported as " +
+      "rule-1-internals-private-tenancy",
+    from: 'export const DO_NOT_FOLLOW = Object.values(UNFOLLOWED).join("|");',
+    to: 'export const DO_NOT_FOLLOW = Object.values(UNFOLLOWED).join("|") + "|^tests/";',
+  },
+  {
+    file: RULES,
+    name: "options: do not follow the imports of packages (C10-2)",
+    witness:
+      "production options: a package file importing a module's internals is reported as " +
+      "rule-4-packages-import-no-module",
+    from: 'export const DO_NOT_FOLLOW = Object.values(UNFOLLOWED).join("|");',
+    to: 'export const DO_NOT_FOLLOW = Object.values(UNFOLLOWED).join("|") + "|^packages/";',
+  },
+  {
+    file: RULES,
+    name: "options: do not follow the imports of modules (C10-2)",
+    witness:
+      "production options: a module's public file importing another module's internals is " +
+      "reported as rule-2-contracts-only-identity-access",
+    from: 'export const DO_NOT_FOLLOW = Object.values(UNFOLLOWED).join("|");',
+    to: 'export const DO_NOT_FOLLOW = Object.values(UNFOLLOWED).join("|") + "|^modules/";',
+  },
+  {
+    file: GENERATOR,
+    name: "generator: exclude apps from the checker (C10-2)",
+    witness:
+      "production options: a package importing an app is reported as " +
+      "rule-5-nothing-imports-an-entry-point",
+    from: "      doNotFollow: { path: DO_NOT_FOLLOW },",
+    to: lines(
+      "      doNotFollow: { path: DO_NOT_FOLLOW },",
+      '      exclude: { path: "^apps/" },',
+    ),
+  },
+  {
+    file: GENERATOR,
+    name: "generator: exclude services from the checker (C10-2)",
+    witness:
+      "production options: a package importing a service is reported as " +
+      "rule-5-nothing-imports-an-entry-point",
+    from: "      doNotFollow: { path: DO_NOT_FOLLOW },",
+    to: lines(
+      "      doNotFollow: { path: DO_NOT_FOLLOW },",
+      '      exclude: { path: "^services/" },',
+    ),
+  },
+  {
+    file: GENERATOR,
+    name: "generator: exclude tests from the checker (C10-2)",
+    witness:
+      "production options: a file under tests importing a module's internals is reported as " +
+      "rule-1-internals-private-tenancy",
+    shared:
+      "exclude removes an import of tests/ as well as the imports OF it, so the plant that " +
+      "shows the first half is the one the doNotFollow mutation for tests above declares; " +
+      "the edge into tests/ is judged by the fixture-tree and bridge controls as well",
+    from: "      doNotFollow: { path: DO_NOT_FOLLOW },",
+    to: lines(
+      "      doNotFollow: { path: DO_NOT_FOLLOW },",
+      '      exclude: { path: "^tests/" },',
+    ),
+  },
+  {
+    file: GENERATOR,
+    name: "generator: exclude modules from the checker (C10-2)",
+    witness:
+      "production options: a module's public file importing another module's internals is " +
+      "reported as rule-2-contracts-only-identity-access",
+    shared:
+      "exclude removes the edges INTO modules as well as the imports OF them; every rule-1 " +
+      "and rule-2 plant goes red, and the public-file plant is the one the doNotFollow " +
+      "mutation for modules above declares",
+    from: "      doNotFollow: { path: DO_NOT_FOLLOW },",
+    to: lines(
+      "      doNotFollow: { path: DO_NOT_FOLLOW },",
+      '      exclude: { path: "^modules/" },',
+    ),
+  },
+  // ---- round eleven, C10-3 and C10-4: the catch-all for an import that resolves to nothing ----
+  {
+    file: RULES,
+    name: "backstop: stop reporting an import that resolves to nothing (C10-3)",
+    witness:
+      "control 1: a .js file imports internals through a percent-encoded scope (%40biztrust) " +
+      "is reported as backstop-no-unresolvable-imports",
+    from: lines("  rules.push({", '    name: "backstop-no-unresolvable-imports",'),
+    to: lines("  [].push({", '    name: "backstop-no-unresolvable-imports",'),
+  },
+  {
+    file: RULES,
+    name: "backstop: report only what services import (C10-3)",
+    witness:
+      "control 1: a .js file imports internals through a Cyrillic lookalike letter is " +
+      "reported as backstop-no-unresolvable-imports",
+    from: '    from: { path: "^" + ROOTS + "/" },',
+    to: '    from: { path: "^services/" },',
+  },
+  {
+    file: RULES,
+    name: "backstop: do not report what services import (C10-4)",
+    witness:
+      "control 5: a .js entry point imports a module's dist/ when nothing has been built is " +
+      "reported as backstop-no-unresolvable-imports",
+    from: '    from: { path: "^" + ROOTS + "/" },',
+    to: '    from: { path: "^(?:modules|packages|apps)/" },',
+  },
+  {
+    file: RULES,
+    name: "backstop: do not report what modules import (C10-3)",
+    witness:
+      "production options: a js file in a module importing a double percent-encoded " +
+      "directory is reported as backstop-no-unresolvable-imports",
+    from: '    from: { path: "^" + ROOTS + "/" },',
+    to: '    from: { path: "^(?:packages|services|apps)/" },',
+  },
+  {
+    file: RULES,
+    name: "backstop: do not report what apps import (C10-3)",
+    witness:
+      "production options: a js file in an app importing a double percent-encoded " +
+      "directory is reported as backstop-no-unresolvable-imports",
+    from: '    from: { path: "^" + ROOTS + "/" },',
+    to: '    from: { path: "^(?:modules|packages|services)/" },',
+  },
+  // ---- round eleven, C10-1: first-party source where the checker does not look ----
+  {
+    file: MODULE_CHECK,
+    name: "modules: do not refuse a tracked file under the root node_modules (C10-1)",
+    witness: "a tracked file under the root node_modules is reported",
+    from: "  const hidden = [UNFOLLOWED.thirdParty, UNFOLLOWED.linkFarm, UNFOLLOWED.buildOutput].map(",
+    to: "  const hidden = [UNFOLLOWED.linkFarm, UNFOLLOWED.buildOutput].map(",
+  },
+  {
+    file: MODULE_CHECK,
+    name: "modules: do not refuse a tracked file under a package's node_modules (C10-1)",
+    witness: "a tracked file under a package's node_modules is reported",
+    from: "  const hidden = [UNFOLLOWED.thirdParty, UNFOLLOWED.linkFarm, UNFOLLOWED.buildOutput].map(",
+    to: "  const hidden = [UNFOLLOWED.thirdParty, UNFOLLOWED.buildOutput].map(",
+  },
+  {
+    file: MODULE_CHECK,
+    name: "modules: do not refuse a tracked file under a package's dist (C10-1)",
+    witness: "a tracked file under a package's dist is reported",
+    from: "  const hidden = [UNFOLLOWED.thirdParty, UNFOLLOWED.linkFarm, UNFOLLOWED.buildOutput].map(",
+    to: "  const hidden = [UNFOLLOWED.thirdParty, UNFOLLOWED.linkFarm].map(",
+  },
+  {
+    file: MODULE_CHECK,
+    name: "modules: refuse a tracked file under a directory merely NAMED node_modules (C10-1)",
+    witness:
+      "a tracked file under a directory merely NAMED node_modules or dist below src is not reported",
+    from: "    (pattern) => new RegExp(pattern),",
+    to: '    (pattern) => new RegExp(pattern.replace("^", "(^|/)")),',
+  },
+  {
+    file: MODULE_CHECK,
+    name: "modules: treat a git that cannot list the tracked files as an empty list (C10-1)",
+    witness: "the check fails closed when git cannot list the tracked files",
+    from: lines(
+      '  const listed = execFileSync("git", ["ls-files", "-z"], {',
+      "    cwd: ROOT,",
+      '    encoding: "utf8",',
+      "    maxBuffer: 64 * 1024 * 1024,",
+      "  });",
+    ),
+    to: lines(
+      '  let listed = "";',
+      "  try {",
+      '    listed = execFileSync("git", ["ls-files", "-z"], { cwd: ROOT, encoding: "utf8" });',
+      "  } catch {",
+      "    // fail open",
+      "  }",
+    ),
+  },
+  // ---- round eleven, S-6: the flow collection's brackets balance ------------------
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: read a flow collection with an opener left open (R11-S6)",
+    witness: "test_a_flow_collection_with_an_opener_left_open_is_not_read_whole",
+    from: "    return quote is not None, balanced and not expected",
+    to: "    return quote is not None, balanced",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: read a flow collection closed by the wrong kind of bracket (R11-S6)",
+    witness: "test_a_flow_collection_closed_by_the_wrong_kind_of_bracket_is_not_read_whole",
+    from: "            if not expected or expected.pop() != char:",
+    to: "            if not expected or expected.pop() is None:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: read a flow collection that closes before its last character (R11-S6)",
+    witness: "test_a_flow_collection_that_closes_before_its_last_character_is_not_read_whole",
+    from: "            elif not expected and index != len(value) - 1:",
+    to: "            elif False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: stop checking that a flow collection's brackets balance at all (R11-S6)",
+    witness: "test_a_flow_collection_with_an_opener_left_open_is_not_read_whole",
+    shared:
+      "removing the call removes all three arms at once, so the control that shows the " +
+      "first arm is also the first to go red; the two arms above have controls of their own",
+    from: "        if not _scan_flow(value)[1]:",
+    to: "        if False:",
+  },
+  // ---- round eleven, S-7: a git that cannot answer widens the secret scan ----------
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: skip __pycache__ when git cannot say what is tracked (R11-S7)",
+    witness: "test_a_pycache_directory_is_scanned_when_git_cannot_say_what_is_tracked",
+    from: "        skip_segments = ()",
+    to: '        skip_segments = ("__pycache__",)',
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: skip node_modules when git cannot say what is tracked (R11-S7)",
+    witness: "test_a_node_modules_directory_is_scanned_when_git_cannot_say_what_is_tracked",
+    from: '        skip_prefixes = (".git/",)',
+    to: '        skip_prefixes = (".git/", "node_modules/")',
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: skip dist when git cannot say what is tracked (R11-S7)",
+    witness: "test_a_top_level_dist_directory_is_scanned_when_git_cannot_say_what_is_tracked",
+    from: '        skip_prefixes = (".git/",)',
+    to: '        skip_prefixes = (".git/", "dist/")',
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: scan git's own directory when git cannot say what is tracked (R11-S7)",
+    witness: "test_the_git_directory_itself_is_not_scanned_when_git_cannot_say_what_is_tracked",
+    from: '        skip_prefixes = (".git/",)',
+    to: "        skip_prefixes = ()",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: read a git that cannot answer as an empty list of tracked files (R11-S7)",
+    witness: "test_a_top_level_dist_directory_is_scanned_when_git_cannot_say_what_is_tracked",
+    shared:
+      "the old behaviour skips every build directory at once, so the control for one of them " +
+      "is the first to go red; the per-directory mutations above have controls of their own",
+    from: lines("    except (OSError, subprocess.CalledProcessError):", "        return None"),
+    to: lines("    except (OSError, subprocess.CalledProcessError):", "        return set()"),
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: do not treat an unanswered git as a separate case at all (R11-S7)",
+    witness: "test_the_git_directory_itself_is_not_scanned_when_git_cannot_say_what_is_tracked",
+    shared:
+      "without the branch, an unanswered git crashes the scan instead of widening it; the " +
+      "control that notices is the one that expects a clean pass where git is not scanned",
+    from: "    if tracked is None:",
+    to: "    if False:",
+  },
+  // ---- round eleven, spec n5: a checkpoint's chronology and its next action ---------
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: accept a checkpoint created in the future (R11-n5)",
+    witness: "test_a_checkpoint_created_in_the_future_is_reported",
+    from: "    if created is not None and created > datetime.now(timezone.utc) + CHECKPOINT_CLOCK_SLACK:",
+    to: "    if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: accept a checkpoint created before one of its observations (R11-n5)",
+    witness: "test_a_checkpoint_created_before_one_of_its_observations_is_reported",
+    from: "            if observed is not None and observed > created:",
+    to: "            if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: accept a checkpoint naming a next action nothing defines (R11-n5)",
+    witness: "test_a_checkpoint_naming_a_next_action_nothing_defines_is_reported",
+    from: "        if isinstance(named, str) and named not in known:",
+    to: "        if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: hold no exempt checkpoint to the ordering rule (R11-n5)",
+    witness: "test_the_round_six_checkpoint_alone_is_exempt_from_the_ordering_rule",
+    from: "    if created is not None and relative not in CHECKPOINT_ORDER_EXEMPT:",
+    to: "    if created is not None:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: exempt every round checkpoint from the ordering rule (R11-n5)",
+    witness: "test_another_checkpoint_with_the_same_inversion_is_not_exempt",
+    from: "    if created is not None and relative not in CHECKPOINT_ORDER_EXEMPT:",
+    to: lines(
+      "    if created is not None and not relative.startswith(",
+      '        "sessions/checkpoints/BIZTRUST-WP-001-review-round-"',
+      "    ):",
+    ),
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: exempt a second checkpoint from the ordering rule (R11-n5)",
+    witness: "test_the_ordering_exemption_names_exactly_one_checkpoint",
+    from: 'CHECKPOINT_ORDER_EXEMPT = {"sessions/checkpoints/BIZTRUST-WP-001-review-round-6.json"}',
+    to: lines(
+      "CHECKPOINT_ORDER_EXEMPT = {",
+      '    "sessions/checkpoints/BIZTRUST-WP-001-review-round-6.json",',
+      '    "sessions/checkpoints/BIZTRUST-WP-001-review-round-8.json",',
+      "}",
+    ),
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: exempt the round-six checkpoint from the next-action rule too (R11-n5)",
+    witness: "test_the_exempt_round_six_checkpoint_is_still_held_to_the_other_two_rules",
+    from: "        if isinstance(named, str) and named not in known:",
+    to: "        if isinstance(named, str) and named not in known and relative not in CHECKPOINT_ORDER_EXEMPT:",
+  },
+  // ---- round eleven, S-8 and S-9: the CI workflow and the dependency override ------
+  {
+    file: CI_WORKFLOW,
+    name: "ci: leave the job token in the checkout's git config (R11-S9)",
+    witness: "ci workflow: the checkout step does not leave the job token in the git config",
+    from: "          persist-credentials: false",
+    to: "          persist-credentials: true",
+  },
+  {
+    file: CI_WORKFLOW,
+    name: "ci: drop the scope job's timeout (R11-S9)",
+    witness: "ci workflow: every job has a timeout",
+    from: lines("    timeout-minutes: 5", "    steps:"),
+    to: "    steps:",
+  },
+  {
+    file: CI_WORKFLOW,
+    name: "ci: fetch a shallow history again (R11-S9)",
+    witness:
+      "ci workflow: the checkout step still fetches the whole history the signing check needs",
+    from: "          fetch-depth: 0",
+    to: "          fetch-depth: 1",
+  },
+  {
+    file: CI_WORKFLOW,
+    name: "ci: pin checkout by a movable tag again (R11-S9)",
+    witness: "ci workflow: every action is pinned by a full commit SHA",
+    from: "uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4",
+    to: "uses: actions/checkout@v4",
+  },
+  {
+    file: WORKSPACE,
+    name: "workspace: override fast-uri with a range instead of an exact version (R11-S8)",
+    witness: "workspace overrides: every override pins an exact version, not a range",
+    from: '  fast-uri: "3.1.8"',
+    to: '  fast-uri: "^3.1.8"',
+  },
+  // ---- round ten, S-2, S-4 and S-5: the secret scan and the tool powers ------
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: skip a tracked top-level dist directory in the secret scan (R10-S2)",
+    witness: "test_a_credential_in_a_tracked_top_level_dist_directory_is_reported",
+    from: "        if relative.startswith(skip_prefixes) and relative not in tracked:",
+    to: "        if relative.startswith(skip_prefixes):",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: skip a tracked __pycache__ directory in the secret scan (R10-S2)",
+    witness: "test_a_credential_in_a_tracked_pycache_directory_is_reported",
+    from: lines(
+      '            any(segment in relative.split("/") for segment in skip_segments)',
+      "            and relative not in tracked",
+    ),
+    to: '            any(segment in relative.split("/") for segment in skip_segments)',
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: accept a non-ASCII character in a tool power (R10-S4)",
+    witness: "test_a_tool_power_with_a_non_ascii_character_is_refused",
+    from: "            if not item.isascii():",
+    to: "            if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: stop recognising a GitLab access token (R10-S5)",
+    witness: "test_a_gitlab_token_in_the_tree_is_reported",
+    from: '        (re.compile(r"glpat-[A-Za-z0-9_-]{20,}"), "a GitLab access token"),',
+    to: "",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: stop recognising an Anthropic API key (R10-S5)",
+    witness: "test_an_anthropic_key_in_the_tree_is_reported",
+    from: '        (re.compile(r"sk-ant-[A-Za-z0-9_-]{20,}"), "an Anthropic API key"),',
+    to: "",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: stop recognising a Stripe test restricted key (R10-S5)",
+    witness: "test_a_stripe_test_restricted_key_in_the_tree_is_reported",
+    from: '        (re.compile(r"rk_test_[A-Za-z0-9]{20,}"), "a Stripe test restricted key"),',
+    to: "",
+  },
+  // ---- round ten, R9-m3: control 8's own condition, and the checkpoint scan ----
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: validate a checkpoint against its schema without the required fields (R10-m3)",
+    witness: "test_a_checkpoint_missing_a_required_field_is_reported",
+    from: '    checkpoint_schema = load_schema("session-checkpoint.schema.json")',
+    to: lines(
+      "    checkpoint_schema = {",
+      '        k: v for k, v in load_schema("session-checkpoint.schema.json").items() if k != "required"',
+      "    }",
+    ),
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: read past a record in a subdirectory of the checkpoint directory (R10-m3)",
+    witness: "test_a_checkpoint_in_a_subdirectory_is_reported",
+    from: "        if path.parent != directory:",
+    to: "        if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: read past a record whose extension differs only in case (R10-m3)",
+    witness: "test_a_checkpoint_with_an_upper_case_extension_is_reported",
+    from: '        elif path.suffix.lower() == ".json":',
+    to: "        elif False:",
+  },
+  // ---- round ten, R9-m1: every spelling of a by-name internals import ---------
+  //
+  // One family per mutation, each with a fixture of its own in packages/shared
+  // (no other rule reports an import from there, so a rule that stops matching
+  // leaves the file reported by nothing).
+  {
+    file: RULES,
+    name: "rule 1 by package name: match the internal directory in one case only (R10-m1)",
+    witness:
+      "control 1: the same, with other upper and lower case (@BizTrust/Alpha/src/Internal) is " +
+      "reported as rule-1-internals-private-by-name-alpha",
+    from: "      const forms = new Set([ch.toLowerCase(), ch.toUpperCase()]);",
+    to: "      const forms = new Set([ch]);",
+  },
+  {
+    file: RULES,
+    name: "by package name: match the scope and module names in one case only (R10-m1)",
+    witness:
+      "control 5: an entry point reaches past a contract by package name, spelled with other " +
+      "case is reported as rule-5-entry-points-see-contracts-only-by-name",
+    from:
+      "    .map((ch) => (/[A-Za-z]/.test(ch) ? " + BT + "[" + DOLLAR + "{ch.toLowerCase()}" +
+      DOLLAR + "{ch.toUpperCase()}]" + BT + " : rx(ch)))",
+    to: "    .map((ch) => rx(ch))",
+  },
+  {
+    file: RULES,
+    name: "rule 1 by package name: stop matching a percent-encoded letter (R10-m1)",
+    witness:
+      "control 1: the same, with a percent-encoded letter (src/%69nternal) is reported as " +
+      "rule-1-internals-private-by-name-alpha",
+    from: '      return "(?:[" + [...forms].join("") + "]|" + codes.join("|") + ")";',
+    to: '      return "(?:[" + [...forms].join("") + "])";',
+  },
+  {
+    file: RULES,
+    name: "rule 1 by package name: stop matching a backslash separator (R10-m1)",
+    witness:
+      "control 1: the same, with backslashes for separators (src backslash internal) is " +
+      "reported as rule-1-internals-private-by-name-alpha",
+    from: 'const SEP = "(?:[/' + BACKSLASH.repeat(4) + ']|%2[fF]|%5[cC])";',
+    to: 'const SEP = "(?:/|%2[fF]|%5[cC])";',
+  },
+  {
+    file: RULES,
+    name: "rule 1 by package name: stop matching a percent-encoded slash (R10-m1)",
+    witness:
+      "control 1: the same, with a percent-encoded slash after the directory (internal%2Fx) is " +
+      "reported as rule-1-internals-private-by-name-alpha",
+    from: 'const SEP = "(?:[/' + BACKSLASH.repeat(4) + ']|%2[fF]|%5[cC])";',
+    to: 'const SEP = "(?:[/' + BACKSLASH.repeat(4) + ']|%5[cC])";',
+  },
+  {
+    file: RULES,
+    name: "rule 1 by package name: stop matching a percent-encoded hash (R10-m1)",
+    witness:
+      "control 1: the same, with a percent-encoded hash after the directory (internal%23x) is " +
+      "reported as rule-1-internals-private-by-name-alpha",
+    from: 'const END = "(?:" + SEP + "|[?#]|%3[fF]|%23|$)";',
+    to: 'const END = "(?:" + SEP + "|[?#]|%3[fF]|$)";',
+  },
+  {
+    file: RULES,
+    name: "rule 1 by package name: stop matching a percent-encoded query (R10-m1)",
+    witness:
+      "control 1: the same, with a percent-encoded query after the directory (internal%3Fx) is " +
+      "reported as rule-1-internals-private-by-name-alpha",
+    from: 'const END = "(?:" + SEP + "|[?#]|%3[fF]|%23|$)";',
+    to: 'const END = "(?:" + SEP + "|[?#]|%23|$)";',
+  },
+  {
+    file: RULES,
+    name: "rule 1 by package name: stop matching a directory named with a query (R10-m1)",
+    witness:
+      "control 1: the same, naming the directory with a query and nothing after it (internal?x) " +
+      "is reported as rule-1-internals-private-by-name-alpha",
+    from: 'const END = "(?:" + SEP + "|[?#]|%3[fF]|%23|$)";',
+    to: 'const END = "(?:" + SEP + "|[#]|%3[fF]|%23|$)";',
+  },
+  {
+    file: RULES,
+    name: "rule 1 by package name: stop matching a directory named with a hash (R10-m1)",
+    witness:
+      "control 1: the same, naming the directory with a hash and nothing after it (internal#x) " +
+      "is reported as rule-1-internals-private-by-name-alpha",
+    from: 'const END = "(?:" + SEP + "|[?#]|%3[fF]|%23|$)";',
+    to: 'const END = "(?:" + SEP + "|[?]|%3[fF]|%23|$)";',
+  },
+  {
+    file: RULES,
+    name: "rule 1 by package name: stop allowing a dot segment after the scope (R10-m1)",
+    witness:
+      "control 1: the same, with a dot segment between the scope and the package " +
+      "(@biztrust/./alpha) is reported as rule-1-internals-private-by-name-alpha",
+    from:
+      'const SCOPE = "^@" + caseless("biztrust") + SEP + "(?:' + BACKSLASH.repeat(2) +
+      '." + SEP + "|" + SEP + ")*";',
+    to: 'const SCOPE = "^@" + caseless("biztrust") + SEP;',
+  },
+  // ---- round ten, R9-m2: the compiler as a second layer ---------------------
+  {
+    file: TSCONFIG_BASE,
+    name: "tsconfig: stop failing an unresolvable side-effect import (R10-m2)",
+    witness:
+      "typecheck: a side-effect import of a path that resolves to nothing fails the compiler",
+    from: '    "noUncheckedSideEffectImports": true,',
+    to: '    "noUncheckedSideEffectImports": false,',
+  },
+  // ---- round ten: a quoted spelling of a key is a repeat the repeat check never saw ----
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: read a quoted field name in badf/authority.yaml as a different field (R10-S1)",
+    witness: "test_a_quoted_field_name_that_repeats_a_plain_one_is_refused",
+    from: '            if refuse_key("badf/authority.yaml", number, field, problems):',
+    to: "            if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: read a quoted entry name in badf/authority.yaml as a different entry (R10-S1)",
+    witness: "test_a_quoted_entry_name_that_repeats_a_plain_one_is_refused",
+    from: '            refuse_key("badf/authority.yaml", number, key, problems)',
+    to: "            pass",
+  },
+  // ---- round ten: badf/gates.yaml and badf/lifecycle.yaml are read by a grammar now ----
+  //
+  // A pattern reader accepts what it does not match. parse_lists refuses instead,
+  // and each refusal below has a fixture that breaks exactly that shape.
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: skip a tab in gates or lifecycle without saying so (R10-S1)",
+    witness: "test_a_tab_in_the_gates_registry_is_refused",
+    from: '            problems.append(f"{name} line {number}: contains a tab; this file is space-indented")',
+    to: "            pass",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: accept an unknown top-level key that splits a list (R10-S1)",
+    witness: "test_a_gates_registry_split_by_a_top_level_key_is_refused",
+    from: lines(
+      "                problems.append(",
+      '                    f"{name} line {number}: unknown top-level key {key!r}. A key nothing reads "',
+    ),
+    to: lines(
+      "                _ = (",
+      '                    f"{name} line {number}: unknown top-level key {key!r}. A key nothing reads "',
+    ),
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: keep the last of two equal top-level keys in gates or lifecycle (R10-S1)",
+    witness: "test_a_gates_top_level_key_repeated_is_refused",
+    from: '            refuse_repeat(name, number, key, "this file", seen_top, problems)',
+    to: "            pass",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: accept an inline value on a gates or lifecycle list (R10-S1)",
+    witness: "test_a_gates_list_with_an_inline_value_is_refused",
+    from: lines(
+      "                    problems.append(",
+      '                        f"{name} line {number}: {key!r} carries an inline value; its entries "',
+    ),
+    to: lines(
+      "                    _ = (",
+      '                        f"{name} line {number}: {key!r} carries an inline value; its entries "',
+    ),
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: accept an entry that does not open with its key (R10-S1)",
+    witness: "test_a_gates_entry_that_does_not_open_with_its_key_is_refused",
+    from: "            if match is None or match.group(1) != opener:",
+    to: "            if match is None:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: accept a field the entry may not carry (R10-S1)",
+    witness: "test_an_unknown_field_on_a_gate_is_refused",
+    from: "            if field not in fields:",
+    to: "            if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: read a gates or lifecycle field whose quote never closes (R10-S1)",
+    witness: "test_a_gates_field_that_opens_a_quote_is_refused",
+    from: "            if refuse_value(name, number, field, value, problems):",
+    to: "            if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: keep the last of two equal fields in a gates or lifecycle entry (R10-S1)",
+    witness: "test_a_gate_status_repeated_with_its_value_on_the_next_line_is_refused",
+    from: "                name, number, field, f\"the entry at line {entry['__line__']}\", entry, problems",
+    to: "                name, number, field, f\"the entry at line {entry['__line__']}\", {}, problems",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: read a gates or lifecycle top-level value whose quote never closes (R10-S1)",
+    witness: "test_a_gates_top_level_value_that_opens_a_quote_is_refused",
+    from: "                refuse_value(name, number, key, rest, problems)",
+    to: "                pass",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: read a gate id whose quote never closes (R10-S1)",
+    witness: "test_a_gate_id_that_opens_a_quote_is_refused",
+    from: "            refuse_value(name, number, opener, value, problems)",
+    to: "            pass",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: read a gates or lifecycle list item whose quote never closes (R10-S1)",
+    witness: "test_a_lifecycle_list_item_that_opens_a_quote_is_refused",
+    from: "            refuse_value(name, number, current, value, problems)",
+    to: "            pass",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: record a gate twice under the same id (R10-S1)",
+    witness: "test_a_gate_recorded_twice_is_refused",
+    from: "        if gate_id in recorded:",
+    to: "        if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: compare gate ids as written, not as YAML reads them (R10-S1)",
+    witness: "test_a_gate_recorded_again_under_a_quoted_id_is_refused",
+    from: '        gate_id = unquoted(gate_entry["id"])',
+    to: '        gate_id = gate_entry["id"]',
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: accept the acceptance transition recorded twice (R10-S1)",
+    witness: "test_the_acceptance_transition_recorded_twice_is_refused",
+    from: "    if len(acceptance) > 1:",
+    to: "    if False:",
+  },
+  {
+    file: RECORDS,
+    suite: "validator",
+    name: "records: find the forbidden sentence anywhere in the lifecycle text (R10-S1)",
+    witness: "test_the_forbidden_sentence_only_in_a_comment_is_not_the_forbidden_list",
+    from: '    forbidden = {unquoted(item) for item in parsed["items"]["forbidden"]}',
+    to: lines(
+      '    sentence = "Any transition into ACCEPTED made by the implementing agent"',
+      "    forbidden = {sentence} if sentence in text else set()",
     ),
   },
 ];

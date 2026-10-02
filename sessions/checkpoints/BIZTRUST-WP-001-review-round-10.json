@@ -1,0 +1,192 @@
+{
+  "schema_version": "1.0.0",
+  "work_package": "BIZTRUST-WP-001",
+  "state": "ENGINEERING_READY",
+  "created_at": "2026-09-30T19:08:18Z",
+  "objective": "Create the platform repository skeleton described by the P0.2 design of the guide repository. Reviewed by fresh-context agents in rounds six to nine (issue 8); this checkpoint records round ten, the fixes to round nine's findings.",
+  "completed_scope": [
+    "Round nine (issue 8): three fresh-context reviews of PR 1 at ec80d1f. Spec ACCEPT; controls and security REVISION_REQUIRED (S-1, R9-C1, R9-C2 major).",
+    "S-1: every hand reader in scripts/validate_continuity.py (authority, skills, agents, bootstrap, signing policy) refuses a value that opens a quote it does not close, a flow collection that does not close on its line, an anchor, alias or tag, and a repeated field, entry or top-level key. The reviewer's plants S1, S2, S3, K1 and A1 are refused; each was run against the real registries and PyYAML before (exit 0, PyYAML reads the forgery) and after (exit 1).",
+    "Found while probing S-1 for a third shape, red before and green after: a quoted spelling of a key (\"status\": GRANTED under a plain status: NOT_GRANTED) is a repeat the repeat check never saw, and PyYAML keeps the last. badf/authority.yaml now refuses a field or entry name that is not a plain identifier.",
+    "Found by a differential fuzz of the seven registries against PyYAML: badf/gates.yaml and badf/lifecycle.yaml, read by regular expressions, took `status:` with its value on the next line as no status, a top-level key inserted mid-list as harmless, a decoy second ENGINEERING_READY -> ACCEPTED transition and a forbidden sentence sitting in a comment as the real thing. Both are now read by parse_lists, a refusing grammar; the pattern guard written for them first is removed.",
+    "R9-C1: the generated checker options no longer exclude dist/ and the fixture tree as dependency TARGETS (doNotFollow keeps them as leaves), and rules 1, 2 and 5 accept dist/ as well as src/. All three of the reviewer's reproductions are judged.",
+    "R9-C2: tests/boundaries/production-options.test.mjs cruises a copy of the workspace with the options the generator writes, byte for byte, and plants one violation per option that could hide it; nine mutations loosen the options and the path forms one at a time, each turning its own plant red.",
+    "S-2 (tracked dist/ and __pycache__ are scanned), S-3 (fast-uri held at ^3.1.8 in pnpm-workspace.yaml, pnpm audit clean), S-4 (non-ASCII refused in a tool power after decoding), S-5 (glpat-, sk-ant-, rk_test_), and the INFO items (.gitignore, the stale squash-merge comment, five squash merges).",
+    "R9-m1 (by-name internals: case, percent escapes, backslash, directory-level query and hash, scope dot segment; rules 2 and 5 by name match any case; one fixture per family), R9-m2 (noUncheckedSideEffectImports, witnessed by a planted import), R9-m3 (a checkpoint missing a required field is witnessed, and a record in a subdirectory of sessions/checkpoints or named .JSON is refused).",
+    "Spec F-a (the stale administrator-seat text in the validator comment, the mutation comment, NS-001, an appended note in negative-control-6.md and a sentence in the bootstrap.yaml header outside its frozen block, which is byte-identical), F-b (Verify's timeout, 90 minutes, from three measured runs), F-c (README.md, docs/adr/README.md and known_divergence agree with STATUS.md), F-d (two of five S01 review seats held), F-f (the four actions pinned by full commit SHA), n1 to n3, and README counts.",
+    "The mutation sweep grew from 229 to 307; the full sweep ran on 5c0b2fd.",
+    "DEC-039 records the round and the conflict it leaves in badf/authority.yaml and badf/skills.yaml."
+  ],
+  "branch": "motor/p0.2/repository-and-boundaries",
+  "baseline_commit": "ec80d1f6bee92685e67c893e601edf3334e85298",
+  "files_changed": [
+    ".dependency-cruiser.cjs",
+    ".github/workflows/ci.yml",
+    ".gitignore",
+    "README.md",
+    "badf/bootstrap.yaml",
+    "badf/current-state.json",
+    "badf/decision-log.jsonl",
+    "badf/next-actions.json",
+    "badf/signing-policy.yaml",
+    "docs/adr/README.md",
+    "docs/architecture/STATUS.md",
+    "evidence/security-proof/negative-control-6.md",
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+    "scripts/boundary-rules.mjs",
+    "scripts/check-signing.mjs",
+    "scripts/generate-boundary-rules.mjs",
+    "scripts/mutation-check.mjs",
+    "scripts/validate_continuity.py",
+    "sessions/checkpoints/BIZTRUST-WP-001-review-round-10.json",
+    "tests/boundaries/boundary-rules.test.mjs",
+    "tests/boundaries/fixtures/workspace/modules/beta/src/public/violates-rule-2-by-name-case.ts",
+    "tests/boundaries/fixtures/workspace/packages/shared/src/conforming-internal-lookalike.ts",
+    "tests/boundaries/fixtures/workspace/packages/shared/src/violates-rule-1-by-name-backslash.ts",
+    "tests/boundaries/fixtures/workspace/packages/shared/src/violates-rule-1-by-name-case.ts",
+    "tests/boundaries/fixtures/workspace/packages/shared/src/violates-rule-1-by-name-directory-hash.ts",
+    "tests/boundaries/fixtures/workspace/packages/shared/src/violates-rule-1-by-name-directory-query.ts",
+    "tests/boundaries/fixtures/workspace/packages/shared/src/violates-rule-1-by-name-percent-hash.ts",
+    "tests/boundaries/fixtures/workspace/packages/shared/src/violates-rule-1-by-name-percent-letter.ts",
+    "tests/boundaries/fixtures/workspace/packages/shared/src/violates-rule-1-by-name-percent-query.ts",
+    "tests/boundaries/fixtures/workspace/packages/shared/src/violates-rule-1-by-name-percent-slash.ts",
+    "tests/boundaries/fixtures/workspace/packages/shared/src/violates-rule-1-by-name-scope-dot.ts",
+    "tests/boundaries/fixtures/workspace/services/api/src/violates-rule-5-by-name-case.ts",
+    "tests/boundaries/production-options.test.mjs",
+    "tests/boundaries/typecheck-side-effects.test.mjs",
+    "tests/unit/test_validator_fails_closed.py",
+    "tsconfig.base.json"
+  ],
+  "validation": [
+    {
+      "command": "pnpm install --frozen-lockfile",
+      "exit_status": 0,
+      "observed_at": "2026-09-30T16:12:32Z",
+      "output_reference": "at 5c0b2fd. Already up to date"
+    },
+    {
+      "command": "pnpm validate:records",
+      "exit_status": 0,
+      "observed_at": "2026-09-30T16:12:33Z",
+      "output_reference": "at 5c0b2fd. CONTINUITY_VALIDATION PASS"
+    },
+    {
+      "command": "pnpm typecheck",
+      "exit_status": 0,
+      "observed_at": "2026-09-30T16:12:34Z",
+      "output_reference": "at 5c0b2fd. exit 0, no output"
+    },
+    {
+      "command": "pnpm boundaries:check",
+      "exit_status": 0,
+      "observed_at": "2026-09-30T16:12:35Z",
+      "output_reference": "at 5c0b2fd. BOUNDARY_GENERATION PASS 30 modules, generated files are current; no dependency violations found (43 modules, 142 dependencies cruised)"
+    },
+    {
+      "command": "pnpm codeowners:check",
+      "exit_status": 0,
+      "observed_at": "2026-09-30T16:12:37Z",
+      "output_reference": "at 5c0b2fd. CODEOWNERS_GENERATION PASS 12 routing entries, .github/CODEOWNERS is current"
+    },
+    {
+      "command": "pnpm lint:migrations",
+      "exit_status": 0,
+      "observed_at": "2026-09-30T16:12:38Z",
+      "output_reference": "at 5c0b2fd. MIGRATION_LINT PASS 2 file(s), no violation"
+    },
+    {
+      "command": "pnpm check:modules",
+      "exit_status": 0,
+      "observed_at": "2026-09-30T16:12:39Z",
+      "output_reference": "at 5c0b2fd. MODULE_PACKAGES PASS 30 registered, 4 with a package, every directory registered"
+    },
+    {
+      "command": "pnpm check:coverage",
+      "exit_status": 0,
+      "observed_at": "2026-09-30T16:12:39Z",
+      "output_reference": "at 5c0b2fd. COVERAGE_GATE PASS 19 named protections, every one witnessed by a control"
+    },
+    {
+      "command": "pnpm check:signing",
+      "exit_status": 0,
+      "observed_at": "2026-09-30T16:12:40Z",
+      "output_reference": "at 5c0b2fd. SIGNING_CHECK NOT_ENFORCED badf/signing-policy.yaml enrols no key, so nothing in this repository is bound to a human identity. 48 commit(s) after 3cb4669c2e63 touched the 21 protected path(s), of which 48 are bound to nobody"
+    },
+    {
+      "command": "pnpm test:validator",
+      "exit_status": 0,
+      "observed_at": "2026-09-30T16:12:41Z",
+      "output_reference": "at 5c0b2fd. Ran 244 tests in 84.925s OK"
+    },
+    {
+      "command": "pnpm test:boundaries",
+      "exit_status": 0,
+      "observed_at": "2026-09-30T16:14:07Z",
+      "output_reference": "at 5c0b2fd. tests 216 pass 216 fail 0 skipped 0"
+    },
+    {
+      "command": "pnpm test:signing",
+      "exit_status": 0,
+      "observed_at": "2026-09-30T16:14:12Z",
+      "output_reference": "at 5c0b2fd. tests 13 pass 13 fail 0"
+    },
+    {
+      "command": "pnpm audit --registry=https://registry.npmjs.org",
+      "exit_status": 0,
+      "observed_at": "2026-09-30T19:08:02Z",
+      "output_reference": "at 5c0b2fd. No known vulnerabilities found"
+    },
+    {
+      "command": "pnpm check:mutations",
+      "exit_status": 0,
+      "observed_at": "2026-09-30T19:07:37Z",
+      "output_reference": "at 5c0b2fd. MUTATION_CHECK PASS 307 mutations, every one caught by its declared witness. Started 2026-09-30T16:12:07Z, ended 19:07:37Z: 2 h 55 min on Windows, 34 s per mutation on average"
+    },
+    {
+      "command": "GitHub Actions, Verify, run 36742503170",
+      "exit_status": 0,
+      "observed_at": "2026-09-30T17:05:09Z",
+      "output_reference": "at 5c0b2fd. Verify success, 52:37 in all; MUTATION_CHECK PASS 307 mutations, every one caught by its declared witness, mutation step 51:32; COVERAGE_GATE PASS 19 named protections"
+    }
+  ],
+  "decisions": [
+    "DEC-039 round ten fixes what agents can and leaves R7-4, D1 to D5, F3, F5, the decision-log conflict and the routing inconsistency to the operator; records the ADR-status conflict left in badf/authority.yaml and badf/skills.yaml"
+  ],
+  "assumptions": [
+    "ASSUMED: round eleven, if any, re-reviews the round-ten head with three fresh-context reviewers and posts to issue 8."
+  ],
+  "blockers": [
+    "R7-4: a forger who edits scripts/validate_continuity.py defeats every pin, and scripts/** routes to seats an agent may occupy. Closes only by a human act: an enrolled key with required_signatures, or code-owner review from human-only seats. Operator decision.",
+    "D1: WP-001's own authority. The design names it P0.2-A with an expiring grant; the scaffold grant is unbounded. Operator decision.",
+    "D2 / finding B6: the seated principal 'BizEra' equals the git identity earlier agent commits used, and the succession rule's first-fill verification by a different human seat has not happened. Operator decision.",
+    "D3: merge strategy before any signing key is enrolled (finding B4). Operator decision.",
+    "D4: control 10b, the host allow-list, is not implemented. Operator decision.",
+    "D5: the policy-record rename (DEC-005) was made without the architecture seat. Operator decision.",
+    "F3: authority.yaml wp_001_acceptance names the peer reviewer; DEC-037 says the operator records acceptance. Operator's to narrow.",
+    "F5: modules/modules.yaml owner_role compliance-reviewer names no role. The architecture authority's to change.",
+    "badf/decision-log.jsonl is a protected path while tool_authority.may lets agents append to it; the conflict bites once a signing key is enrolled. Operator decision.",
+    "Agents edited text in files that route to seats an agent may not occupy (spec FYI, round nine): this round the badf/bootstrap.yaml header, a badf/signing-policy.yaml comment, NS-001 and NS-007 in badf/next-actions.json, .github/workflows/ci.yml and scripts/**. No authority record changed. Operator to see.",
+    "ADR status is stated two ways: badf/authority.yaml adr_acceptance.why and badf/skills.yaml write-a-migration.why still say DRAFT_REQUIRED where STATUS.md and the guide say PROPOSED (ADR-001, ADR-004, ADR-010). Left to the business-authority and architecture-authority seats; DEC-039 records the conflict.",
+    "NS-001 is half done: the seat is held (contested by B6) and the protection is applied and not recorded by the administrator.",
+    "PR 1 needs an approving review from an identity other than bstBizEra before it can merge to main. PR 10 merges into PR 1's branch and is not merged by an agent."
+  ],
+  "authority_status": "Unchanged in kind: the scaffold rests on an operator instruction recorded by an agent (granted.repository_scaffold), not an expiring grant from the business authority seat. wp_001_acceptance is NOT_GRANTED. Per DEC-037 the operator, not an agent, records acceptance. This round records no seat, gate, grant or acceptance.",
+  "next_action_id": "NS-007",
+  "next_action": "Run the re-review of the round-ten head (NS-007): three fresh-context reviewers, results to issue 8. The operator decides D1 to D5, R7-4, F3, F5, the decision-log conflict and the routing inconsistency, and records acceptance; no agent does.",
+  "recovery": "Read AGENTS.md, badf/authority.yaml, badf/current-state.json and badf/next-actions.json, then issue 8 for the review records and open decisions. Work is on motor/wp001/round-ten-fixes (PR 10), stacked on motor/p0.2/repository-and-boundaries, the Work Package branch (PR 1). The validation rows below are bound to the last code commit named in each row; the commit carrying this checkpoint changes only records.",
+  "declared_non_coverage": [
+    "Control 6 is verified only by the human repository administrator; agents do not attempt it.",
+    "Control 9's build-exclusion half cannot be exercised: CI has no build step. The dist plants in production-options.test.mjs exercise the path rules, not a build.",
+    "Control 10b, the host allow-list, is not implemented (D4).",
+    "Signing is NOT_ENFORCED; no key is enrolled, and while main is squash-merged under GitHub's web-flow key, enrolment cannot bind a human (B4).",
+    "The signing policy is read from the working tree; evaluating it from the base ref is not implemented.",
+    "While signing is NOT_ENFORCED, editing scripts/validate_continuity.py defeats every pin; nothing in this repository makes that edit harder than a data edit (R7-4).",
+    "The hand readers refuse the shapes found so far. A differential fuzz of the seven registries against PyYAML (about 6,700 mutants against earlier validator versions and 22,500 against this one, fifteen seeds) finds no further change to a pinned fact, but a fuzz proves nothing about the shapes it did not generate, and PyYAML is not a dependency and is not run in CI. The parts of lifecycle.yaml other than the acceptance transition and the forbidden sentence remain outside the pins by design.",
+    "scripts/registry.mjs (modules/modules.yaml) refuses a repeated field but not an open quote, and scripts/agents-registry.mjs and scripts/signing-policy.mjs have no quote refusal of their own: the last two rely on validate:records running before them, and the validator does not read modules.yaml. Not audited further.",
+    "production-options.test.mjs does not witness enhancedResolveOptions.exportsFields and conditionNames: no plant tells them apart. The by-name rules match the module name and the scope in any case, and the directory word with percent escapes, but not a percent-encoded module name or scope.",
+    "badf/authority.yaml adr_acceptance.why and badf/skills.yaml write-a-migration.why still say DRAFT_REQUIRED where STATUS.md and the guide say PROPOSED; they belong to human seats and were not edited (DEC-039).",
+    "Local validation ran on Windows; the same checks ran on the GitHub runner (Linux) in the CI rows above.",
+    "The round-five (BIZTRUST-WP-001-engineering-ready.json), round-six and round-eight checkpoints are kept as history."
+  ]
+}

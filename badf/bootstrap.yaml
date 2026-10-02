@@ -30,6 +30,12 @@
 # the succession rule's first-fill verification by a different human seat has not
 # happened. The finding is open, and it is the operator's decision (D2 on issue 8).
 #
+# ONE NOTE INSIDE THE FROZEN BLOCK PREDATES THE SEATING. The seating's `note:`
+# below still says "principal stays null until an operator names a human" beside
+# `principal: "BizEra"`. It is history, not a description of the current state,
+# and it cannot be edited: the sha256 of the frozen block is pinned in
+# scripts/validate_continuity.py, so correcting it would be refused.
+#
 # THE FIVE PROPERTIES THE VALIDATOR ENFORCES, not merely documents:
 #
 #   1. NO PERSISTENT BYPASS. The capability is single-use and is consumed by
@@ -65,7 +71,7 @@
 #   - badf/current-state.json bootstrap: state SEATED, act_id, seats, and
 #     historical_digest set to the sha256 of the frozen block below
 #
-# All six change together or the validator refuses the set. That is deliberate,
+# All five change together or the validator refuses the set. That is deliberate,
 # but it is not what stops a second seating: a forger can make three files
 # agree, and no signature binds any of them while badf/signing-policy.yaml
 # enrols no key. What stops one is the pin in the validator, described above.

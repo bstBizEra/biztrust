@@ -26,6 +26,15 @@ on:
 permissions:
   contents: read
 
+# Every action below is pinned by full commit SHA, with the tag it was resolved
+# from as a trailing comment (round nine, security m5 and spec F-f). A tag moves
+# and a SHA does not, so a compromised or retagged upstream cannot change what
+# this job runs. Each SHA was resolved with
+# `gh api repos/<owner>/<repo>/git/ref/tags/<tag>` on 2026-09-30, and
+# pnpm/action-setup, whose tag is annotated, was dereferenced through
+# `git/tags/<sha>` to the commit. Moving to a newer release is a reviewed change
+# to this file, not a silent one.
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -34,15 +43,32 @@ jobs:
   verify:
     name: Verify
     runs-on: ubuntu-latest
-    # 15 was enough for 197 mutations (the mutation step took about 10 minutes)
-    # and cancelled the job mid-sweep at 229 (171 done after 15 minutes, nothing
-    # failed). The sweep grows with every guard added, so this leaves room for
-    # about 400. A cancelled job is not a passing one: main requires Verify.
-    timeout-minutes: 30
+    # The mutation sweep is nearly all of this job, so this is sized from it.
+    # Measured on this runner at the round-ten head, twice, for the same 292
+    # mutations: 41:40 (run 36727465982) and 51:35 (run 36733708936), so the
+    # runner alone moves it by a quarter. The average, 8.6 to 10.6 s, hides two
+    # costs: each mutation of scripts/validate_continuity.py re-runs the whole
+    # validator suite (17 to 21 s apiece at 225 tests, and 130 of the 292 are
+    # such mutations), and each of the others takes about 2 s. One round earlier
+    # it was 23:14 and 24:20 for 229 mutations (6.1 to 6.4 s each, 169 tests).
+    # 15 minutes cancelled the job mid-sweep at 229; 30 would cancel it at
+    # 170 to 210 of today's 292. The head after these measurements has 307
+    # mutations (146 of them validator mutations) and a 244-test suite, and its
+    # own run (36742503170) took 51:32 in the mutation step, 52:37 for the job.
+    # The slow runner would put that at about an hour, so 90 left half as much
+    # again: that run (36763917747, the round-ten head, 307 mutations) took 62:10
+    # in the mutation step and 62:56 for the job. Round eleven added 44
+    # mutations (351, of which 163 run the validator suite, 259 tests now) and
+    # 15 validator tests; at that run's rate the slow runner puts the job at
+    # about 75 minutes, which would leave 15 of 90. So the cap is 120 until a run
+    # at the round-eleven head is measured. The sweep grows with every guard
+    # added, so re-measure and move this number with it. A cancelled job is not a
+    # passing one: main requires Verify.
+    timeout-minutes: 120
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           # Full history. The signing check (step 2c) asks git which commits
           # touched a governed path since the policy landed, and a shallow
@@ -58,19 +84,26 @@ jobs:
           # tests/signing/enforcement.test.mjs and by a mutation. Without this
           # line CI would fail honestly; with it, CI can answer the question.
           fetch-depth: 0
+          # Round ten, security S-9. Checkout leaves the job's token in the
+          # repository's git config by default, where every later step can read
+          # it. Nothing here pushes or fetches after checkout (no script under
+          # scripts/ calls git fetch, pull, push or ls-remote), so the token is
+          # dropped. Full history, which the signing check needs, is fetched
+          # DURING checkout and is unaffected.
+          persist-credentials: false
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: .nvmrc
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           run_install: false
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.13"
 
@@ -168,6 +201,9 @@ jobs:
   scope:
     name: Scope boundary
     runs-on: ubuntu-latest
+    # It only prints. A bound keeps a wedged runner from holding the required
+    # check open for the six-hour default (round ten, security S-9).
+    timeout-minutes: 5
     steps:
       - name: State the scope boundary
         run: |

@@ -47,7 +47,7 @@ function cruiseFixture() {
   const config = {
     forbidden: buildRules(registry),
     options: {
-      doNotFollow: { path: "node_modules" },
+      doNotFollow: { path: "^node_modules/" },
       tsPreCompilationDeps: true,
       enhancedResolveOptions: { extensions: [".ts", ".js", ".mjs", ".cjs"] },
     },
@@ -242,6 +242,124 @@ CONTROLS.push(
     file: "packages/shared/src/violates-rule-1-by-name-dot-segment.ts",
     rule: "rule-1-internals-private-by-name-alpha",
   },
+  // Round nine, controls R9-m1. Each spelling below stayed silent from
+  // packages/: Node refuses all of them at run time, but the boundary check is
+  // the control, and a control that names only the spellings it was shown is a
+  // control for those spellings. One file per family, so that loosening one
+  // family turns exactly its own control red.
+  {
+    control: 1,
+    threat: "the same, with other upper and lower case (@BizTrust/Alpha/src/Internal)",
+    file: "packages/shared/src/violates-rule-1-by-name-case.ts",
+    rule: "rule-1-internals-private-by-name-alpha",
+  },
+  {
+    control: 1,
+    threat: "the same, with a percent-encoded letter (src/%69nternal)",
+    file: "packages/shared/src/violates-rule-1-by-name-percent-letter.ts",
+    rule: "rule-1-internals-private-by-name-alpha",
+  },
+  {
+    control: 1,
+    threat: "the same, with a percent-encoded slash after the directory (internal%2Fx)",
+    file: "packages/shared/src/violates-rule-1-by-name-percent-slash.ts",
+    rule: "rule-1-internals-private-by-name-alpha",
+  },
+  {
+    control: 1,
+    threat: "the same, with a percent-encoded hash after the directory (internal%23x)",
+    file: "packages/shared/src/violates-rule-1-by-name-percent-hash.ts",
+    rule: "rule-1-internals-private-by-name-alpha",
+  },
+  {
+    control: 1,
+    threat: "the same, with a percent-encoded query after the directory (internal%3Fx)",
+    file: "packages/shared/src/violates-rule-1-by-name-percent-query.ts",
+    rule: "rule-1-internals-private-by-name-alpha",
+  },
+  {
+    control: 1,
+    threat: "the same, with backslashes for separators (src backslash internal)",
+    file: "packages/shared/src/violates-rule-1-by-name-backslash.ts",
+    rule: "rule-1-internals-private-by-name-alpha",
+  },
+  {
+    control: 1,
+    threat: "the same, naming the directory with a query and nothing after it (internal?x)",
+    file: "packages/shared/src/violates-rule-1-by-name-directory-query.ts",
+    rule: "rule-1-internals-private-by-name-alpha",
+  },
+  {
+    control: 1,
+    threat: "the same, naming the directory with a hash and nothing after it (internal#x)",
+    file: "packages/shared/src/violates-rule-1-by-name-directory-hash.ts",
+    rule: "rule-1-internals-private-by-name-alpha",
+  },
+  {
+    control: 2,
+    threat: "a module imports another by a deep package path, spelled with other case",
+    file: "modules/beta/src/public/violates-rule-2-by-name-case.ts",
+    rule: "rule-2-contracts-only-by-name-beta",
+  },
+  {
+    control: 5,
+    threat: "an entry point reaches past a contract by package name, spelled with other case",
+    file: "services/api/src/violates-rule-5-by-name-case.ts",
+    rule: "rule-5-entry-points-see-contracts-only-by-name",
+  },
+  {
+    control: 1,
+    threat: "the same, with a dot segment between the scope and the package (@biztrust/./alpha)",
+    file: "packages/shared/src/violates-rule-1-by-name-scope-dot.ts",
+    rule: "rule-1-internals-private-by-name-alpha",
+  },
+  // Round eleven, controls C10-3 and C10-4. The spellings below are silent to
+  // every by-name rule and, from a .js file, to the compiler. The backstop does
+  // not recognise them; it reports any import from first-party source that
+  // resolves to nothing. One file per family, so that narrowing the backstop
+  // cannot hide behind a sibling.
+  {
+    control: 1,
+    threat: "a .js file imports internals through a percent-encoded scope (%40biztrust)",
+    file: "packages/shared/src/violates-backstop-percent-scope.js",
+    rule: "backstop-no-unresolvable-imports",
+  },
+  {
+    control: 1,
+    threat: "a .js file imports internals through a percent-encoded module name (%61lpha)",
+    file: "packages/shared/src/violates-backstop-percent-module.js",
+    rule: "backstop-no-unresolvable-imports",
+  },
+  {
+    control: 1,
+    threat: "a .js file imports internals through a double percent-encoded letter (%2569nternal)",
+    file: "packages/shared/src/violates-backstop-double-percent.js",
+    rule: "backstop-no-unresolvable-imports",
+  },
+  {
+    control: 1,
+    threat: "a .js file imports internals through a Cyrillic lookalike letter",
+    file: "packages/shared/src/violates-backstop-lookalike.js",
+    rule: "backstop-no-unresolvable-imports",
+  },
+  {
+    control: 1,
+    threat: "a .js file imports internals with a trailing dot on the directory",
+    file: "packages/shared/src/violates-backstop-trailing-dot.js",
+    rule: "backstop-no-unresolvable-imports",
+  },
+  {
+    control: 1,
+    threat: "a .js file imports internals with a trailing space on the directory",
+    file: "packages/shared/src/violates-backstop-trailing-space.js",
+    rule: "backstop-no-unresolvable-imports",
+  },
+  {
+    control: 5,
+    threat: "a .js entry point imports a module's dist/ when nothing has been built",
+    file: "services/api/src/violates-backstop-relative-dist.js",
+    rule: "backstop-no-unresolvable-imports",
+  },
 );
 
 for (const { control, threat, file, rule } of CONTROLS) {
@@ -261,6 +379,7 @@ const CONFORMING = [
   "modules/alpha/src/public/index.ts",
   "modules/beta/src/public/index.ts",
   "packages/shared/src/index.ts",
+  "packages/shared/src/conforming-builtin-import.js",
   "services/api/src/index.ts",
   "apps/control-plane/src/index.ts",
   "apps/broker-portal/src/index.ts",
@@ -275,6 +394,19 @@ for (const file of CONFORMING) {
     );
   });
 }
+
+// The lookalike paths are not internals: `internalization` is not `internal`
+// and `alphabet` is not `alpha`, so no rule about internals may report them.
+// They resolve to nothing in the fixture workspace, so the backstop does, and it
+// is the ONLY rule that does. Round nine had this file in CONFORMING; the
+// backstop makes "reported by no rule" too strong, and the claim that matters
+// is that no by-name rule over-matches.
+test("conforming: a lookalike of an internal path is reported by the backstop and by no by-name rule", () => {
+  assert.deepEqual(
+    [...new Set(firedFor("packages/shared/src/conforming-internal-lookalike.ts"))],
+    ["backstop-no-unresolvable-imports"],
+  );
+});
 
 test("every rule the generator produces is exercised or explicitly not", () => {
   const registry = parseRegistry(readFileSync(join(FIXTURES, "modules.yaml"), "utf8"));

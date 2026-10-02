@@ -12,6 +12,7 @@
     "exactOptionalPropertyTypes": true,
     "noImplicitOverride": true,
     "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true,
     "isolatedModules": true,
     "declaration": true,
     "sourceMap": true,

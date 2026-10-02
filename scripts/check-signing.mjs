@@ -38,7 +38,8 @@
  * not make it a working gate: a squash merge into main is signed by GitHub
  * with its own web-flow key, which the validator refuses as a signer (review
  * finding B4; main itself holds only its "Initial commit" so far, and the four
- * squash merges seen are on PR #1's branch). It binds a human only once
+ * squash merges seen, #4 to #7, and the one merge commit, #9, are on PR #1's
+ * branch). It binds a human only once
  * main's merges keep the author's signature - a merge-strategy decision
  * recorded in the policy.
  *

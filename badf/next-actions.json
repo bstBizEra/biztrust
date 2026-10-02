@@ -10,7 +10,7 @@
       "title": "Fill the repository administrator seat and record branch protection on main",
       "owner_role": "repository-administrator",
       "blocked_by": [],
-      "acceptance": "HALF DONE: the seat is held by BizEra through BOOTSTRAP-001 (DEC-036); review finding B6 (issue 8) contests that seating and is open. REMAINING: A named human holds the seat in badf/agents.yaml. main is protected with the CI jobs required, force-push and deletion blocked, and one independent approval per merge. Negative control 6 of the P0.2 design is then observed: a direct push is refused and a pull request with a failing boundary check cannot merge, with the refusal message and a protection settings export recorded as evidence."
+      "acceptance": "HALF DONE: the seat is held by BizEra through BOOTSTRAP-001 (DEC-036), so the criterion that a named human holds the seat in badf/agents.yaml is met on the record; review finding B6 (issue 8) contests that seating and is open. REMAINING: the first-fill verification of that seating by a different human seat (B6, decision D2), and the administrator's record of the protection. main is protected with the CI jobs required, force-push and deletion blocked, and one independent approval per merge, and badf/authority.yaml main_branch_protection and badf/current-state.json record it (both still read NOT_RECORDED). Negative control 6 of the P0.2 design is observed: a direct push is refused and a pull request with a failing boundary check cannot merge, with the refusal message and a protection settings export recorded as evidence (evidence/security-proof/negative-control-6.md)."
     },
     {
       "id": "NS-002",
@@ -64,7 +64,7 @@
       "title": "Re-review WP-001 at the revised head, after the issue 8 fixes",
       "owner_role": "peer-reviewer",
       "blocked_by": [],
-      "acceptance": "Three fresh-context reviewers, none the implementer, review the revised head of motor/p0.2/repository-and-boundaries against the P0.2-A criteria and return ACCEPT, posted to issue 8. The operator then records ACCEPTED (DEC-037); no agent does. Run ahead of NS-001 on the operator's instruction."
+      "acceptance": "Three fresh-context reviewers, none the implementer, review the revised head of motor/p0.2/repository-and-boundaries against the P0.2-A criteria and return ACCEPT, posted to issue 8. The operator then records ACCEPTED (DEC-037); no agent does. Run ahead of NS-001 on the operator's instruction. Round nine returned REVISION_REQUIRED from the controls and security reviewers; round ten (PR 10, DEC-039) fixed what it could and the round-ten reviews returned ACCEPT (spec, security) and REVISION_REQUIRED (controls: C10-1, C10-2); round eleven (PR 10, DEC-040) fixed what agents can, so the next re-review is of the round-eleven head."
     }
   ]
 }

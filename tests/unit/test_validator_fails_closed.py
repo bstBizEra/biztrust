@@ -17,7 +17,9 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import importlib.util
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -899,6 +901,103 @@ class ValidatorFailsClosed(unittest.TestCase):
         state["latest_checkpoint"] = "README.md"
         self._broken(state=state)
 
+    # ---- round nine R9-m3: control 8's own condition ------------------------
+    #
+    # "A record drifts from its schema" was witnessed by a checkpoint with an
+    # EMPTY validation list and by a missing field in the state file - never by
+    # a checkpoint missing a required field. Dropping `required` from the
+    # checkpoint schema alone left the whole suite green.
+
+    def test_a_checkpoint_missing_a_required_field_is_reported(self):
+        checkpoint = copy.deepcopy(CHECKPOINT)
+        del checkpoint["blockers"]
+        result = self._broken(checkpoint=checkpoint)
+        self.assertIn("missing required field 'blockers'", result.stderr)
+
+    def test_a_checkpoint_in_a_subdirectory_is_reported(self):
+        """`glob("*.json")` is not recursive: a malformed record below it passed."""
+        result = self._broken(extra_files={"sessions/checkpoints/nested/x.json": "{}"})
+        self.assertIn("sessions/checkpoints/nested/x.json", result.stderr)
+        self.assertIn("is in a subdirectory of sessions/checkpoints/", result.stderr)
+
+    def test_a_checkpoint_with_an_upper_case_extension_is_reported(self):
+        """Windows matched `*.json` case-insensitively and Linux, where CI runs, does not."""
+        result = self._broken(extra_files={"sessions/checkpoints/other.JSON": "{}"})
+        self.assertIn("sessions/checkpoints/other.JSON", result.stderr)
+        self.assertIn("its extension is not exactly '.json'", result.stderr)
+
+    # ---- a checkpoint's own chronology and its next action (round ten, spec n5) --
+    #
+    # A checkpoint that says it was created before it observed something, or in
+    # the future, or that names a next action nothing defines, was accepted: the
+    # schema checks the SHAPE of a timestamp and of an id, not that they agree
+    # with the rest of the record. Each control below fails alone.
+
+    def test_a_checkpoint_created_in_the_future_is_reported(self):
+        checkpoint = copy.deepcopy(CHECKPOINT)
+        checkpoint["created_at"] = "2099-01-01T00:00:00Z"
+        result = self._broken(checkpoint=checkpoint)
+        self.assertIn("created_at 2099-01-01T00:00:00Z is in the future", result.stderr)
+
+    def test_a_checkpoint_created_before_one_of_its_observations_is_reported(self):
+        checkpoint = copy.deepcopy(CHECKPOINT)
+        checkpoint["validation"][0]["observed_at"] = "2026-01-02T00:00:00Z"
+        result = self._broken(checkpoint=checkpoint)
+        self.assertIn("is earlier than the observation at 2026-01-02T00:00:00Z", result.stderr)
+
+    def test_a_checkpoint_naming_a_next_action_nothing_defines_is_reported(self):
+        checkpoint = copy.deepcopy(CHECKPOINT)
+        checkpoint["next_action_id"] = "NS-404"
+        result = self._broken(checkpoint=checkpoint)
+        self.assertIn("next_action_id 'NS-404' names no action in badf/next-actions.json", result.stderr)
+
+    def test_a_checkpoint_created_after_its_observations_and_naming_a_real_action_passes(self):
+        checkpoint = copy.deepcopy(CHECKPOINT)
+        checkpoint["created_at"] = "2026-01-03T00:00:00Z"
+        checkpoint["validation"] = [
+            {"command": "a", "exit_status": 0, "observed_at": "2026-01-01T00:00:00Z"},
+            {"command": "b", "exit_status": 0, "observed_at": "2026-01-03T00:00:00Z"},
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            result = run(build(Path(directory), checkpoint=checkpoint))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    # The one historical checkpoint whose created_at precedes its observations
+    # (the round-six record, written and then amended). History is not
+    # rewritten, so that ONE name is exempt from the ordering rule, and from
+    # nothing else.
+
+    ROUND_SIX = "sessions/checkpoints/BIZTRUST-WP-001-review-round-6.json"
+
+    def _inverted(self):
+        checkpoint = copy.deepcopy(CHECKPOINT)
+        checkpoint["created_at"] = "2026-01-01T00:00:00Z"
+        checkpoint["validation"][0]["observed_at"] = "2026-01-02T00:00:00Z"
+        return json.dumps(checkpoint, indent=2)
+
+    def test_the_round_six_checkpoint_alone_is_exempt_from_the_ordering_rule(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result = run(build(Path(directory), extra_files={self.ROUND_SIX: self._inverted()}))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_another_checkpoint_with_the_same_inversion_is_not_exempt(self):
+        other = "sessions/checkpoints/BIZTRUST-WP-001-review-round-7.json"
+        with tempfile.TemporaryDirectory() as directory:
+            result = run(build(Path(directory), extra_files={other: self._inverted()}))
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn(f"{other}: created_at", result.stderr)
+
+    def test_the_exempt_round_six_checkpoint_is_still_held_to_the_other_two_rules(self):
+        checkpoint = json.loads(self._inverted())
+        checkpoint["next_action_id"] = "NS-404"
+        with tempfile.TemporaryDirectory() as directory:
+            result = run(build(Path(directory), extra_files={self.ROUND_SIX: json.dumps(checkpoint)}))
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("names no action in badf/next-actions.json", result.stderr)
+
+    def test_the_ordering_exemption_names_exactly_one_checkpoint(self):
+        self.assertEqual(load_validator().CHECKPOINT_ORDER_EXEMPT, {self.ROUND_SIX})
+
     # ---- the authority REGISTRY, not just its mirror -----------------------
     #
     # The state file was hardened first, which left the source of record
@@ -1133,6 +1232,44 @@ class ValidatorFailsClosed(unittest.TestCase):
         result = self._with_raw_tool_authority(block)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_a_tool_power_with_a_non_ascii_character_is_refused(self):
+        """Round nine S-4. `_normalised` folds Unicode whitespace and YAML does not.
+
+        `Push<NBSP>to main` satisfied the pin while a strict YAML consumer found
+        `Push to main` absent from may_not. A homoglyph or a zero-width space
+        under `may` is a power no pin can ever name. Refusing every non-ASCII
+        character closes all three, and the escape spelling too: the item is
+        judged AFTER it is decoded.
+        """
+        backslash = chr(92)
+        nbsp, zero_width, cyrillic_a = chr(0xA0), chr(0x200B), chr(0x430)
+        forbidden_may_not = TOOL_MAY_NOT[0]
+        for label, block in (
+            (
+                "a no-break space replacing a space in may_not",
+                tool_authority_yaml(may_not=(forbidden_may_not.replace(" ", nbsp),) + TOOL_MAY_NOT[1:]),
+            ),
+            (
+                "a zero-width space in may",
+                tool_authority_yaml(may=TOOL_MAY + ("Push to" + zero_width + " main",)),
+            ),
+            (
+                "a Cyrillic homoglyph in may",
+                tool_authority_yaml(may=TOOL_MAY + ("Push to m" + cyrillic_a + "in",)),
+            ),
+            (
+                "a JSON escape that decodes to a no-break space",
+                tool_authority_yaml().replace(
+                    chr(34) + "Push to main" + chr(34),
+                    chr(34) + "Push" + backslash + "u00a0to main" + chr(34),
+                ),
+            ),
+        ):
+            with self.subTest(form=label):
+                result = self._with_raw_tool_authority(block)
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn("non-ASCII character", result.stderr)
+
     def test_a_second_tool_authority_block_is_reported(self):
         second = (
             "tool_authority:" + NL
@@ -1259,6 +1396,95 @@ class ValidatorFailsClosed(unittest.TestCase):
     def test_an_npm_token_in_the_tree_is_reported(self):
         result = self._leaks("npm" + "_" + "a1B2c3" * 6)
         self.assertIn("docs/leak.md: contains what looks like an npm access token", result.stderr)
+
+    # ---- round nine S-5: three more shapes a review planted and the scan missed ----
+
+    def test_a_gitlab_token_in_the_tree_is_reported(self):
+        result = self._leaks("glp" + "at-" + "A" * 24)
+        self.assertIn("docs/leak.md: contains what looks like a GitLab access token", result.stderr)
+
+    def test_an_anthropic_key_in_the_tree_is_reported(self):
+        result = self._leaks("sk" + "-ant-" + "api03-" + "A" * 30)
+        self.assertIn("docs/leak.md: contains what looks like an Anthropic API key", result.stderr)
+
+    def test_a_stripe_test_restricted_key_in_the_tree_is_reported(self):
+        result = self._leaks("rk" + "_test_" + "a1B2" * 6)
+        self.assertIn("docs/leak.md: contains what looks like a Stripe test restricted key", result.stderr)
+
+    # ---- round nine S-2: build directories are skipped only when git does not track them ----
+    #
+    # The scan skipped any path with a `__pycache__` segment and a top-level
+    # `dist/` whether or not git tracked it. Both are gitignored, but
+    # `git add -f` ships a file in CI's checkout, so a force-added file was the
+    # one place a credential could sit unscanned.
+
+    TOKEN = "gh" + "p_" + "A" * 36
+
+    def _in_a_git_repository(self, path, *, track):
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = build(Path(directory), extra_files={path: "note: " + self.TOKEN + NL})
+            subprocess.run(["git", "init", "-q"], cwd=tmp, check=True)
+            if track:
+                subprocess.run(["git", "add", "-f", path], cwd=tmp, check=True)
+            return run(tmp)
+
+    def test_a_credential_in_a_tracked_pycache_directory_is_reported(self):
+        result = self._in_a_git_repository("docs/__pycache__/notes.txt", track=True)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("docs/__pycache__/notes.txt: contains what looks like", result.stderr)
+
+    def test_a_credential_in_a_tracked_top_level_dist_directory_is_reported(self):
+        result = self._in_a_git_repository("dist/notes.txt", track=True)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("dist/notes.txt: contains what looks like", result.stderr)
+
+    def test_an_untracked_build_directory_is_still_skipped(self):
+        """The boundary of the fix: untracked build output is not repository content."""
+        for path in ("docs/__pycache__/notes.txt", "dist/notes.txt"):
+            with self.subTest(path=path):
+                result = self._in_a_git_repository(path, track=False)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    # Round ten S-7. `tracked_files` answered "nothing is tracked" when git
+    # failed, so a git that was missing, refused the directory ("dubious
+    # ownership") or hit a corrupt index quietly put the scan back on its skip
+    # list, and a force-added file under dist/ or __pycache__ went unscanned
+    # with the validator reporting a clean pass. When git cannot say, the scan
+    # cannot tell tracked from untracked, so it now scans the build directories
+    # too: a git failure can only ever make the scan wider. `.git/` itself is
+    # not repository content and is still skipped.
+
+    def _where_git_cannot_answer(self, path):
+        """Runs the validator with GIT_DIR pointing nowhere, so git fails whatever
+        repository the temporary directory happens to sit inside."""
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = build(Path(directory), extra_files={path: "note: " + self.TOKEN + NL})
+            pins = _pins_following_the_fixture(tmp)
+            patch_bootstrap_pins(tmp, pins)
+            return subprocess.run(
+                [sys.executable, str(tmp / "scripts" / "validate_continuity.py")],
+                capture_output=True, text=True, cwd=tmp, check=False,
+                env={**os.environ, "GIT_DIR": str(tmp / "no-such-git-directory")},
+            )
+
+    def test_a_top_level_dist_directory_is_scanned_when_git_cannot_say_what_is_tracked(self):
+        result = self._where_git_cannot_answer("dist/notes.txt")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("dist/notes.txt: contains what looks like", result.stderr)
+
+    def test_a_pycache_directory_is_scanned_when_git_cannot_say_what_is_tracked(self):
+        result = self._where_git_cannot_answer("docs/__pycache__/notes.txt")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("docs/__pycache__/notes.txt: contains what looks like", result.stderr)
+
+    def test_a_node_modules_directory_is_scanned_when_git_cannot_say_what_is_tracked(self):
+        result = self._where_git_cannot_answer("node_modules/notes.txt")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("node_modules/notes.txt: contains what looks like", result.stderr)
+
+    def test_the_git_directory_itself_is_not_scanned_when_git_cannot_say_what_is_tracked(self):
+        result = self._where_git_cannot_answer(".git/objects/notes.txt")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_words_that_only_resemble_a_credential_prefix_are_allowed(self):
         """The scan is not a substring ban: short and separated forms pass."""
@@ -2173,7 +2399,10 @@ class SigningPolicyClosed(unittest.TestCase):
 
     # ---- review finding M4: the identity that signs every squash merge -----
     #
-    # Main is written by GitHub's merge, signed by GitHub's web-flow key. Enrol
+    # A squash merge INTO main is written by GitHub's merge and signed by
+    # GitHub's web-flow key (main itself still holds only its "Initial commit";
+    # the four squash merges seen, #4 to #7, and the one merge commit, #9, are on
+    # PR #1's branch). Enrol
     # that key and the check would pass any change merged in the web UI,
     # including an agent-authored one: the signature binds nothing to a human.
     # Those two literals are typed here, not imported from the validator.
@@ -2866,6 +3095,631 @@ class BootstrapIsSingleUse(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("records state 'AWAITING_OPERATOR_INSTRUCTION'", result.stderr)
         self.assertIn("pinned as SEATED", result.stderr)
+
+
+class RegistryFieldsAreReadOnce(unittest.TestCase):
+    """Round nine S-1: a hand reader must read the file YAML reads.
+
+    The round-seven N1 attack was closed for tool_authority items and left
+    open one level up. `parse_authority`, `parse_skills` and `parse_agents`
+    took any text after `field:` as the value, so a value that opens a quote it
+    does not close swallowed, for every ordinary YAML reader, everything up to a
+    quote inside a later `# comment` line - lines these readers skip as
+    comments. The last duplicate field won for the validator and, once a
+    scalar had swallowed the lines between, for nobody else. One data-file edit
+    then made PyYAML read the withheld P0 grant as GRANTED, `record-a-gate` as
+    AVAILABLE, or `architecture-authority` as agent-occupiable, with
+    `validate:records` printing PASS.
+
+    Every test below breaks EXACTLY ONE of the two shapes (an unclosed quote,
+    or a repeated field), so deleting one refusal turns its own test red and no
+    other. The reviewer's own plants, which break both at once, are kept
+    separately as regression tests and are deliberately not the witnesses.
+    """
+
+    QUOTE = "not one complete quoted scalar"
+    REPEAT = "appears more than once in"
+    OPEN = chr(34)  # an opening quote with no closing one on the line
+    Q1 = chr(39)
+
+    def _run(self, **files):
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = build(Path(directory))
+            for name, text in files.items():
+                (tmp / "badf" / (name.replace("_", "-") + ".yaml")).write_text(
+                    text, encoding="utf-8"
+                )
+            return run(tmp)
+
+    def _refused(self, needle, **files):
+        result = self._run(**files)
+        self.assertEqual(
+            result.returncode, 1,
+            f"this forgery must be refused:{NL}{result.stdout}{result.stderr}",
+        )
+        self.assertIn(needle, result.stderr)
+
+    def _replaced(self, base, old, new):
+        self.assertIn(old, base, "the replace target is not in the fixture")
+        return base.replace(old, new, 1)
+
+    # ---- badf/authority.yaml ------------------------------------------------
+
+    def test_an_authority_field_that_opens_a_quote_it_does_not_close_is_refused(self):
+        for label, forged in (
+            ("double quote, granted", AUTHORITY_YAML + "    see_also: " + self.OPEN + "the entries that follow" + NL),
+            ("single quote, granted", AUTHORITY_YAML + "    see_also: " + self.Q1 + "the entries that follow" + NL),
+            (
+                "double quote, not_granted",
+                self._replaced(
+                    AUTHORITY_YAML,
+                    "  p0_implementation:" + NL + "    status: NOT_GRANTED" + NL,
+                    "  p0_implementation:" + NL + "    what: " + self.OPEN + "Authority to implement" + NL
+                    + "    status: NOT_GRANTED" + NL,
+                ),
+            ),
+        ):
+            with self.subTest(form=label):
+                self._refused(self.QUOTE, authority=forged)
+
+    def test_an_authority_quote_that_swallows_the_tool_authority_header_is_refused(self):
+        """Reviewer plant S3, without the second shape mixed in.
+
+        A quoted field in `granted` is closed inside a comment line under
+        `tool_authority:`. PyYAML then has no such section, and `may` and
+        `may_not` become fields of `granted`.
+        """
+        block = tool_authority_yaml()
+        base = AUTHORITY_YAML.replace(block, "")
+        self.assertNotEqual(base, AUTHORITY_YAML)
+        forged = (
+            base
+            + "    see_also: " + self.OPEN + "what follows" + NL
+            + block.replace("tool_authority:" + NL, "tool_authority:" + NL + "  # is below" + self.OPEN + NL, 1)
+        )
+        self._refused(self.QUOTE, authority=forged)
+
+    def test_an_authority_top_level_value_that_opens_a_quote_is_refused(self):
+        forged = self._replaced(
+            AUTHORITY_YAML,
+            'updated_at: "2026-01-01T00:00:00Z"',
+            'updated_at: "2026-01-01T00:00:00Z',
+        )
+        self._refused(self.QUOTE, authority=forged)
+
+    def test_a_repeated_field_in_an_authority_entry_is_refused(self):
+        forged = self._replaced(
+            AUTHORITY_YAML,
+            "  p0_implementation:" + NL + "    status: NOT_GRANTED" + NL,
+            "  p0_implementation:" + NL + "    status: NOT_GRANTED" + NL + "    status: NOT_GRANTED" + NL,
+        )
+        self._refused("'status' " + self.REPEAT + " not_granted.p0_implementation", authority=forged)
+
+    def test_a_repeated_entry_in_an_authority_section_is_refused(self):
+        forged = self._replaced(
+            AUTHORITY_YAML,
+            "  p0_implementation:" + NL + "    status: NOT_GRANTED" + NL,
+            "  p0_implementation:" + NL + "    status: NOT_GRANTED" + NL
+            + "  p0_implementation:" + NL + '    what: "a second entry of the same name"' + NL,
+        )
+        # The second entry repeats no field, so only the ENTRY refusal can fire.
+        self._refused("'p0_implementation' " + self.REPEAT + " not_granted", authority=forged)
+
+    def test_a_quoted_field_name_that_repeats_a_plain_one_is_refused(self):
+        """Round ten. YAML reads status, "status" and 'status' as one key and keeps the last.
+
+        Found while auditing the repeated-field refusal, which compared keys as
+        written: `"status": GRANTED` under a plain `status: NOT_GRANTED` was two
+        fields here and one, GRANTED, to PyYAML. No quote is left open and
+        nothing is swallowed, so neither shape of S-1 sees it.
+        """
+        plain = "  p0_implementation:" + NL + "    status: NOT_GRANTED" + NL
+        for label, spelling in (
+            ("double-quoted", self.OPEN + "status" + self.OPEN),
+            ("single-quoted", self.Q1 + "status" + self.Q1),
+        ):
+            with self.subTest(form=label):
+                forged = self._replaced(AUTHORITY_YAML, plain, plain + "    " + spelling + ": GRANTED" + NL)
+                self._refused("is not a plain identifier", authority=forged)
+
+    def test_a_quoted_entry_name_that_repeats_a_plain_one_is_refused(self):
+        plain = "  p0_implementation:" + NL + "    status: NOT_GRANTED" + NL
+        forged = self._replaced(
+            AUTHORITY_YAML, plain,
+            plain + "  " + self.OPEN + "p0_implementation" + self.OPEN + ":" + NL + '    what: "again"' + NL,
+        )
+        self._refused("is not a plain identifier", authority=forged)
+
+    def test_the_reviewers_S1_plant_in_authority_is_refused(self):
+        """S1: PyYAML reads status GRANTED, the validator's last `status:` reads NOT_GRANTED."""
+        forged = self._replaced(
+            AUTHORITY_YAML,
+            "  p0_implementation:" + NL + "    status: NOT_GRANTED" + NL,
+            "  p0_implementation:" + NL
+            + "    status: GRANTED" + NL
+            + "    what: " + self.OPEN + "Authority to implement any P0 epic" + NL
+            + "    status: NOT_GRANTED" + NL
+            + "    # " + self.OPEN + NL,
+        )
+        result = self._run(authority=forged)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+
+    def test_the_reviewers_S2_plant_in_authority_is_refused(self):
+        """S2: the granted block moved above not_granted, and P0 forged in place."""
+        block = tool_authority_yaml()
+        base = AUTHORITY_YAML.replace(block, "")
+        granted_at = base.index("granted:" + NL + "  repository_scaffold:")
+        not_granted_at = base.index("not_granted:" + NL)
+        head, not_granted, granted = base[:not_granted_at], base[not_granted_at:granted_at], base[granted_at:]
+        granted = granted.rstrip(NL) + NL + "    see_also: " + self.OPEN + "the entries that follow" + NL + NL
+        not_granted = not_granted.replace(
+            "not_granted:" + NL, "not_granted:" + NL + "  # are recorded below" + self.OPEN + NL, 1
+        )
+        not_granted = self._replaced(
+            not_granted,
+            "  p0_implementation:" + NL + "    status: NOT_GRANTED" + NL,
+            "  p0_implementation:" + NL
+            + "    status: GRANTED" + NL
+            + '    granted_by: "business authority seat"' + NL
+            + '    expires_at: "2027-12-31"' + NL
+            + '    recorded_by: "business authority seat"' + NL
+            + "    what: " + self.OPEN + "Authority to implement any P0 epic" + NL
+            + "    status: NOT_GRANTED" + NL
+            + "    # " + self.OPEN + NL,
+        )
+        result = self._run(authority=head + granted + not_granted + block)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+
+    def test_a_well_formed_authority_field_is_still_read(self):
+        """The refusals are not a ban on quotes: a complete scalar of either kind passes."""
+        forged = (
+            AUTHORITY_YAML
+            + "    see_also: " + chr(34) + "it" + chr(39) + "s here" + chr(34) + NL
+            + "    also_see: " + self.Q1 + "it" + self.Q1 * 2 + "s here" + self.Q1 + NL
+        )
+        result = self._run(authority=forged)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    # ---- badf/skills.yaml ---------------------------------------------------
+
+    RECORD_A_GATE = (
+        "  - id: record-a-gate" + NL
+        + '    what: "fixture"' + NL
+        + '    authority_required: "the human role the gate names"' + NL
+        + "    status: FORBIDDEN_TO_AGENTS" + NL
+    )
+
+    def test_a_skills_field_that_opens_a_quote_it_does_not_close_is_refused(self):
+        for label, forged in (
+            (
+                "double quote",
+                self._replaced(
+                    SKILLS_YAML, self.RECORD_A_GATE,
+                    self.RECORD_A_GATE.replace('what: "fixture"', "what: " + self.OPEN + "fixture"),
+                ),
+            ),
+            (
+                "single quote",
+                self._replaced(
+                    SKILLS_YAML, self.RECORD_A_GATE,
+                    self.RECORD_A_GATE.replace('what: "fixture"', "what: " + self.Q1 + "fixture"),
+                ),
+            ),
+        ):
+            with self.subTest(form=label):
+                self._refused(self.QUOTE, skills=forged)
+
+    def test_a_skills_id_that_opens_a_quote_is_refused(self):
+        forged = self._replaced(
+            SKILLS_YAML, "  - id: record-a-gate", "  - id: " + self.OPEN + "record-a-gate"
+        )
+        self._refused(self.QUOTE, skills=forged)
+
+    def test_a_skills_top_level_value_that_opens_a_quote_is_refused(self):
+        forged = self._replaced(SKILLS_YAML, 'version: "0.1.0"', 'version: "0.1.0')
+        self._refused(self.QUOTE, skills=forged)
+
+    def test_a_repeated_field_in_a_skill_entry_is_refused(self):
+        forged = self._replaced(
+            SKILLS_YAML, self.RECORD_A_GATE,
+            self.RECORD_A_GATE + "    status: FORBIDDEN_TO_AGENTS" + NL,
+        )
+        self._refused(self.REPEAT, skills=forged)
+
+    def test_a_repeated_top_level_section_in_skills_is_refused(self):
+        """YAML keeps only the LAST `skills:` block, so the first one would be a decoy."""
+        self._refused(self.REPEAT, skills=SKILLS_YAML + "skills:" + NL)
+
+    def test_the_reviewers_K1_plant_in_skills_is_refused(self):
+        """K1: PyYAML reads record-a-gate as AVAILABLE; the validator reads the last status."""
+        forged = self._replaced(
+            SKILLS_YAML, self.RECORD_A_GATE,
+            "  - id: record-a-gate" + NL
+            + "    status: AVAILABLE" + NL
+            + "    what: " + self.OPEN + "Set a gate status" + NL
+            + "    status: FORBIDDEN_TO_AGENTS" + NL
+            + "    # " + self.OPEN + NL
+            + '    authority_required: "the human role the gate names"' + NL,
+        )
+        result = self._run(skills=forged)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+
+    # ---- badf/agents.yaml ---------------------------------------------------
+
+    ARCHITECTURE = (
+        "  - id: architecture-authority" + NL
+        + '    owns: ["fixture"]' + NL
+        + "    may_be_an_agent: false" + NL
+        + "    held_by: null" + NL
+    )
+    GATES_ROUTE = (
+        '  - path: "badf/gates.yaml"' + NL
+        + "    owner: architecture-authority" + NL
+        + "    verifier: repository-administrator" + NL
+    )
+
+    def test_a_role_field_that_opens_a_quote_it_does_not_close_is_refused(self):
+        forged = self._replaced(
+            AGENTS_YAML, self.ARCHITECTURE,
+            self.ARCHITECTURE + "    note: " + self.OPEN + "Unfilled." + NL,
+        )
+        self._refused(self.QUOTE, agents=forged)
+
+    def test_a_routing_field_that_opens_a_quote_it_does_not_close_is_refused(self):
+        forged = self._replaced(
+            AGENTS_YAML, self.GATES_ROUTE,
+            self.GATES_ROUTE + "    note: " + self.Q1 + "reviewed" + NL,
+        )
+        self._refused(self.QUOTE, agents=forged)
+
+    def test_a_role_id_that_opens_a_quote_is_refused(self):
+        forged = self._replaced(
+            AGENTS_YAML, "  - id: platform-engineer", "  - id: " + self.OPEN + "platform-engineer"
+        )
+        self._refused(self.QUOTE, agents=forged)
+
+    def test_a_routing_path_that_opens_a_quote_is_refused(self):
+        forged = self._replaced(
+            AGENTS_YAML, '  - path: "badf/gates.yaml"', "  - path: " + self.OPEN + "badf/gates.yaml"
+        )
+        self._refused(self.QUOTE, agents=forged)
+
+    def test_an_agents_top_level_value_that_opens_a_quote_is_refused(self):
+        forged = self._replaced(AGENTS_YAML, 'version: "0.1.0"', 'version: "0.1.0')
+        self._refused(self.QUOTE, agents=forged)
+
+    def test_a_succession_value_that_opens_a_quote_is_refused(self):
+        forged = self._replaced(AGENTS_YAML, "succession: >-", "succession: " + self.OPEN + "How")
+        self._refused(self.QUOTE, agents=forged)
+
+    def test_a_repeated_field_in_a_role_is_refused(self):
+        forged = self._replaced(
+            AGENTS_YAML, self.ARCHITECTURE, self.ARCHITECTURE + "    held_by: null" + NL
+        )
+        self._refused(self.REPEAT, agents=forged)
+
+    def test_a_repeated_field_in_a_routing_entry_is_refused(self):
+        forged = self._replaced(
+            AGENTS_YAML, self.GATES_ROUTE, self.GATES_ROUTE + "    verifier: repository-administrator" + NL
+        )
+        self._refused(self.REPEAT, agents=forged)
+
+    def test_a_repeated_top_level_section_in_agents_is_refused(self):
+        """YAML keeps only the LAST `roles:` block, so the first one would be a decoy."""
+        self._refused(self.REPEAT, agents=AGENTS_YAML + "roles:" + NL)
+
+    def test_the_reviewers_A1_plant_in_agents_is_refused(self):
+        """A1: PyYAML reads architecture-authority as agent-occupiable."""
+        forged = self._replaced(
+            AGENTS_YAML, self.ARCHITECTURE,
+            "  - id: architecture-authority" + NL
+            + '    owns: ["fixture"]' + NL
+            + "    may_be_an_agent: true" + NL
+            + "    note: " + self.OPEN + "Unfilled." + NL
+            + "    may_be_an_agent: false" + NL
+            + "    # " + self.OPEN + NL
+            + "    held_by: null" + NL,
+        )
+        result = self._run(agents=forged)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+
+    def test_a_well_formed_agents_flow_list_is_still_read(self):
+        """`owns: ["a", "b"]` is how the shipped file writes it, and must keep passing."""
+        forged = self._replaced(
+            AGENTS_YAML, self.ARCHITECTURE,
+            self.ARCHITECTURE.replace('["fixture"]', '["one", "it' + self.Q1 + 's two"]'),
+        )
+        result = self._run(agents=forged)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    # ---- badf/bootstrap.yaml and badf/signing-policy.yaml: the other readers -----
+
+    def test_a_bootstrap_scalar_that_opens_a_quote_is_refused(self):
+        forged = bootstrap_record(expiry=self.OPEN + "2999-01-01")
+        self._refused(self.QUOTE, bootstrap=forged)
+
+    def test_a_bootstrap_seating_field_that_opens_a_quote_is_refused(self):
+        forged = self._replaced(
+            bootstrap_record(), "    principal: null" + NL, "    principal: " + self.OPEN + "A Fixture Human" + NL
+        )
+        self._refused(self.QUOTE, bootstrap=forged)
+
+    def test_a_bootstrap_seat_that_opens_a_quote_is_refused(self):
+        forged = self._replaced(
+            bootstrap_record(), "  - seat: repository-administrator", "  - seat: " + self.OPEN + "repository-administrator"
+        )
+        self._refused(self.QUOTE, bootstrap=forged)
+
+    def test_a_repeated_scalar_in_the_bootstrap_record_is_refused(self):
+        forged = self._replaced(
+            bootstrap_record(), "expiry: null" + NL, "expiry: null" + NL + "expiry: null" + NL
+        )
+        self._refused(self.REPEAT, bootstrap=forged)
+
+    def test_a_repeated_field_in_a_bootstrap_seating_is_refused(self):
+        forged = self._replaced(
+            bootstrap_record(), "    principal: null" + NL, "    principal: null" + NL + "    principal: null" + NL
+        )
+        self._refused(self.REPEAT, bootstrap=forged)
+
+    def test_a_signing_policy_scalar_that_opens_a_quote_is_refused(self):
+        forged = self._replaced(
+            SIGNING_POLICY_YAML, "enforcement_point: FIRST_COMMIT_OF_THIS_POLICY",
+            "enforcement_point: " + self.OPEN + "FIRST_COMMIT_OF_THIS_POLICY",
+        )
+        self._refused(self.QUOTE, signing_policy=forged)
+
+    def test_a_repeated_scalar_in_the_signing_policy_is_refused(self):
+        forged = self._replaced(
+            SIGNING_POLICY_YAML, 'updated_at: "2026-01-01T00:00:00Z"' + NL,
+            'updated_at: "2026-01-01T00:00:00Z"' + NL + 'updated_at: "2026-01-01T00:00:00Z"' + NL,
+        )
+        self._refused(self.REPEAT, signing_policy=forged)
+
+    def test_a_signing_policy_path_that_opens_a_quote_is_refused(self):
+        forged = self._replaced(SIGNING_POLICY_YAML, "  - schemas" + NL, "  - " + self.OPEN + "schemas" + NL)
+        self._refused(self.QUOTE, signing_policy=forged)
+
+    def test_a_signing_policy_accepted_keys_value_that_opens_a_quote_is_refused(self):
+        forged = self._replaced(
+            SIGNING_POLICY_YAML, "accepted_keys: NONE_ENROLLED", "accepted_keys: " + self.OPEN + "NONE_ENROLLED"
+        )
+        self._refused(self.QUOTE, signing_policy=forged)
+
+    def test_a_signing_policy_key_identity_that_opens_a_quote_is_refused(self):
+        forged = self._replaced(
+            SIGNING_POLICY_WITH_KEY, '  - identity: "A Human <human@example.invalid>"',
+            "  - identity: " + self.OPEN + "A Human <human@example.invalid>",
+        )
+        self._refused(self.QUOTE, signing_policy=forged)
+
+    def test_a_signing_policy_key_field_that_opens_a_quote_is_refused(self):
+        forged = self._replaced(SIGNING_POLICY_WITH_KEY, "    kind: gpg", "    kind: " + self.OPEN + "gpg")
+        self._refused(self.QUOTE, signing_policy=forged)
+
+    def test_a_repeated_field_in_a_signing_policy_key_is_refused(self):
+        forged = self._replaced(SIGNING_POLICY_WITH_KEY, "    kind: gpg" + NL, "    kind: gpg" + NL + "    kind: gpg" + NL)
+        self._refused(self.REPEAT, signing_policy=forged)
+
+    # ---- badf/gates.yaml and badf/lifecycle.yaml ---------------------------------
+    #
+    # Both were read by patterns, and a pattern reader accepts anything it does
+    # not match. A differential fuzz against PyYAML found the gates registry
+    # taking `status:` with its value on the next line as no status at all
+    # (PyYAML reads the LAST duplicate: a recorded gate) and a top-level key
+    # inserted mid-list as harmless (PyYAML moves the rest of the list under
+    # it). Both are now read by the same refusing grammar as their siblings.
+
+    BT_G0 = "  - id: BT-G0" + NL + "    status: UNRECORDED" + NL
+    ACCEPT = (
+        "  - from: ENGINEERING_READY" + NL
+        + "    to: ACCEPTED" + NL
+        + '    role: "verifier, who is not the implementer"' + NL
+        + "    requires_human: true" + NL
+    )
+
+    def test_a_gates_field_that_opens_a_quote_is_refused(self):
+        forged = self._replaced(
+            GATES_YAML, self.BT_G0, self.BT_G0 + "    name: " + self.OPEN + "x" + NL
+        )
+        self._refused(self.QUOTE, gates=forged)
+
+    def test_a_gates_top_level_value_that_opens_a_quote_is_refused(self):
+        forged = self._replaced(GATES_YAML, 'version: "0.1.0"', 'version: "0.1.0')
+        self._refused(self.QUOTE, gates=forged)
+
+    def test_a_gate_id_that_opens_a_quote_is_refused(self):
+        forged = self._replaced(GATES_YAML, "  - id: BT-G0", "  - id: " + self.OPEN + "BT-G0")
+        self._refused(self.QUOTE, gates=forged)
+
+    def test_a_gate_status_repeated_with_its_value_on_the_next_line_is_refused(self):
+        """The fuzz's find: `status:` with no value on its line was no status to the pattern."""
+        forged = self._replaced(
+            GATES_YAML, self.BT_G0, self.BT_G0 + "    status:" + NL + "      GRANTED" + NL
+        )
+        self._refused("'status' " + self.REPEAT, gates=forged)
+
+    def test_a_gates_registry_split_by_a_top_level_key_is_refused(self):
+        forged = self._replaced(
+            GATES_YAML, "  - id: BT-G2" + NL, "forbidden:" + NL + "  - id: BT-G2" + NL
+        )
+        self._refused("unknown top-level key 'forbidden'", gates=forged)
+
+    def test_a_gates_top_level_key_repeated_is_refused(self):
+        self._refused("'delivery_gates' " + self.REPEAT, gates=GATES_YAML + "delivery_gates:" + NL)
+
+    def test_a_gate_recorded_twice_is_refused(self):
+        forged = GATES_YAML + "  - id: BT-G0" + NL + "    status: UNRECORDED" + NL
+        self._refused("duplicate id 'BT-G0'", gates=forged)
+
+    def test_a_gate_recorded_again_under_a_quoted_id_is_refused(self):
+        """The fuzz's other find: "BT-G0" and BT-G0 are one id to YAML and two to a raw compare."""
+        forged = GATES_YAML + "  - id: " + self.OPEN + "BT-G0" + self.OPEN + NL + "    status: UNRECORDED" + NL
+        self._refused("duplicate id 'BT-G0'", gates=forged)
+
+    def test_an_unknown_field_on_a_gate_is_refused(self):
+        forged = self._replaced(
+            GATES_YAML, self.BT_G0, self.BT_G0 + "    approved_by: nobody" + NL
+        )
+        self._refused("unknown field 'approved_by'", gates=forged)
+
+    def test_a_gates_list_with_an_inline_value_is_refused(self):
+        forged = self._replaced(GATES_YAML, "delivery_gates:", "delivery_gates: []")
+        self._refused("inline value", gates=forged)
+
+    def test_a_gates_entry_that_does_not_open_with_its_key_is_refused(self):
+        forged = self._replaced(GATES_YAML, "  - id: BT-G1", "  - name: BT-G1")
+        self._refused("must open with '- id:", gates=forged)
+
+    def test_a_tab_in_the_gates_registry_is_refused(self):
+        forged = self._replaced(GATES_YAML, "    status: UNRECORDED", "\tstatus: UNRECORDED")
+        self._refused("contains a tab", gates=forged)
+
+    def test_a_lifecycle_field_that_opens_a_quote_is_refused(self):
+        forged = self._replaced(
+            LIFECYCLE_YAML, self.ACCEPT, self.ACCEPT + "    condition: " + self.OPEN + "x" + NL
+        )
+        self._refused(self.QUOTE, lifecycle=forged)
+
+    def test_a_lifecycle_list_item_that_opens_a_quote_is_refused(self):
+        forged = LIFECYCLE_YAML + "  - " + self.OPEN + "Any transition" + NL
+        self._refused(self.QUOTE, lifecycle=forged)
+
+    def test_the_acceptance_transition_recorded_twice_is_refused(self):
+        """A decoy first, the real requires_human: false second: PyYAML sees both."""
+        forged = self._replaced(
+            LIFECYCLE_YAML, self.ACCEPT,
+            self.ACCEPT + "  - from: ENGINEERING_READY" + NL + "    to: ACCEPTED" + NL
+            + '    role: "owner"' + NL + "    requires_human: false" + NL,
+        )
+        self._refused("more than once", lifecycle=forged)
+
+    def test_requires_human_repeated_in_the_acceptance_transition_is_refused(self):
+        forged = self._replaced(
+            LIFECYCLE_YAML, self.ACCEPT, self.ACCEPT + "    requires_human: false" + NL
+        )
+        self._refused("'requires_human' " + self.REPEAT, lifecycle=forged)
+
+    def test_the_forbidden_sentence_only_in_a_comment_is_not_the_forbidden_list(self):
+        forged = self._replaced(
+            LIFECYCLE_YAML,
+            '  - "Any transition into ACCEPTED made by the implementing agent"' + NL,
+            "  # Any transition into ACCEPTED made by the implementing agent" + NL,
+        )
+        self._refused("forbidden list", lifecycle=forged)
+
+    def test_a_lifecycle_top_level_key_repeated_is_refused(self):
+        self._refused("'forbidden' " + self.REPEAT, lifecycle=LIFECYCLE_YAML + "forbidden:" + NL)
+
+    def test_an_unknown_top_level_key_in_the_lifecycle_registry_is_refused(self):
+        self._refused("unknown top-level key 'shortcuts'", lifecycle=LIFECYCLE_YAML + "shortcuts:" + NL)
+
+
+def load_validator():
+    """The validator as a module, so a rule can be witnessed without a whole repository.
+
+    Importing is safe: everything at module level is a constant or a function,
+    and the entry point sits under `if __name__ == "__main__"`.
+    """
+    spec = importlib.util.spec_from_file_location("validate_continuity_under_test", VALIDATOR)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class ScalarRefusalReadsOneLine(unittest.TestCase):
+    """`scalar_refusal` branch by branch, each with a witness of its own.
+
+    The registry-level tests above prove a refusal is CALLED; these prove what
+    it refuses. They are separate so that loosening one branch turns exactly
+    one control red rather than every quoted-value test at once.
+    """
+
+    D = chr(34)
+    S = chr(39)
+    BACKSLASH = chr(92)
+
+    def setUp(self):
+        self.refusal = load_validator().scalar_refusal
+
+    def test_a_double_quoted_scalar_with_text_after_its_closing_quote_is_not_read_whole(self):
+        self.assertIsNone(self.refusal(self.D + "it" + self.S + "s fine" + self.D))
+        self.assertIsNone(
+            self.refusal(self.D + "say " + self.BACKSLASH + self.D + "no" + self.BACKSLASH + self.D + self.D)
+        )
+        for value in (
+            self.D + "a" + self.D + " b",
+            self.D + "a" + self.D + " # per operator",
+            self.D + "never closed",
+            self.D + "closes only an escape" + self.BACKSLASH + self.D,
+        ):
+            with self.subTest(value=value):
+                self.assertIn("not one complete quoted scalar", self.refusal(value) or "")
+
+    def test_a_single_quoted_scalar_with_text_after_its_closing_quote_is_not_read_whole(self):
+        self.assertIsNone(self.refusal(self.S + "it" + self.S * 2 + "s fine" + self.S))
+        for value in (
+            self.S + "a" + self.S + " b",
+            self.S + "never closed",
+            self.S + "an odd quote" + self.S * 2,
+        ):
+            with self.subTest(value=value):
+                self.assertIn("not one complete quoted scalar", self.refusal(value) or "")
+
+    def test_a_flow_collection_holding_an_unclosed_quote_is_not_read_whole(self):
+        self.assertIsNone(self.refusal("[" + self.D + "one" + self.D + ", " + self.D + "it" + self.S + "s two" + self.D + "]"))
+        self.assertIsNone(self.refusal("[it" + self.S + "s plain]"))
+        for value in ("[" + self.D + "one]", "{a: " + self.S + "one}", "[" + self.D + "a" + self.D + ", " + self.D + "b]"):
+            with self.subTest(value=value):
+                self.assertIn("not one complete quoted scalar", self.refusal(value) or "")
+
+    def test_a_flow_collection_that_does_not_close_on_its_line_is_not_read_whole(self):
+        self.assertIsNone(self.refusal("[]"))
+        self.assertIsNone(self.refusal("{a: b}"))
+        for value in ("[a, b", "{a: b", "[a, b] # trailing", "{a: b}}x"):
+            with self.subTest(value=value):
+                self.assertIn("does not close on its line", self.refusal(value) or "")
+
+    # Round ten S-6. The closing-character check accepted `[a, [b]`: it ends in
+    # `]` with one `[` still open, so PyYAML read on into the lines below and then
+    # refused the whole file, while this reader took the value. One control per
+    # arm of the balance check, so that loosening one turns exactly one red.
+
+    def test_balanced_flow_collections_are_read(self):
+        for value in (
+            "[a, [b]]",
+            "{a: [b, c], d: {e: f}}",
+            "[" + self.D + "]" + self.D + ", b]",
+            "[" + self.S + "}" + self.S + "]",
+            "[[[]]]",
+        ):
+            with self.subTest(value=value):
+                self.assertIsNone(self.refusal(value))
+
+    def test_a_flow_collection_with_an_opener_left_open_is_not_read_whole(self):
+        for value in ("[a, [b]", "[[a, b]", "{a: {b: c}"):
+            with self.subTest(value=value):
+                self.assertIn("brackets that do not balance", self.refusal(value) or "")
+
+    def test_a_flow_collection_closed_by_the_wrong_kind_of_bracket_is_not_read_whole(self):
+        for value in ("[[}]", "{{]}"):
+            with self.subTest(value=value):
+                self.assertIn("brackets that do not balance", self.refusal(value) or "")
+
+    def test_a_flow_collection_that_closes_before_its_last_character_is_not_read_whole(self):
+        for value in ("[a] [b]", "{a: b} {c: d}"):
+            with self.subTest(value=value):
+                self.assertIn("brackets that do not balance", self.refusal(value) or "")
+
+    def test_an_anchor_an_alias_and_a_tag_are_not_read(self):
+        for value in ("&pin GRANTED", "*pin", "!!str GRANTED"):
+            with self.subTest(value=value):
+                self.assertIn("anchor, an alias or a tag", self.refusal(value) or "")
+
+    def test_a_plain_scalar_is_read(self):
+        for value in ("", "GRANTED", "null", "true", "NOT_GRANTED # a comment is not the value's business", ">-"):
+            with self.subTest(value=value):
+                self.assertIsNone(self.refusal(value))
 
 
 class ValidatorRunsAgainstThisRepository(unittest.TestCase):

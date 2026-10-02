@@ -15,141 +15,141 @@ module.exports = {
   "forbidden": [
     {
       "name": "rule-1-internals-private-tenancy",
-      "comment": "Rule 1: anything under modules/tenancy/src/internal/ may be imported only from inside modules/tenancy/. The package exports field refuses the path at resolution as well; this rule catches an absolute path, against which exports \"is not a strong encapsulation\".",
+      "comment": "Rule 1: anything under modules/tenancy/src/internal/, or the same directory built into dist/, may be imported only from inside modules/tenancy/. The package exports field refuses the path at resolution as well; this rule catches an absolute path, against which exports \"is not a strong encapsulation\".",
       "severity": "error",
       "from": {
         "pathNot": "^modules/tenancy/"
       },
       "to": {
-        "path": "^modules/tenancy/src/internal/"
+        "path": "^modules/tenancy/(?:src|dist)/internal/"
       }
     },
     {
       "name": "rule-1-internals-private-identity-access",
-      "comment": "Rule 1: anything under modules/identity-access/src/internal/ may be imported only from inside modules/identity-access/. The package exports field refuses the path at resolution as well; this rule catches an absolute path, against which exports \"is not a strong encapsulation\".",
+      "comment": "Rule 1: anything under modules/identity-access/src/internal/, or the same directory built into dist/, may be imported only from inside modules/identity-access/. The package exports field refuses the path at resolution as well; this rule catches an absolute path, against which exports \"is not a strong encapsulation\".",
       "severity": "error",
       "from": {
         "pathNot": "^modules/identity-access/"
       },
       "to": {
-        "path": "^modules/identity-access/src/internal/"
+        "path": "^modules/identity-access/(?:src|dist)/internal/"
       }
     },
     {
       "name": "rule-1-internals-private-audit",
-      "comment": "Rule 1: anything under modules/audit/src/internal/ may be imported only from inside modules/audit/. The package exports field refuses the path at resolution as well; this rule catches an absolute path, against which exports \"is not a strong encapsulation\".",
+      "comment": "Rule 1: anything under modules/audit/src/internal/, or the same directory built into dist/, may be imported only from inside modules/audit/. The package exports field refuses the path at resolution as well; this rule catches an absolute path, against which exports \"is not a strong encapsulation\".",
       "severity": "error",
       "from": {
         "pathNot": "^modules/audit/"
       },
       "to": {
-        "path": "^modules/audit/src/internal/"
+        "path": "^modules/audit/(?:src|dist)/internal/"
       }
     },
     {
       "name": "rule-1-internals-private-platform-configuration",
-      "comment": "Rule 1: anything under modules/platform-configuration/src/internal/ may be imported only from inside modules/platform-configuration/. The package exports field refuses the path at resolution as well; this rule catches an absolute path, against which exports \"is not a strong encapsulation\".",
+      "comment": "Rule 1: anything under modules/platform-configuration/src/internal/, or the same directory built into dist/, may be imported only from inside modules/platform-configuration/. The package exports field refuses the path at resolution as well; this rule catches an absolute path, against which exports \"is not a strong encapsulation\".",
       "severity": "error",
       "from": {
         "pathNot": "^modules/platform-configuration/"
       },
       "to": {
-        "path": "^modules/platform-configuration/src/internal/"
+        "path": "^modules/platform-configuration/(?:src|dist)/internal/"
       }
     },
     {
       "name": "rule-1-internals-private-by-name-tenancy",
-      "comment": "Rule 1 by package name: @biztrust/tenancy/src/internal/... from outside modules/tenancy/, however the path is spelled (a .. or . segment, or no trailing slash). The exports field refuses it at resolution; this rule makes the refusal a named violation instead of a silent unresolved import.",
+      "comment": "Rule 1 by package name: @biztrust/tenancy/src/internal/... from outside modules/tenancy/, however the path is spelled (a .. or . segment, no trailing slash, other case, a percent escape, a backslash, a query or a hash). The exports field refuses it at resolution; this rule makes the refusal a named violation instead of a silent unresolved import.",
       "severity": "error",
       "from": {
         "pathNot": "^modules/tenancy/"
       },
       "to": {
         "couldNotResolve": true,
-        "path": "^@biztrust/tenancy/(?:internal|.*/internal)(?:/|$)"
+        "path": "^@[bB][iI][zZ][tT][rR][uU][sS][tT](?:[/\\\\]|%2[fF]|%5[cC])(?:\\.(?:[/\\\\]|%2[fF]|%5[cC])|(?:[/\\\\]|%2[fF]|%5[cC]))*[tT][eE][nN][aA][nN][cC][yY](?:[/\\\\]|%2[fF]|%5[cC])(?:(?:[iI]|%69|%49)(?:[nN]|%6[eE]|%4[eE])(?:[tT]|%74|%54)(?:[eE]|%65|%45)(?:[rR]|%72|%52)(?:[nN]|%6[eE]|%4[eE])(?:[aA]|%61|%41)(?:[lL]|%6[cC]|%4[cC])|.*(?:[/\\\\]|%2[fF]|%5[cC])(?:[iI]|%69|%49)(?:[nN]|%6[eE]|%4[eE])(?:[tT]|%74|%54)(?:[eE]|%65|%45)(?:[rR]|%72|%52)(?:[nN]|%6[eE]|%4[eE])(?:[aA]|%61|%41)(?:[lL]|%6[cC]|%4[cC]))(?:(?:[/\\\\]|%2[fF]|%5[cC])|[?#]|%3[fF]|%23|$)"
       }
     },
     {
       "name": "rule-1-internals-private-by-name-identity-access",
-      "comment": "Rule 1 by package name: @biztrust/identity-access/src/internal/... from outside modules/identity-access/, however the path is spelled (a .. or . segment, or no trailing slash). The exports field refuses it at resolution; this rule makes the refusal a named violation instead of a silent unresolved import.",
+      "comment": "Rule 1 by package name: @biztrust/identity-access/src/internal/... from outside modules/identity-access/, however the path is spelled (a .. or . segment, no trailing slash, other case, a percent escape, a backslash, a query or a hash). The exports field refuses it at resolution; this rule makes the refusal a named violation instead of a silent unresolved import.",
       "severity": "error",
       "from": {
         "pathNot": "^modules/identity-access/"
       },
       "to": {
         "couldNotResolve": true,
-        "path": "^@biztrust/identity-access/(?:internal|.*/internal)(?:/|$)"
+        "path": "^@[bB][iI][zZ][tT][rR][uU][sS][tT](?:[/\\\\]|%2[fF]|%5[cC])(?:\\.(?:[/\\\\]|%2[fF]|%5[cC])|(?:[/\\\\]|%2[fF]|%5[cC]))*[iI][dD][eE][nN][tT][iI][tT][yY]-[aA][cC][cC][eE][sS][sS](?:[/\\\\]|%2[fF]|%5[cC])(?:(?:[iI]|%69|%49)(?:[nN]|%6[eE]|%4[eE])(?:[tT]|%74|%54)(?:[eE]|%65|%45)(?:[rR]|%72|%52)(?:[nN]|%6[eE]|%4[eE])(?:[aA]|%61|%41)(?:[lL]|%6[cC]|%4[cC])|.*(?:[/\\\\]|%2[fF]|%5[cC])(?:[iI]|%69|%49)(?:[nN]|%6[eE]|%4[eE])(?:[tT]|%74|%54)(?:[eE]|%65|%45)(?:[rR]|%72|%52)(?:[nN]|%6[eE]|%4[eE])(?:[aA]|%61|%41)(?:[lL]|%6[cC]|%4[cC]))(?:(?:[/\\\\]|%2[fF]|%5[cC])|[?#]|%3[fF]|%23|$)"
       }
     },
     {
       "name": "rule-1-internals-private-by-name-audit",
-      "comment": "Rule 1 by package name: @biztrust/audit/src/internal/... from outside modules/audit/, however the path is spelled (a .. or . segment, or no trailing slash). The exports field refuses it at resolution; this rule makes the refusal a named violation instead of a silent unresolved import.",
+      "comment": "Rule 1 by package name: @biztrust/audit/src/internal/... from outside modules/audit/, however the path is spelled (a .. or . segment, no trailing slash, other case, a percent escape, a backslash, a query or a hash). The exports field refuses it at resolution; this rule makes the refusal a named violation instead of a silent unresolved import.",
       "severity": "error",
       "from": {
         "pathNot": "^modules/audit/"
       },
       "to": {
         "couldNotResolve": true,
-        "path": "^@biztrust/audit/(?:internal|.*/internal)(?:/|$)"
+        "path": "^@[bB][iI][zZ][tT][rR][uU][sS][tT](?:[/\\\\]|%2[fF]|%5[cC])(?:\\.(?:[/\\\\]|%2[fF]|%5[cC])|(?:[/\\\\]|%2[fF]|%5[cC]))*[aA][uU][dD][iI][tT](?:[/\\\\]|%2[fF]|%5[cC])(?:(?:[iI]|%69|%49)(?:[nN]|%6[eE]|%4[eE])(?:[tT]|%74|%54)(?:[eE]|%65|%45)(?:[rR]|%72|%52)(?:[nN]|%6[eE]|%4[eE])(?:[aA]|%61|%41)(?:[lL]|%6[cC]|%4[cC])|.*(?:[/\\\\]|%2[fF]|%5[cC])(?:[iI]|%69|%49)(?:[nN]|%6[eE]|%4[eE])(?:[tT]|%74|%54)(?:[eE]|%65|%45)(?:[rR]|%72|%52)(?:[nN]|%6[eE]|%4[eE])(?:[aA]|%61|%41)(?:[lL]|%6[cC]|%4[cC]))(?:(?:[/\\\\]|%2[fF]|%5[cC])|[?#]|%3[fF]|%23|$)"
       }
     },
     {
       "name": "rule-1-internals-private-by-name-platform-configuration",
-      "comment": "Rule 1 by package name: @biztrust/platform-configuration/src/internal/... from outside modules/platform-configuration/, however the path is spelled (a .. or . segment, or no trailing slash). The exports field refuses it at resolution; this rule makes the refusal a named violation instead of a silent unresolved import.",
+      "comment": "Rule 1 by package name: @biztrust/platform-configuration/src/internal/... from outside modules/platform-configuration/, however the path is spelled (a .. or . segment, no trailing slash, other case, a percent escape, a backslash, a query or a hash). The exports field refuses it at resolution; this rule makes the refusal a named violation instead of a silent unresolved import.",
       "severity": "error",
       "from": {
         "pathNot": "^modules/platform-configuration/"
       },
       "to": {
         "couldNotResolve": true,
-        "path": "^@biztrust/platform-configuration/(?:internal|.*/internal)(?:/|$)"
+        "path": "^@[bB][iI][zZ][tT][rR][uU][sS][tT](?:[/\\\\]|%2[fF]|%5[cC])(?:\\.(?:[/\\\\]|%2[fF]|%5[cC])|(?:[/\\\\]|%2[fF]|%5[cC]))*[pP][lL][aA][tT][fF][oO][rR][mM]-[cC][oO][nN][fF][iI][gG][uU][rR][aA][tT][iI][oO][nN](?:[/\\\\]|%2[fF]|%5[cC])(?:(?:[iI]|%69|%49)(?:[nN]|%6[eE]|%4[eE])(?:[tT]|%74|%54)(?:[eE]|%65|%45)(?:[rR]|%72|%52)(?:[nN]|%6[eE]|%4[eE])(?:[aA]|%61|%41)(?:[lL]|%6[cC]|%4[cC])|.*(?:[/\\\\]|%2[fF]|%5[cC])(?:[iI]|%69|%49)(?:[nN]|%6[eE]|%4[eE])(?:[tT]|%74|%54)(?:[eE]|%65|%45)(?:[rR]|%72|%52)(?:[nN]|%6[eE]|%4[eE])(?:[aA]|%61|%41)(?:[lL]|%6[cC]|%4[cC]))(?:(?:[/\\\\]|%2[fF]|%5[cC])|[?#]|%3[fF]|%23|$)"
       }
     },
     {
       "name": "rule-2-contracts-only-tenancy",
-      "comment": "Rule 2: modules/tenancy may import another module only through @biztrust/<module>, which resolves to that module's contract, src/public/index.ts. Never a repository, a table or a connection.",
+      "comment": "Rule 2: modules/tenancy may import another module only through @biztrust/<module>, which resolves to that module's contract, src/public/index.ts. Never a repository, a table or a connection, and never the built copy of one under dist/.",
       "severity": "error",
       "from": {
         "path": "^modules/tenancy/"
       },
       "to": {
-        "path": "^modules/(?!tenancy/)[^/]+/src/",
+        "path": "^modules/(?!tenancy/)[^/]+/(?:src|dist)/",
         "pathNot": "^modules/[^/]+/src/public/index\\.ts$"
       }
     },
     {
       "name": "rule-2-contracts-only-identity-access",
-      "comment": "Rule 2: modules/identity-access may import another module only through @biztrust/<module>, which resolves to that module's contract, src/public/index.ts. Never a repository, a table or a connection.",
+      "comment": "Rule 2: modules/identity-access may import another module only through @biztrust/<module>, which resolves to that module's contract, src/public/index.ts. Never a repository, a table or a connection, and never the built copy of one under dist/.",
       "severity": "error",
       "from": {
         "path": "^modules/identity-access/"
       },
       "to": {
-        "path": "^modules/(?!identity-access/)[^/]+/src/",
+        "path": "^modules/(?!identity-access/)[^/]+/(?:src|dist)/",
         "pathNot": "^modules/[^/]+/src/public/index\\.ts$"
       }
     },
     {
       "name": "rule-2-contracts-only-audit",
-      "comment": "Rule 2: modules/audit may import another module only through @biztrust/<module>, which resolves to that module's contract, src/public/index.ts. Never a repository, a table or a connection.",
+      "comment": "Rule 2: modules/audit may import another module only through @biztrust/<module>, which resolves to that module's contract, src/public/index.ts. Never a repository, a table or a connection, and never the built copy of one under dist/.",
       "severity": "error",
       "from": {
         "path": "^modules/audit/"
       },
       "to": {
-        "path": "^modules/(?!audit/)[^/]+/src/",
+        "path": "^modules/(?!audit/)[^/]+/(?:src|dist)/",
         "pathNot": "^modules/[^/]+/src/public/index\\.ts$"
       }
     },
     {
       "name": "rule-2-contracts-only-platform-configuration",
-      "comment": "Rule 2: modules/platform-configuration may import another module only through @biztrust/<module>, which resolves to that module's contract, src/public/index.ts. Never a repository, a table or a connection.",
+      "comment": "Rule 2: modules/platform-configuration may import another module only through @biztrust/<module>, which resolves to that module's contract, src/public/index.ts. Never a repository, a table or a connection, and never the built copy of one under dist/.",
       "severity": "error",
       "from": {
         "path": "^modules/platform-configuration/"
       },
       "to": {
-        "path": "^modules/(?!platform-configuration/)[^/]+/src/",
+        "path": "^modules/(?!platform-configuration/)[^/]+/(?:src|dist)/",
         "pathNot": "^modules/[^/]+/src/public/index\\.ts$"
       }
     },
@@ -162,7 +162,7 @@ module.exports = {
       },
       "to": {
         "couldNotResolve": true,
-        "path": "^@biztrust/(?!tenancy/)(tenancy|identity-access|audit|platform-configuration|distribution|compliance|party|client|risk|distribution-product|submission|placement|quote-indication|recommendation|binding|policy-record|claims|renewal|billing|payment|ledger|commission|settlement|reconciliation|insurer|payment-provider|bank|partner-api|documents|notifications)/.+"
+        "path": "^@[bB][iI][zZ][tT][rR][uU][sS][tT](?:[/\\\\]|%2[fF]|%5[cC])(?:\\.(?:[/\\\\]|%2[fF]|%5[cC])|(?:[/\\\\]|%2[fF]|%5[cC]))*(?![tT][eE][nN][aA][nN][cC][yY](?:[/\\\\]|%2[fF]|%5[cC]))([tT][eE][nN][aA][nN][cC][yY]|[iI][dD][eE][nN][tT][iI][tT][yY]-[aA][cC][cC][eE][sS][sS]|[aA][uU][dD][iI][tT]|[pP][lL][aA][tT][fF][oO][rR][mM]-[cC][oO][nN][fF][iI][gG][uU][rR][aA][tT][iI][oO][nN]|[dD][iI][sS][tT][rR][iI][bB][uU][tT][iI][oO][nN]|[cC][oO][mM][pP][lL][iI][aA][nN][cC][eE]|[pP][aA][rR][tT][yY]|[cC][lL][iI][eE][nN][tT]|[rR][iI][sS][kK]|[dD][iI][sS][tT][rR][iI][bB][uU][tT][iI][oO][nN]-[pP][rR][oO][dD][uU][cC][tT]|[sS][uU][bB][mM][iI][sS][sS][iI][oO][nN]|[pP][lL][aA][cC][eE][mM][eE][nN][tT]|[qQ][uU][oO][tT][eE]-[iI][nN][dD][iI][cC][aA][tT][iI][oO][nN]|[rR][eE][cC][oO][mM][mM][eE][nN][dD][aA][tT][iI][oO][nN]|[bB][iI][nN][dD][iI][nN][gG]|[pP][oO][lL][iI][cC][yY]-[rR][eE][cC][oO][rR][dD]|[cC][lL][aA][iI][mM][sS]|[rR][eE][nN][eE][wW][aA][lL]|[bB][iI][lL][lL][iI][nN][gG]|[pP][aA][yY][mM][eE][nN][tT]|[lL][eE][dD][gG][eE][rR]|[cC][oO][mM][mM][iI][sS][sS][iI][oO][nN]|[sS][eE][tT][tT][lL][eE][mM][eE][nN][tT]|[rR][eE][cC][oO][nN][cC][iI][lL][iI][aA][tT][iI][oO][nN]|[iI][nN][sS][uU][rR][eE][rR]|[pP][aA][yY][mM][eE][nN][tT]-[pP][rR][oO][vV][iI][dD][eE][rR]|[bB][aA][nN][kK]|[pP][aA][rR][tT][nN][eE][rR]-[aA][pP][iI]|[dD][oO][cC][uU][mM][eE][nN][tT][sS]|[nN][oO][tT][iI][fF][iI][cC][aA][tT][iI][oO][nN][sS])(?:[/\\\\]|%2[fF]|%5[cC]).+"
       }
     },
     {
@@ -174,7 +174,7 @@ module.exports = {
       },
       "to": {
         "couldNotResolve": true,
-        "path": "^@biztrust/(?!identity-access/)(tenancy|identity-access|audit|platform-configuration|distribution|compliance|party|client|risk|distribution-product|submission|placement|quote-indication|recommendation|binding|policy-record|claims|renewal|billing|payment|ledger|commission|settlement|reconciliation|insurer|payment-provider|bank|partner-api|documents|notifications)/.+"
+        "path": "^@[bB][iI][zZ][tT][rR][uU][sS][tT](?:[/\\\\]|%2[fF]|%5[cC])(?:\\.(?:[/\\\\]|%2[fF]|%5[cC])|(?:[/\\\\]|%2[fF]|%5[cC]))*(?![iI][dD][eE][nN][tT][iI][tT][yY]-[aA][cC][cC][eE][sS][sS](?:[/\\\\]|%2[fF]|%5[cC]))([tT][eE][nN][aA][nN][cC][yY]|[iI][dD][eE][nN][tT][iI][tT][yY]-[aA][cC][cC][eE][sS][sS]|[aA][uU][dD][iI][tT]|[pP][lL][aA][tT][fF][oO][rR][mM]-[cC][oO][nN][fF][iI][gG][uU][rR][aA][tT][iI][oO][nN]|[dD][iI][sS][tT][rR][iI][bB][uU][tT][iI][oO][nN]|[cC][oO][mM][pP][lL][iI][aA][nN][cC][eE]|[pP][aA][rR][tT][yY]|[cC][lL][iI][eE][nN][tT]|[rR][iI][sS][kK]|[dD][iI][sS][tT][rR][iI][bB][uU][tT][iI][oO][nN]-[pP][rR][oO][dD][uU][cC][tT]|[sS][uU][bB][mM][iI][sS][sS][iI][oO][nN]|[pP][lL][aA][cC][eE][mM][eE][nN][tT]|[qQ][uU][oO][tT][eE]-[iI][nN][dD][iI][cC][aA][tT][iI][oO][nN]|[rR][eE][cC][oO][mM][mM][eE][nN][dD][aA][tT][iI][oO][nN]|[bB][iI][nN][dD][iI][nN][gG]|[pP][oO][lL][iI][cC][yY]-[rR][eE][cC][oO][rR][dD]|[cC][lL][aA][iI][mM][sS]|[rR][eE][nN][eE][wW][aA][lL]|[bB][iI][lL][lL][iI][nN][gG]|[pP][aA][yY][mM][eE][nN][tT]|[lL][eE][dD][gG][eE][rR]|[cC][oO][mM][mM][iI][sS][sS][iI][oO][nN]|[sS][eE][tT][tT][lL][eE][mM][eE][nN][tT]|[rR][eE][cC][oO][nN][cC][iI][lL][iI][aA][tT][iI][oO][nN]|[iI][nN][sS][uU][rR][eE][rR]|[pP][aA][yY][mM][eE][nN][tT]-[pP][rR][oO][vV][iI][dD][eE][rR]|[bB][aA][nN][kK]|[pP][aA][rR][tT][nN][eE][rR]-[aA][pP][iI]|[dD][oO][cC][uU][mM][eE][nN][tT][sS]|[nN][oO][tT][iI][fF][iI][cC][aA][tT][iI][oO][nN][sS])(?:[/\\\\]|%2[fF]|%5[cC]).+"
       }
     },
     {
@@ -186,7 +186,7 @@ module.exports = {
       },
       "to": {
         "couldNotResolve": true,
-        "path": "^@biztrust/(?!audit/)(tenancy|identity-access|audit|platform-configuration|distribution|compliance|party|client|risk|distribution-product|submission|placement|quote-indication|recommendation|binding|policy-record|claims|renewal|billing|payment|ledger|commission|settlement|reconciliation|insurer|payment-provider|bank|partner-api|documents|notifications)/.+"
+        "path": "^@[bB][iI][zZ][tT][rR][uU][sS][tT](?:[/\\\\]|%2[fF]|%5[cC])(?:\\.(?:[/\\\\]|%2[fF]|%5[cC])|(?:[/\\\\]|%2[fF]|%5[cC]))*(?![aA][uU][dD][iI][tT](?:[/\\\\]|%2[fF]|%5[cC]))([tT][eE][nN][aA][nN][cC][yY]|[iI][dD][eE][nN][tT][iI][tT][yY]-[aA][cC][cC][eE][sS][sS]|[aA][uU][dD][iI][tT]|[pP][lL][aA][tT][fF][oO][rR][mM]-[cC][oO][nN][fF][iI][gG][uU][rR][aA][tT][iI][oO][nN]|[dD][iI][sS][tT][rR][iI][bB][uU][tT][iI][oO][nN]|[cC][oO][mM][pP][lL][iI][aA][nN][cC][eE]|[pP][aA][rR][tT][yY]|[cC][lL][iI][eE][nN][tT]|[rR][iI][sS][kK]|[dD][iI][sS][tT][rR][iI][bB][uU][tT][iI][oO][nN]-[pP][rR][oO][dD][uU][cC][tT]|[sS][uU][bB][mM][iI][sS][sS][iI][oO][nN]|[pP][lL][aA][cC][eE][mM][eE][nN][tT]|[qQ][uU][oO][tT][eE]-[iI][nN][dD][iI][cC][aA][tT][iI][oO][nN]|[rR][eE][cC][oO][mM][mM][eE][nN][dD][aA][tT][iI][oO][nN]|[bB][iI][nN][dD][iI][nN][gG]|[pP][oO][lL][iI][cC][yY]-[rR][eE][cC][oO][rR][dD]|[cC][lL][aA][iI][mM][sS]|[rR][eE][nN][eE][wW][aA][lL]|[bB][iI][lL][lL][iI][nN][gG]|[pP][aA][yY][mM][eE][nN][tT]|[lL][eE][dD][gG][eE][rR]|[cC][oO][mM][mM][iI][sS][sS][iI][oO][nN]|[sS][eE][tT][tT][lL][eE][mM][eE][nN][tT]|[rR][eE][cC][oO][nN][cC][iI][lL][iI][aA][tT][iI][oO][nN]|[iI][nN][sS][uU][rR][eE][rR]|[pP][aA][yY][mM][eE][nN][tT]-[pP][rR][oO][vV][iI][dD][eE][rR]|[bB][aA][nN][kK]|[pP][aA][rR][tT][nN][eE][rR]-[aA][pP][iI]|[dD][oO][cC][uU][mM][eE][nN][tT][sS]|[nN][oO][tT][iI][fF][iI][cC][aA][tT][iI][oO][nN][sS])(?:[/\\\\]|%2[fF]|%5[cC]).+"
       }
     },
     {
@@ -198,7 +198,7 @@ module.exports = {
       },
       "to": {
         "couldNotResolve": true,
-        "path": "^@biztrust/(?!platform-configuration/)(tenancy|identity-access|audit|platform-configuration|distribution|compliance|party|client|risk|distribution-product|submission|placement|quote-indication|recommendation|binding|policy-record|claims|renewal|billing|payment|ledger|commission|settlement|reconciliation|insurer|payment-provider|bank|partner-api|documents|notifications)/.+"
+        "path": "^@[bB][iI][zZ][tT][rR][uU][sS][tT](?:[/\\\\]|%2[fF]|%5[cC])(?:\\.(?:[/\\\\]|%2[fF]|%5[cC])|(?:[/\\\\]|%2[fF]|%5[cC]))*(?![pP][lL][aA][tT][fF][oO][rR][mM]-[cC][oO][nN][fF][iI][gG][uU][rR][aA][tT][iI][oO][nN](?:[/\\\\]|%2[fF]|%5[cC]))([tT][eE][nN][aA][nN][cC][yY]|[iI][dD][eE][nN][tT][iI][tT][yY]-[aA][cC][cC][eE][sS][sS]|[aA][uU][dD][iI][tT]|[pP][lL][aA][tT][fF][oO][rR][mM]-[cC][oO][nN][fF][iI][gG][uU][rR][aA][tT][iI][oO][nN]|[dD][iI][sS][tT][rR][iI][bB][uU][tT][iI][oO][nN]|[cC][oO][mM][pP][lL][iI][aA][nN][cC][eE]|[pP][aA][rR][tT][yY]|[cC][lL][iI][eE][nN][tT]|[rR][iI][sS][kK]|[dD][iI][sS][tT][rR][iI][bB][uU][tT][iI][oO][nN]-[pP][rR][oO][dD][uU][cC][tT]|[sS][uU][bB][mM][iI][sS][sS][iI][oO][nN]|[pP][lL][aA][cC][eE][mM][eE][nN][tT]|[qQ][uU][oO][tT][eE]-[iI][nN][dD][iI][cC][aA][tT][iI][oO][nN]|[rR][eE][cC][oO][mM][mM][eE][nN][dD][aA][tT][iI][oO][nN]|[bB][iI][nN][dD][iI][nN][gG]|[pP][oO][lL][iI][cC][yY]-[rR][eE][cC][oO][rR][dD]|[cC][lL][aA][iI][mM][sS]|[rR][eE][nN][eE][wW][aA][lL]|[bB][iI][lL][lL][iI][nN][gG]|[pP][aA][yY][mM][eE][nN][tT]|[lL][eE][dD][gG][eE][rR]|[cC][oO][mM][mM][iI][sS][sS][iI][oO][nN]|[sS][eE][tT][tT][lL][eE][mM][eE][nN][tT]|[rR][eE][cC][oO][nN][cC][iI][lL][iI][aA][tT][iI][oO][nN]|[iI][nN][sS][uU][rR][eE][rR]|[pP][aA][yY][mM][eE][nN][tT]-[pP][rR][oO][vV][iI][dD][eE][rR]|[bB][aA][nN][kK]|[pP][aA][rR][tT][nN][eE][rR]-[aA][pP][iI]|[dD][oO][cC][uU][mM][eE][nN][tT][sS]|[nN][oO][tT][iI][fF][iI][cC][aA][tT][iI][oO][nN][sS])(?:[/\\\\]|%2[fF]|%5[cC]).+"
       }
     },
     {
@@ -225,13 +225,13 @@ module.exports = {
     },
     {
       "name": "rule-5-entry-points-see-contracts-only",
-      "comment": "Rule 5: services/* and apps/* import modules' contracts and packages/*; an import of any other path inside a module is a bypass of the contract.",
+      "comment": "Rule 5: services/* and apps/* import modules' contracts and packages/*; an import of any other path inside a module, src/ or built dist/, is a bypass of the contract.",
       "severity": "error",
       "from": {
         "path": "^(services|apps)/"
       },
       "to": {
-        "path": "^modules/[^/]+/src/",
+        "path": "^modules/[^/]+/(?:src|dist)/",
         "pathNot": "^modules/[^/]+/src/public/index\\.ts$"
       }
     },
@@ -255,7 +255,7 @@ module.exports = {
       },
       "to": {
         "couldNotResolve": true,
-        "path": "^@biztrust/(tenancy|identity-access|audit|platform-configuration|distribution|compliance|party|client|risk|distribution-product|submission|placement|quote-indication|recommendation|binding|policy-record|claims|renewal|billing|payment|ledger|commission|settlement|reconciliation|insurer|payment-provider|bank|partner-api|documents|notifications)/.+"
+        "path": "^@[bB][iI][zZ][tT][rR][uU][sS][tT](?:[/\\\\]|%2[fF]|%5[cC])(?:\\.(?:[/\\\\]|%2[fF]|%5[cC])|(?:[/\\\\]|%2[fF]|%5[cC]))*([tT][eE][nN][aA][nN][cC][yY]|[iI][dD][eE][nN][tT][iI][tT][yY]-[aA][cC][cC][eE][sS][sS]|[aA][uU][dD][iI][tT]|[pP][lL][aA][tT][fF][oO][rR][mM]-[cC][oO][nN][fF][iI][gG][uU][rR][aA][tT][iI][oO][nN]|[dD][iI][sS][tT][rR][iI][bB][uU][tT][iI][oO][nN]|[cC][oO][mM][pP][lL][iI][aA][nN][cC][eE]|[pP][aA][rR][tT][yY]|[cC][lL][iI][eE][nN][tT]|[rR][iI][sS][kK]|[dD][iI][sS][tT][rR][iI][bB][uU][tT][iI][oO][nN]-[pP][rR][oO][dD][uU][cC][tT]|[sS][uU][bB][mM][iI][sS][sS][iI][oO][nN]|[pP][lL][aA][cC][eE][mM][eE][nN][tT]|[qQ][uU][oO][tT][eE]-[iI][nN][dD][iI][cC][aA][tT][iI][oO][nN]|[rR][eE][cC][oO][mM][mM][eE][nN][dD][aA][tT][iI][oO][nN]|[bB][iI][nN][dD][iI][nN][gG]|[pP][oO][lL][iI][cC][yY]-[rR][eE][cC][oO][rR][dD]|[cC][lL][aA][iI][mM][sS]|[rR][eE][nN][eE][wW][aA][lL]|[bB][iI][lL][lL][iI][nN][gG]|[pP][aA][yY][mM][eE][nN][tT]|[lL][eE][dD][gG][eE][rR]|[cC][oO][mM][mM][iI][sS][sS][iI][oO][nN]|[sS][eE][tT][tT][lL][eE][mM][eE][nN][tT]|[rR][eE][cC][oO][nN][cC][iI][lL][iI][aA][tT][iI][oO][nN]|[iI][nN][sS][uU][rR][eE][rR]|[pP][aA][yY][mM][eE][nN][tT]-[pP][rR][oO][vV][iI][dD][eE][rR]|[bB][aA][nN][kK]|[pP][aA][rR][tT][nN][eE][rR]-[aA][pP][iI]|[dD][oO][cC][uU][mM][eE][nN][tT][sS]|[nN][oO][tT][iI][fF][iI][cC][aA][tT][iI][oO][nN][sS])(?:[/\\\\]|%2[fF]|%5[cC]).+"
       }
     },
     {
@@ -279,14 +279,22 @@ module.exports = {
       "to": {
         "path": "^modules/"
       }
+    },
+    {
+      "name": "backstop-no-unresolvable-imports",
+      "comment": "Backstop: an import from modules/, packages/, services/ or apps/ that resolves to nothing is an error, however it is spelled. It covers every by-name spelling the rules above do not name, and a path into a dist/ directory that has not been built.",
+      "severity": "error",
+      "from": {
+        "path": "^(?:modules|packages|services|apps)/"
+      },
+      "to": {
+        "couldNotResolve": true
+      }
     }
   ],
   "options": {
     "doNotFollow": {
-      "path": "node_modules"
-    },
-    "exclude": {
-      "path": "(^|/)dist/|^tests/boundaries/fixtures/"
+      "path": "^node_modules/|^(?:modules|packages|services|apps)/[^/]+/node_modules/|^(?:modules|packages|services|apps)/[^/]+/dist/|^tests/boundaries/fixtures/"
     },
     "tsPreCompilationDeps": true,
     "tsConfig": {
