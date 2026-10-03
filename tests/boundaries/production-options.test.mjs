@@ -35,17 +35,39 @@
  * committed options is red under the loosening it guards; the mutations in
  * scripts/mutation-check.mjs tagged C10-1 to C10-4 are those loosenings.
  *
- * Declared non-coverage: `enhancedResolveOptions.exportsFields` and
- * `conditionNames`. Without them a deep by-name import resolves through a
- * workspace link and the path rules report it instead of the by-name rules, so
- * no plant tells the two apart; the by-name rules are witnessed in
- * boundary-rules.test.mjs. `reporterOptions` only changes how a report reads.
+ * Round twelve (control R12-2). Round eleven's plants were one per SOURCE ROOT
+ * and not one per IMPORT FORM: none used a dynamic `import()`, a `require()`,
+ * an `export ... from`, or a `.mjs` or `.cjs` source. `exclude: { dynamic:
+ * true }`, `moduleSystems: ["es6", "tsd"]` and a `|\.mjs$` or `|\.cjs$` added
+ * to `doNotFollow` each blinded every rule to one form in every root, and
+ * `boundaries:check`, this file and the whole boundary suite stayed green
+ * (and the mutation sweep too, since no mutation loosened them). There is now
+ * a plant for each form, reaching another module's internals (and, for two of
+ * them, test code, which is rule 6), and each is asserted against the rule
+ * that names it.
+ *
+ * The plants find a loosening only if someone thinks of it. The second half of
+ * the fix does not depend on that: the options object the generator writes is
+ * pinned below, key by key and value by value, to a list written out in this
+ * file. A key the list does not name, or a value it does not match, fails
+ * until this file is changed on purpose. That is not what `--check` does:
+ * `--check` compares the committed file with what the generator renders NOW,
+ * so a loosened generator and its regenerated output agree and it passes. The
+ * pin is the comparison that does not move when the generator moves.
+ *
+ * Declared non-coverage: what the pinned `exportsFields` and `conditionNames`
+ * DO. Without them a deep by-name import resolves through a workspace link and
+ * the path rules report it instead of the by-name rules, so no plant tells the
+ * two apart; the by-name rules are witnessed in boundary-rules.test.mjs. The
+ * pin covers that they stay as written, not that they behave. `reporterOptions`
+ * only changes how a report reads, and is pinned for the same reason.
  */
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -192,6 +214,51 @@ const PLANTS = {
     file: "services/api/src/plant-dist-with-no-build.js",
     text: 'import "../../../modules/audit/dist/internal/append-only.js";\n',
   },
+
+  // ---- round twelve, control R12-2: one plant per IMPORT FORM --------------
+  //
+  // Every plant above is a static `import` in a `.ts` or `.js` file. These are
+  // the other forms a source file can reach across a boundary with, each in
+  // services/api/src and each with a literal specifier, so the only thing that
+  // can hide it is an option that blinds the checker to that form.
+  dynamicImport: {
+    file: "services/api/src/plant-dynamic-import.ts",
+    text: 'export const load = () => import("../../../modules/tenancy/src/internal/tenant-store.ts");\n',
+  },
+  dynamicImportOfTests: {
+    file: "services/api/src/plant-dynamic-import-of-tests.ts",
+    text: 'export const load = () => import("../../../tests/bypass/src/index.ts");\n',
+    needs: [["tests/bypass/src/index.ts", "export const runAsApplicationRole = () => 1;\n"]],
+  },
+  requireInCjs: {
+    file: "services/api/src/plant-require-in-cjs.cjs",
+    text: 'const store = require("../../../modules/tenancy/src/internal/tenant-store.ts");\n' +
+      "module.exports = { store };\n",
+  },
+  // A `.js` file, so a loosening of moduleSystems is told apart from one of
+  // doNotFollow for `.cjs`: the first hides this and the second does not.
+  requireInJs: {
+    file: "services/api/src/plant-require-in-js.js",
+    text: 'const store = require("../../../modules/tenancy/src/internal/tenant-store.ts");\n' +
+      "module.exports = { store };\n",
+  },
+  mjsReexport: {
+    file: "services/api/src/plant-reexport.mjs",
+    text: 'export * from "../../../modules/tenancy/src/internal/tenant-store.ts";\n',
+  },
+  mjsReexportOfTests: {
+    file: "services/api/src/plant-reexport-of-tests.mjs",
+    text: 'export { runAsApplicationRole } from "../../../tests/bypass/src/index.ts";\n',
+    needs: [["tests/bypass/src/index.ts", "export const runAsApplicationRole = () => 1;\n"]],
+  },
+  cjsReexport: {
+    file: "services/api/src/plant-reexport.cjs",
+    text: 'module.exports = require("../../../modules/tenancy/src/internal/tenant-store.ts");\n',
+  },
+  exportFrom: {
+    file: "services/api/src/plant-export-from.ts",
+    text: 'export { TENANCY_SCHEMA } from "../../../modules/tenancy/src/internal/tenant-store.ts";\n',
+  },
 };
 
 function cruiseWithTheGeneratedOptions() {
@@ -218,6 +285,10 @@ function cruiseWithTheGeneratedOptions() {
       generated[name] = readFileSync(join(root, name), "utf8") === readFileSync(join(ROOT, name), "utf8");
     }
 
+    // The options object the generator wrote, read before the copy is removed.
+    // `require` caches, so the committed file is read separately and below.
+    const options = createRequire(import.meta.url)(join(root, ".dependency-cruiser.cjs")).options;
+
     for (const plant of Object.values(PLANTS)) {
       for (const [file, text] of [[plant.file, plant.text], ...(plant.needs ?? [])]) {
         mkdirSync(dirname(join(root, file)), { recursive: true });
@@ -237,13 +308,15 @@ function cruiseWithTheGeneratedOptions() {
       stdout = error.stdout ?? "";
       assert.notEqual(stdout.trim(), "", `the checker produced no report: ${error.stderr ?? error}`);
     }
-    return { generated, violations: JSON.parse(stdout).summary.violations };
+    return { generated, options, violations: JSON.parse(stdout).summary.violations };
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 }
 
-const { generated, violations } = cruiseWithTheGeneratedOptions();
+const { generated, options, violations } = cruiseWithTheGeneratedOptions();
+// The committed file, read from the repository root: the options CI cruises with.
+const committedOptions = createRequire(import.meta.url)(join(ROOT, ".dependency-cruiser.cjs")).options;
 const norm = (path) => String(path).replace(/\\/g, "/");
 const rulesFor = (file) => violations.filter((v) => norm(v.from) === file).map((v) => v.rule.name);
 
@@ -380,4 +453,155 @@ test("production options: a js file in a module importing a double percent-encod
 
 test("production options: a js file in an app importing a double percent-encoded directory is reported as backstop-no-unresolvable-imports", () => {
   assertReported(PLANTS.unresolvableInAnApp, UNRESOLVABLE);
+});
+
+// ---- round twelve: one test per IMPORT FORM (R12-2) --------------------------
+
+const INTERNALS = "rule-1-internals-private-tenancy";
+const ENTRY_POINTS = "rule-5-entry-points-see-contracts-only";
+const TESTS_ONLY = "rule-6-test-packages-stay-in-tests";
+
+test("production options: a dynamic import() of tenancy internals is reported as rule-1-internals-private-tenancy", () => {
+  assertReported(PLANTS.dynamicImport, INTERNALS);
+});
+
+test("production options: a dynamic import() of tenancy internals is reported as rule-5-entry-points-see-contracts-only", () => {
+  assertReported(PLANTS.dynamicImport, ENTRY_POINTS);
+});
+
+test("production options: a dynamic import() of test code is reported as rule-6-test-packages-stay-in-tests", () => {
+  assertReported(PLANTS.dynamicImportOfTests, TESTS_ONLY);
+});
+
+test("production options: a require() in a cjs file of tenancy internals is reported as rule-1-internals-private-tenancy", () => {
+  assertReported(PLANTS.requireInCjs, INTERNALS);
+});
+
+test("production options: a require() in a cjs file of tenancy internals is reported as rule-5-entry-points-see-contracts-only", () => {
+  assertReported(PLANTS.requireInCjs, ENTRY_POINTS);
+});
+
+test("production options: a require() in a js file of tenancy internals is reported as rule-1-internals-private-tenancy", () => {
+  assertReported(PLANTS.requireInJs, INTERNALS);
+});
+
+test("production options: a require() in a js file of tenancy internals is reported as rule-5-entry-points-see-contracts-only", () => {
+  assertReported(PLANTS.requireInJs, ENTRY_POINTS);
+});
+
+test("production options: an mjs re-export of tenancy internals is reported as rule-1-internals-private-tenancy", () => {
+  assertReported(PLANTS.mjsReexport, INTERNALS);
+});
+
+test("production options: an mjs re-export of tenancy internals is reported as rule-5-entry-points-see-contracts-only", () => {
+  assertReported(PLANTS.mjsReexport, ENTRY_POINTS);
+});
+
+test("production options: an mjs re-export of test code is reported as rule-6-test-packages-stay-in-tests", () => {
+  assertReported(PLANTS.mjsReexportOfTests, TESTS_ONLY);
+});
+
+test("production options: a cjs re-export of tenancy internals is reported as rule-1-internals-private-tenancy", () => {
+  assertReported(PLANTS.cjsReexport, INTERNALS);
+});
+
+test("production options: a cjs re-export of tenancy internals is reported as rule-5-entry-points-see-contracts-only", () => {
+  assertReported(PLANTS.cjsReexport, ENTRY_POINTS);
+});
+
+test("production options: an export-from of tenancy internals is reported as rule-1-internals-private-tenancy", () => {
+  assertReported(PLANTS.exportFrom, INTERNALS);
+});
+
+test("production options: an export-from of tenancy internals is reported as rule-5-entry-points-see-contracts-only", () => {
+  assertReported(PLANTS.exportFrom, ENTRY_POINTS);
+});
+
+// ---- round twelve: the options object, pinned to a list written out here (R12-2) ----
+//
+// Every value below is written out in full on purpose. Deriving one from
+// scripts/boundary-rules.mjs would move the pin whenever the generator moves,
+// which is the comparison --check already makes and the one this replaces
+// nothing of. Changing an option means changing this list in the same pull
+// request, and a reviewer reads the change here.
+//
+// Both objects are pinned: the options the generator writes into the copy, and
+// the options in the committed file CI cruises with. The test at the top of
+// this file already requires the two files to be byte-identical; pinning both
+// keeps the pin true if that test is ever relaxed.
+
+const ALLOWED_OPTIONS = {
+  doNotFollow: {
+    path:
+      "^node_modules/|^(?:modules|packages|services|apps)/[^/]+/node_modules/|" +
+      "^(?:modules|packages|services|apps)/[^/]+/dist/|^tests/boundaries/fixtures/",
+  },
+  tsPreCompilationDeps: true,
+  tsConfig: { fileName: "tsconfig.json" },
+  enhancedResolveOptions: {
+    exportsFields: ["exports"],
+    conditionNames: ["import", "require", "node", "default", "types"],
+    extensions: [".ts", ".js", ".mjs", ".cjs"],
+  },
+  reporterOptions: { text: { highlightFocused: true } },
+};
+
+/** Both objects, labelled, so a failure says which file's options moved. */
+const pinnedOptions = () => [
+  ["the options the generator writes", options],
+  ["the committed .dependency-cruiser.cjs", committedOptions],
+];
+
+function assertPinned(read, expected) {
+  for (const [label, found] of pinnedOptions()) {
+    assert.deepEqual(read(found), expected, `${label} differ from the allowlist in this file`);
+  }
+}
+
+test("production options: the option names are exactly the allowlist", () => {
+  assertPinned((found) => Object.keys(found).sort(), Object.keys(ALLOWED_OPTIONS).sort());
+});
+
+test("production options: the doNotFollow option is exactly the allowlisted pattern and nothing else", () => {
+  assertPinned((found) => found.doNotFollow, ALLOWED_OPTIONS.doNotFollow);
+});
+
+test("production options: the tsPreCompilationDeps option is exactly true", () => {
+  assertPinned((found) => found.tsPreCompilationDeps, true);
+});
+
+test("production options: the tsConfig option is exactly the repository tsconfig and nothing else", () => {
+  assertPinned((found) => found.tsConfig, ALLOWED_OPTIONS.tsConfig);
+});
+
+test("production options: the enhancedResolveOptions names are exactly the allowlist", () => {
+  assertPinned(
+    (found) => Object.keys(found.enhancedResolveOptions).sort(),
+    Object.keys(ALLOWED_OPTIONS.enhancedResolveOptions).sort(),
+  );
+});
+
+test("production options: the exportsFields resolve option is exactly the allowlist", () => {
+  assertPinned(
+    (found) => found.enhancedResolveOptions.exportsFields,
+    ALLOWED_OPTIONS.enhancedResolveOptions.exportsFields,
+  );
+});
+
+test("production options: the conditionNames resolve option is exactly the allowlist", () => {
+  assertPinned(
+    (found) => found.enhancedResolveOptions.conditionNames,
+    ALLOWED_OPTIONS.enhancedResolveOptions.conditionNames,
+  );
+});
+
+test("production options: the extensions resolve option is exactly the allowlist", () => {
+  assertPinned(
+    (found) => found.enhancedResolveOptions.extensions,
+    ALLOWED_OPTIONS.enhancedResolveOptions.extensions,
+  );
+});
+
+test("production options: the reporterOptions option is exactly the allowlist", () => {
+  assertPinned((found) => found.reporterOptions, ALLOWED_OPTIONS.reporterOptions);
 });

@@ -3398,6 +3398,159 @@ const MUTATIONS = [
       '      exclude: { path: "^modules/" },',
     ),
   },
+  // ---- round twelve, R12-2: one plant per IMPORT FORM, and the options pinned ----
+  //
+  // Round eleven loosened `doNotFollow` and `exclude` per SOURCE ROOT. None of
+  // these loosened them per import form: a dynamic import(), a require(), an
+  // export-from, a .mjs source, a .cjs source. Each below blinds every rule to
+  // that form in every root; each has a plant of its own in
+  // tests/boundaries/production-options.test.mjs. From the "includeOnly"
+  // mutation down, a mutation is caught by the pin on the options object and
+  // by no plant of its own, which is the point of the pin: it names a loosening
+  // nobody has built a plant for.
+  {
+    file: GENERATOR,
+    name: "generator: do not see a dynamic import() (R12-2)",
+    witness:
+      "production options: a dynamic import() of tenancy internals is reported as " +
+      "rule-1-internals-private-tenancy",
+    from: "      doNotFollow: { path: DO_NOT_FOLLOW },",
+    to: lines(
+      "      doNotFollow: { path: DO_NOT_FOLLOW },",
+      "      exclude: { dynamic: true },",
+    ),
+  },
+  {
+    file: GENERATOR,
+    name: "generator: do not see a require() (R12-2)",
+    witness:
+      "production options: a require() in a js file of tenancy internals is reported as " +
+      "rule-1-internals-private-tenancy",
+    from: "      doNotFollow: { path: DO_NOT_FOLLOW },",
+    to: lines(
+      "      doNotFollow: { path: DO_NOT_FOLLOW },",
+      '      moduleSystems: ["es6", "tsd"],',
+    ),
+  },
+  {
+    file: GENERATOR,
+    name: "generator: do not see an ES module import or export-from (R12-2)",
+    witness:
+      "production options: an export-from of tenancy internals is reported as " +
+      "rule-1-internals-private-tenancy",
+    from: "      doNotFollow: { path: DO_NOT_FOLLOW },",
+    to: lines(
+      "      doNotFollow: { path: DO_NOT_FOLLOW },",
+      '      moduleSystems: ["cjs", "amd", "tsd"],',
+    ),
+  },
+  {
+    file: RULES,
+    name: "options: do not follow the imports of a .mjs file (R12-2)",
+    witness:
+      "production options: an mjs re-export of tenancy internals is reported as " +
+      "rule-1-internals-private-tenancy",
+    from: 'export const DO_NOT_FOLLOW = Object.values(UNFOLLOWED).join("|");',
+    to:
+      'export const DO_NOT_FOLLOW = Object.values(UNFOLLOWED).join("|") + "|' +
+      BACKSLASH +
+      BACKSLASH +
+      '.mjs$";',
+  },
+  {
+    file: RULES,
+    name: "options: do not follow the imports of a .cjs file (R12-2)",
+    witness:
+      "production options: a require() in a cjs file of tenancy internals is reported as " +
+      "rule-1-internals-private-tenancy",
+    from: 'export const DO_NOT_FOLLOW = Object.values(UNFOLLOWED).join("|");',
+    to:
+      'export const DO_NOT_FOLLOW = Object.values(UNFOLLOWED).join("|") + "|' +
+      BACKSLASH +
+      BACKSLASH +
+      '.cjs$";',
+  },
+  {
+    file: GENERATOR,
+    name: "generator: exclude .cjs files from the checker (R12-2)",
+    witness:
+      "production options: a cjs re-export of tenancy internals is reported as " +
+      "rule-1-internals-private-tenancy",
+    from: "      doNotFollow: { path: DO_NOT_FOLLOW },",
+    to: lines(
+      "      doNotFollow: { path: DO_NOT_FOLLOW },",
+      '      exclude: { path: "' + BACKSLASH + BACKSLASH + '.cjs$" },',
+    ),
+  },
+  {
+    file: GENERATOR,
+    name: "generator: judge only first-party source roots, not tests (R12-2)",
+    witness: "production options: the option names are exactly the allowlist",
+    from: "      doNotFollow: { path: DO_NOT_FOLLOW },",
+    to: lines(
+      "      doNotFollow: { path: DO_NOT_FOLLOW },",
+      '      includeOnly: "^(modules|packages|services|apps)/",',
+    ),
+  },
+  {
+    file: GENERATOR,
+    name: "generator: add a field to doNotFollow (R12-2)",
+    witness:
+      "production options: the doNotFollow option is exactly the allowlisted pattern and " +
+      "nothing else",
+    from: "      doNotFollow: { path: DO_NOT_FOLLOW },",
+    to: '      doNotFollow: { path: DO_NOT_FOLLOW, dependencyTypes: ["npm"] },',
+  },
+  {
+    file: GENERATOR,
+    name: "generator: read type-only imports another way (R12-2)",
+    witness: "production options: the tsPreCompilationDeps option is exactly true",
+    from: "      tsPreCompilationDeps: true,",
+    to: '      tsPreCompilationDeps: "specify",',
+  },
+  {
+    file: GENERATOR,
+    name: "generator: name the tsconfig another way (R12-2)",
+    witness:
+      "production options: the tsConfig option is exactly the repository tsconfig and nothing else",
+    from: '      tsConfig: { fileName: "tsconfig.json" },',
+    to: '      tsConfig: { fileName: "./tsconfig.json" },',
+  },
+  {
+    file: GENERATOR,
+    name: "generator: add a resolve option (R12-2)",
+    witness: "production options: the enhancedResolveOptions names are exactly the allowlist",
+    from: '        exportsFields: ["exports"],',
+    to: lines('        exportsFields: ["exports"],', '        mainFields: ["main"],'),
+  },
+  {
+    file: GENERATOR,
+    name: "generator: widen exportsFields (R12-2)",
+    witness: "production options: the exportsFields resolve option is exactly the allowlist",
+    from: '        exportsFields: ["exports"],',
+    to: '        exportsFields: ["exports", "main"],',
+  },
+  {
+    file: GENERATOR,
+    name: "generator: drop a condition name (R12-2)",
+    witness: "production options: the conditionNames resolve option is exactly the allowlist",
+    from: '        conditionNames: ["import", "require", "node", "default", "types"],',
+    to: '        conditionNames: ["import", "require", "node", "default"],',
+  },
+  {
+    file: GENERATOR,
+    name: "generator: stop resolving .cjs files (R12-2)",
+    witness: "production options: the extensions resolve option is exactly the allowlist",
+    from: '        extensions: [".ts", ".js", ".mjs", ".cjs"],',
+    to: '        extensions: [".ts", ".js", ".mjs"],',
+  },
+  {
+    file: GENERATOR,
+    name: "generator: change the report options (R12-2)",
+    witness: "production options: the reporterOptions option is exactly the allowlist",
+    from: "      reporterOptions: { text: { highlightFocused: true } },",
+    to: "      reporterOptions: { text: { highlightFocused: false } },",
+  },
   // ---- round eleven, C10-3 and C10-4: the catch-all for an import that resolves to nothing ----
   {
     file: RULES,
