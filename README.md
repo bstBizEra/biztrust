@@ -163,8 +163,8 @@ independent review found four rules in exactly that state: loosened by one
 line, suite still fully green.
 
 So `pnpm check:mutations` loosens each rule in turn and **requires the suite to
-go red**. 351 mutations at round eleven (307 at round ten), every one caught by
-the control it names, and a mutation whose anchor no longer matches the source
+go red**. 366 mutations at round twelve (351 at round eleven, 307 at round ten),
+every one caught by the control it names, and a mutation whose anchor no longer matches the source
 is a failure too, because it has silently stopped testing anything.
 
 Two mutations survived even after the missing fixtures were added. That was a
