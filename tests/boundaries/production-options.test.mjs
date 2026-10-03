@@ -55,6 +55,21 @@
  * so a loosened generator and its regenerated output agree and it passes. The
  * pin is the comparison that does not move when the generator moves.
  *
+ * Round fourteen (control R14-1). The pin above covered the `options` object
+ * and nothing else the checker runs with. Two more inputs configure it: the
+ * argument list of `pnpm boundaries:check` in package.json, and the top-level
+ * keys of `.dependency-cruiser.cjs`. This file used to cruise with an argument
+ * list of its own, so `--exclude "^services/api/src/legacy/"` added to that
+ * script, a scanned root dropped from it, or a top-level `extends` naming a
+ * file with a looser `exclude` hid a live rule-1 and rule-5 violation while
+ * `boundaries:check`, this file, the whole boundary suite and the mutation
+ * sweep all stayed green. The copy is now cruised with the depcruise arguments
+ * READ FROM package.json, so a loosened script loosens the cruise here and the
+ * plants it hides go red; and those arguments, the generation step before
+ * them and the config's top-level keys are pinned below the same way the
+ * options are. A script this file cannot read as a plain argument list fails
+ * rather than being guessed at.
+ *
  * Declared non-coverage: what the pinned `exportsFields` and `conditionNames`
  * DO. Without them a deep by-name import resolves through a workspace link and
  * the path rules report it instead of the by-name rules, so no plant tells the
@@ -77,6 +92,76 @@ const ROOT = join(HERE, "..", "..");
 const GENERATOR = join(ROOT, "scripts", "generate-boundary-rules.mjs");
 const DEPCRUISE = join(ROOT, "node_modules", "dependency-cruiser", "bin", "dependency-cruise.mjs");
 const FIXTURE_HELPER = "tests/boundaries/fixtures/workspace/tests/helpers/src/index.ts";
+
+// ---- round fourteen (R14-1): the boundaries:check script, read as CI runs it ----
+
+/**
+ * Splits a package.json script into its `&&`-joined commands, each a list of
+ * arguments, the way the POSIX shell on the CI runner would.
+ *
+ * Only the plain subset is read: bare words, single-quoted text, and
+ * double-quoted text with no `$`, backtick or backslash in it. Anything else a
+ * shell would expand, redirect, pipe or glob is refused with a reason rather
+ * than guessed at, because a guess that differs from the shell is exactly a
+ * cruise here that is not the cruise CI runs.
+ */
+function readScript(script) {
+  if (typeof script !== "string" || script.trim() === "") {
+    return { error: `the script is ${JSON.stringify(script)}, not a command` };
+  }
+  const commands = [[]];
+  let i = 0;
+  while (i < script.length) {
+    const c = script[i];
+    if (c === " " || c === "\t") {
+      i += 1;
+      continue;
+    }
+    if (script.startsWith("&&", i)) {
+      commands.push([]);
+      i += 2;
+      continue;
+    }
+    let word = "";
+    while (i < script.length && script[i] !== " " && script[i] !== "\t") {
+      const d = script[i];
+      if (d === "'" || d === '"') {
+        const end = script.indexOf(d, i + 1);
+        if (end === -1) return { error: `an unclosed ${d} at offset ${i}` };
+        const inner = script.slice(i + 1, end);
+        if (d === '"' && /[$`\\]/.test(inner)) {
+          return { error: `double-quoted text the shell would expand: ${d}${inner}${d}` };
+        }
+        word += inner;
+        i = end + 1;
+      } else if (/[A-Za-z0-9_./:@^=+,%-]/.test(d)) {
+        word += d;
+        i += 1;
+      } else {
+        return { error: `a character the shell gives a meaning to, ${JSON.stringify(d)}, at offset ${i}` };
+      }
+    }
+    commands[commands.length - 1].push(word);
+  }
+  if (commands.some((command) => command.length === 0)) {
+    return { error: "an empty command on one side of &&" };
+  }
+  return { commands };
+}
+
+/** What CI runs as `pnpm boundaries:check`, read from package.json now. */
+const BOUNDARIES_CHECK = (() => {
+  const script = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).scripts?.["boundaries:check"];
+  const read = readScript(script);
+  const depcruise = read.commands?.find((command) => command[0] === "depcruise");
+  return {
+    script,
+    error: read.error ?? (depcruise === undefined ? "no command in it runs depcruise" : null),
+    commands: read.commands ?? [],
+    // The arguments after `depcruise`, which this file cruises the copy with.
+    argv: depcruise === undefined ? null : depcruise.slice(1),
+  };
+})();
 
 /** Every plant: the file, what it says, and any file it needs to resolve to. */
 const PLANTS = {
@@ -285,9 +370,11 @@ function cruiseWithTheGeneratedOptions() {
       generated[name] = readFileSync(join(root, name), "utf8") === readFileSync(join(ROOT, name), "utf8");
     }
 
-    // The options object the generator wrote, read before the copy is removed.
-    // `require` caches, so the committed file is read separately and below.
-    const options = createRequire(import.meta.url)(join(root, ".dependency-cruiser.cjs")).options;
+    // The config the generator wrote, read before the copy is removed: the
+    // whole module, so its top-level keys can be pinned as well as its
+    // options. `require` caches, so the committed file is read separately and
+    // below.
+    const config = createRequire(import.meta.url)(join(root, ".dependency-cruiser.cjs"));
 
     for (const plant of Object.values(PLANTS)) {
       for (const [file, text] of [[plant.file, plant.text], ...(plant.needs ?? [])]) {
@@ -296,31 +383,54 @@ function cruiseWithTheGeneratedOptions() {
       }
     }
 
+    // R14-1: the arguments are package.json's, not a list written here, so a
+    // loosened boundaries:check is a loosened cruise. The JSON output type is
+    // put FIRST so an output type in the script, which would make the report
+    // unreadable here, wins and fails loudly rather than being overridden.
+    // A cruise that cannot run or report is recorded, not thrown: thrown here
+    // it would fail this file before any test is named, and the mutation sweep
+    // could not tell which control caught what.
+    if (BOUNDARIES_CHECK.argv === null) {
+      return { generated, config, violations: [], cruiseError: `boundaries:check: ${BOUNDARIES_CHECK.error}` };
+    }
     let stdout;
+    let stderr = "";
     try {
       stdout = execFileSync(
         process.execPath,
-        [DEPCRUISE, "--config", ".dependency-cruiser.cjs", "--output-type", "json", "modules", "packages", "services", "apps", "tests"],
+        [DEPCRUISE, "--output-type", "json", ...BOUNDARIES_CHECK.argv],
         { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
       );
     } catch (error) {
       // Non-zero is EXPECTED: every plant is a violation.
       stdout = error.stdout ?? "";
-      assert.notEqual(stdout.trim(), "", `the checker produced no report: ${error.stderr ?? error}`);
+      stderr = String(error.stderr ?? error);
     }
-    return { generated, options, violations: JSON.parse(stdout).summary.violations };
+    try {
+      return { generated, config, violations: JSON.parse(stdout).summary.violations, cruiseError: null };
+    } catch {
+      return { generated, config, violations: [], cruiseError: `the checker produced no readable report: ${stderr}` };
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 }
 
-const { generated, options, violations } = cruiseWithTheGeneratedOptions();
-// The committed file, read from the repository root: the options CI cruises with.
-const committedOptions = createRequire(import.meta.url)(join(ROOT, ".dependency-cruiser.cjs")).options;
+const { generated, config, violations, cruiseError } = cruiseWithTheGeneratedOptions();
+const options = config.options;
+// The committed file, read from the repository root: the config CI cruises with.
+const committedConfig = createRequire(import.meta.url)(join(ROOT, ".dependency-cruiser.cjs"));
+const committedOptions = committedConfig.options;
 const norm = (path) => String(path).replace(/\\/g, "/");
 const rulesFor = (file) => violations.filter((v) => norm(v.from) === file).map((v) => v.rule.name);
 
+/** Every test that reads the report fails, by name, when there is no report. */
+function assertCruised() {
+  assert.equal(cruiseError, null, `the copy was not cruised as boundaries:check would cruise it: ${cruiseError}`);
+}
+
 function assertReported(plant, rule) {
+  assertCruised();
   const fired = rulesFor(plant.file);
   assert.ok(
     fired.includes(rule),
@@ -334,6 +444,7 @@ test("production options: the config this file cruises with is the committed one
 });
 
 test("production options: the copy of the workspace without a plant is reported by no rule", () => {
+  assertCruised();
   const planted = new Set(Object.values(PLANTS).map((plant) => plant.file));
   const others = violations.filter((v) => !planted.has(norm(v.from)));
   assert.deepEqual(
@@ -604,4 +715,99 @@ test("production options: the extensions resolve option is exactly the allowlist
 
 test("production options: the reporterOptions option is exactly the allowlist", () => {
   assertPinned((found) => found.reporterOptions, ALLOWED_OPTIONS.reporterOptions);
+});
+
+// ---- round fourteen: what else the checker runs with, pinned (R14-1) ---------
+//
+// The options above are one of three inputs to the checker CI runs. The other
+// two are the arguments of `pnpm boundaries:check` and the top-level keys of
+// the config module. Both are written out here for the reason the options are:
+// a value derived from the thing it pins moves when that thing moves.
+
+/** The two commands of boundaries:check: regenerate-and-compare, then cruise. */
+const ALLOWED_GENERATION = ["node", "scripts/generate-boundary-rules.mjs", "--check"];
+const SCANNED_ROOTS = ["modules", "packages", "services", "apps", "tests"];
+const ALLOWED_DEPCRUISE_ARGV = ["--config", ".dependency-cruiser.cjs", ...SCANNED_ROOTS];
+
+/** Whether an argument is `long`, its short spelling, or either with an attached value. */
+const spells = (argument, long, short) =>
+  argument === long ||
+  argument.startsWith(`${long}=`) ||
+  (short !== undefined && argument.startsWith(short));
+
+function assertReadable() {
+  assert.equal(BOUNDARIES_CHECK.error, null, `boundaries:check cannot be read: ${BOUNDARIES_CHECK.error}`);
+}
+
+function assertNoFlag(long, short) {
+  assertReadable();
+  const found = BOUNDARIES_CHECK.argv.filter((argument) => spells(argument, long, short));
+  assert.deepEqual(
+    found,
+    [],
+    `boundaries:check passes depcruise ${long}, which hides from every rule whatever it matches: ` +
+      BOUNDARIES_CHECK.script,
+  );
+}
+
+test("production options: the copy is cruised with the depcruise arguments of boundaries:check, and they produce a report", () => {
+  assertCruised();
+});
+
+test("production options: boundaries:check is exactly the generation check and then depcruise with the allowlisted arguments", () => {
+  assertReadable();
+  assert.deepEqual(
+    BOUNDARIES_CHECK.commands,
+    [ALLOWED_GENERATION, ["depcruise", ...ALLOWED_DEPCRUISE_ARGV]],
+    `boundaries:check differs from the allowlist in this file: ${BOUNDARIES_CHECK.script}`,
+  );
+});
+
+test("production options: boundaries:check passes depcruise no --exclude", () => {
+  assertNoFlag("--exclude", "-x");
+});
+
+test("production options: boundaries:check passes depcruise no --do-not-follow", () => {
+  assertNoFlag("--do-not-follow", "-X");
+});
+
+test("production options: boundaries:check passes depcruise no --include-only", () => {
+  assertNoFlag("--include-only", "-I");
+});
+
+test("production options: boundaries:check passes depcruise no --ignore-known", () => {
+  assertNoFlag("--ignore-known");
+});
+
+test("production options: boundaries:check scans exactly modules, packages, services, apps and tests", () => {
+  assertReadable();
+  assert.deepEqual(
+    BOUNDARIES_CHECK.argv.slice(-SCANNED_ROOTS.length),
+    SCANNED_ROOTS,
+    `boundaries:check must end with the five scanned roots, and a root it does not name ` +
+      `is a root no rule judges: ${BOUNDARIES_CHECK.script}`,
+  );
+});
+
+/** Both config modules, labelled, as pinnedOptions does for their options. */
+const pinnedConfigs = () => [
+  ["the config the generator writes", config],
+  ["the committed .dependency-cruiser.cjs", committedConfig],
+];
+
+test("production options: the config extends no other config", () => {
+  for (const [label, found] of pinnedConfigs()) {
+    assert.equal(
+      Object.hasOwn(found, "extends"),
+      false,
+      `${label} extends ${JSON.stringify(found.extends)}, whose options and rules this file ` +
+        `pins none of; the checker merges them in`,
+    );
+  }
+});
+
+test("production options: the config's top-level keys are exactly forbidden and options", () => {
+  for (const [label, found] of pinnedConfigs()) {
+    assert.deepEqual(Object.keys(found).sort(), ["forbidden", "options"], `${label} has top-level keys beyond the allowlist`);
+  }
 });

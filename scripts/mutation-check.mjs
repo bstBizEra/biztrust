@@ -3551,6 +3551,81 @@ const MUTATIONS = [
     from: "      reporterOptions: { text: { highlightFocused: true } },",
     to: "      reporterOptions: { text: { highlightFocused: false } },",
   },
+  // ---- round fourteen, R14-1: the rest of what the checker runs with ----------
+  //
+  // The R12-2 pin covered the options object. The checker CI runs is also
+  // configured by the argument list of `pnpm boundaries:check` and by the
+  // config module's top-level keys, and a one-line loosening of either hid a
+  // live rule-1 and rule-5 violation with every check, test and mutation
+  // green, since no mutation touched package.json's boundaries:check or the
+  // config's top-level keys. production-options.test.mjs now cruises with the
+  // arguments read from package.json and pins all three; each mutation below
+  // is one loosening and names the pin written for it.
+  {
+    file: PACKAGE,
+    name: "boundaries:check: exclude a path from the checker (R14-1)",
+    witness: "production options: boundaries:check passes depcruise no --exclude",
+    from: "&& depcruise --config",
+    to: "&& depcruise --exclude ^services/api/src/plant-export-from --config",
+  },
+  {
+    file: PACKAGE,
+    name: "boundaries:check: do not follow what services import (R14-1)",
+    witness: "production options: boundaries:check passes depcruise no --do-not-follow",
+    from: "--config .dependency-cruiser.cjs modules",
+    to: "--config .dependency-cruiser.cjs --do-not-follow ^services/ modules",
+  },
+  {
+    file: PACKAGE,
+    name: "boundaries:check: judge only modules (R14-1)",
+    witness: "production options: boundaries:check passes depcruise no --include-only",
+    from: ".cjs modules packages services",
+    to: ".cjs --include-only ^modules/ modules packages services",
+  },
+  {
+    file: PACKAGE,
+    name: "boundaries:check: ignore known violations (R14-1)",
+    witness: "production options: boundaries:check passes depcruise no --ignore-known",
+    from: "generate-boundary-rules.mjs --check && depcruise",
+    to: "generate-boundary-rules.mjs --check && depcruise --ignore-known",
+  },
+  {
+    file: PACKAGE,
+    name: "boundaries:check: stop scanning tests (R14-1)",
+    witness: "production options: boundaries:check scans exactly modules, packages, services, apps and tests",
+    from: 'services apps tests"',
+    to: 'services apps"',
+  },
+  {
+    // A flag none of the named pins above looks for: the allowlist of the
+    // whole command is what catches it, which is the point of having one.
+    file: PACKAGE,
+    name: "boundaries:check: focus the checker on services (R14-1)",
+    witness:
+      "production options: boundaries:check is exactly the generation check and then depcruise " +
+      "with the allowlisted arguments",
+    from: "depcruise --config .dependency-cruiser.cjs",
+    to: "depcruise --focus ^services/ --config .dependency-cruiser.cjs",
+  },
+  {
+    file: GENERATOR,
+    name: "generator: extend another config (R14-1)",
+    witness: "production options: the config extends no other config",
+    from: "    forbidden: rules,",
+    to: lines('    extends: "./packages/contracts/zz-loose.json",', "    forbidden: rules,"),
+  },
+  {
+    file: GENERATOR,
+    name: "generator: add a top-level key beside forbidden and options (R14-1)",
+    witness: "production options: the config's top-level keys are exactly forbidden and options",
+    from: lines("      reporterOptions: { text: { highlightFocused: true } },", "    },", "  };"),
+    to: lines(
+      "      reporterOptions: { text: { highlightFocused: true } },",
+      "    },",
+      '    allowedSeverity: "ignore",',
+      "  };",
+    ),
+  },
   // ---- round eleven, C10-3 and C10-4: the catch-all for an import that resolves to nothing ----
   {
     file: RULES,
