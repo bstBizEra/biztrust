@@ -88,3 +88,39 @@ test("workspace overrides: every override pins an exact version, not a range", (
     assert.match(value, /^"?[0-9]+\.[0-9]+\.[0-9]+"?$/, `the override of ${name} is ${value}, not an exact version`);
   }
 });
+
+// ---- round sixteen, security S15-1: no hook runs around a script CI runs -------
+//
+// pnpm runs `pre<name>` before and `post<name>` after `pnpm <name>`, so the
+// command a CI step runs is more than the script string the boundary pins read.
+// Two hook lines in package.json, one moving a violating file out of `tests/`
+// and one moving it back, left `pnpm boundaries:check` at exit 0 over a live
+// rule-1 violation with every test green, and touched no path CODEOWNERS
+// routes. The script names are read from this workflow's `run: pnpm <name>`
+// lines rather than written out here, so a step added later is covered too.
+
+/** The script name of every `run: pnpm <name>` line in the workflow, in order. */
+const ciScripts = [...workflow.matchAll(/^\s*(?:- )?run:\s+pnpm\s+(?:run\s+)?([^\s#]+)/gm)].map((match) => match[1]);
+
+const scripts = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).scripts ?? {};
+
+/** The `<prefix><name>` hooks package.json defines for a script CI runs. */
+function hooks(prefix) {
+  assert.ok(ciScripts.length >= 1, "no `run: pnpm <script>` line was read from ci.yml, so no hook is checked");
+  return ciScripts.map((name) => `${prefix}${name}`).filter((hook) => Object.hasOwn(scripts, hook));
+}
+
+test("ci workflow: the pnpm scripts it runs are read, so the hook controls below read something", () => {
+  assert.ok(ciScripts.length >= 1, "no `run: pnpm <script>` line was read from ci.yml");
+  assert.ok(ciScripts.includes("boundaries:check"), `boundaries:check is not among ${ciScripts.join(", ")}`);
+});
+
+test("ci workflow: package.json defines no pre hook for a script CI runs", () => {
+  const found = hooks("pre");
+  assert.deepEqual(found, [], `pnpm runs these before a script CI runs, and no check reads them: ${found.join(", ")}`);
+});
+
+test("ci workflow: package.json defines no post hook for a script CI runs", () => {
+  const found = hooks("post");
+  assert.deepEqual(found, [], `pnpm runs these after a script CI runs, and no check reads them: ${found.join(", ")}`);
+});
