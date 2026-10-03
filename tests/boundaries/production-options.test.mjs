@@ -726,17 +726,21 @@ test("production options: the reporterOptions option is exactly the allowlist", 
 
 /** The two commands of boundaries:check: regenerate-and-compare, then cruise. */
 const ALLOWED_GENERATION = ["node", "scripts/generate-boundary-rules.mjs", "--check"];
-const ALLOWED_DEPCRUISE_ARGV = ["--config", ".dependency-cruiser.cjs", "modules", "packages", "services", "apps", "tests"];
 const SCANNED_ROOTS = ["modules", "packages", "services", "apps", "tests"];
+const ALLOWED_DEPCRUISE_ARGV = ["--config", ".dependency-cruiser.cjs", ...SCANNED_ROOTS];
 
-/** Whether an argument is `flag`, one of its short spellings, or either with an attached value. */
+/** Whether an argument is `long`, its short spelling, or either with an attached value. */
 const spells = (argument, long, short) =>
   argument === long ||
   argument.startsWith(`${long}=`) ||
   (short !== undefined && argument.startsWith(short));
 
-function assertNoFlag(long, short) {
+function assertReadable() {
   assert.equal(BOUNDARIES_CHECK.error, null, `boundaries:check cannot be read: ${BOUNDARIES_CHECK.error}`);
+}
+
+function assertNoFlag(long, short) {
+  assertReadable();
   const found = BOUNDARIES_CHECK.argv.filter((argument) => spells(argument, long, short));
   assert.deepEqual(
     found,
@@ -751,7 +755,7 @@ test("production options: the copy is cruised with the depcruise arguments of bo
 });
 
 test("production options: boundaries:check is exactly the generation check and then depcruise with the allowlisted arguments", () => {
-  assert.equal(BOUNDARIES_CHECK.error, null, `boundaries:check cannot be read: ${BOUNDARIES_CHECK.error}`);
+  assertReadable();
   assert.deepEqual(
     BOUNDARIES_CHECK.commands,
     [ALLOWED_GENERATION, ["depcruise", ...ALLOWED_DEPCRUISE_ARGV]],
@@ -776,7 +780,7 @@ test("production options: boundaries:check passes depcruise no --ignore-known", 
 });
 
 test("production options: boundaries:check scans exactly modules, packages, services, apps and tests", () => {
-  assert.equal(BOUNDARIES_CHECK.error, null, `boundaries:check cannot be read: ${BOUNDARIES_CHECK.error}`);
+  assertReadable();
   assert.deepEqual(
     BOUNDARIES_CHECK.argv.slice(-SCANNED_ROOTS.length),
     SCANNED_ROOTS,
