@@ -111,7 +111,6 @@ function hooks(prefix) {
 }
 
 test("ci workflow: the pnpm scripts it runs are read, so the hook controls below read something", () => {
-  assert.ok(ciScripts.length >= 1, "no `run: pnpm <script>` line was read from ci.yml");
   assert.ok(ciScripts.includes("boundaries:check"), `boundaries:check is not among ${ciScripts.join(", ")}`);
 });
 

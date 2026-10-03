@@ -741,7 +741,7 @@ const ALLOWED_DEPCRUISE_ARGV = ["--config", ".dependency-cruiser.cjs", ...SCANNE
 const spells = (argument, long, short) =>
   argument === long ||
   argument.startsWith(`${long}=`) ||
-  (short !== undefined && (/^-[A-Za-z]+/.exec(argument)?.[0] ?? "").slice(1).includes(short.slice(1)));
+  (short !== undefined && new RegExp(`^-[A-Za-z]*${short.slice(1)}`).test(argument));
 
 function assertReadable() {
   assert.equal(BOUNDARIES_CHECK.error, null, `boundaries:check cannot be read: ${BOUNDARIES_CHECK.error}`);
