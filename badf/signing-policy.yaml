@@ -1,0 +1,174 @@
+# The signature policy: which paths carry a human decision, and whose
+# signature counts as that human's.
+#
+# WHY THIS FILE EXISTS. Every guard in this repository constrains what a
+# record may SAY. None of them constrains who WROTE it. A forgery that edits
+# badf/authority.yaml, badf/current-state.json and the checkpoint
+# consistently passes `pnpm verify` today - verified deliberately, not
+# assumed. No validator can close that, because the validator reads the same
+# files the forger writes. The only thing that can is a signature the acting
+# agent cannot produce.
+#
+# NOTHING HERE IS ENFORCED YET, AND `pnpm check:signing` SAYS SO OUT LOUD.
+# accepted_keys below is the literal NONE_ENROLLED. While it says that, the
+# check reports SIGNING_CHECK NOT_ENFORCED, never SIGNING_CHECK PASS, and
+# every commit touching the paths below is recorded as unverified. It does
+# not fail the build, because no agent can make it pass and a gate an agent
+# cannot pass is a gate an agent routes around; it does not stay quiet
+# either, because an unenforced control that prints nothing is
+# indistinguishable from an enforced one.
+#
+# WHAT A HUMAN MUST DO to turn this check into a binding. Every one of these
+# is reserved to a person, and badf/skills.yaml records enroll-a-signing-key
+# as FORBIDDEN_TO_AGENTS:
+#
+#   1. Generate or nominate a key, and publish its public half to the forge.
+#   2. Replace NONE_ENROLLED below with one entry per accepted identity,
+#      recording who enrolled it. Only the four seats no agent may occupy
+#      may appear in enrolled_by.
+#   3. Enable required_signatures branch protection on main, so the forge
+#      refuses an unsigned commit rather than this check merely noticing one
+#      after the fact.
+#
+# Step 2 alone changes what this check REPORTS, and that is all it does. The
+# moment accepted_keys names an identity the check stops printing NOT_ENFORCED
+# and fails on every governed commit after the enforcement point that a listed
+# identity did not sign. An earlier version of this comment said that step
+# alone makes the check enforcing. It does not, in two ways:
+#
+#   - It turns CI red and keeps it red. Every governed commit already on the
+#     branch under review (main itself holds only "Initial commit") is unsigned
+#     or signed by GitHub's web-flow key, so the check fails until a human also
+#     moves enforcement_point forward to an explicit sha.
+#   - It does not make the check binding. The checker is code inside the same
+#     change it judges, and CI runs the pull request's own copy of it: a
+#     one-line edit to scripts/check-signing.mjs produced a false PASS with a
+#     key enrolled. The instrument paths below are protected for that reason,
+#     but a check cannot verify its own instrument on its own run. What binds
+#     it is step 3, GitHub's required_signatures on main, together with code
+#     owner review by seats that people, and not agents, occupy.
+#
+# SQUASH MERGES AND THIS CHECK ARE INCOMPATIBLE AS THINGS STAND. What is
+# observed, and where. `git ls-remote origin refs/heads/main` (run 2026-09-30)
+# gives 062a0f7c1b350e4af695978b238b28e323b7d0e0, and main holds exactly that
+# one commit, "Initial commit", committed by `GitHub <noreply@github.com>`.
+# Main does NOT yet hold any squash merge. Five merges are on PR #1's head
+# branch, motor/p0.2/repository-and-boundaries, not on main: four squash merges,
+# #4 to #7 (cbaa950, 0e388ce, dbae365, ce989e7, one parent each), and one MERGE
+# COMMIT, #9 (ec80d1f, parents ce989e7 and 5a5cd92). Each is committed by
+# `GitHub <noreply@github.com>` and carries GitHub's web-flow key
+# B5690EEEBB952194. What follows is therefore a statement about what a merge
+# made in the web UI INTO main would do, seen in how those five behaved, and not
+# a record of what main contains. A squash merge replaces the author's commit
+# with a new one, so the author's own signature does not survive it. A merge
+# commit, like #9, keeps the author's commits reachable in history, each with
+# the signature it was made with, and adds one new commit signed by the web-flow
+# key; that is the observation the merge-strategy decision (D3) can use. Which
+# strategy to use is the operator's; this file states what was seen.
+# The two ways to make this check pass are both bad:
+#
+#   - Enrol a human's key, and every change merged by squash fails the check.
+#   - Enrol the web-flow key, and every change merged in the web UI passes,
+#     an agent-authored one included. That signature binds nothing to a person.
+#
+# scripts/validate_continuity.py therefore refuses to accept the web-flow key
+# id or the `GitHub <noreply@github.com>` identity, whatever this file says.
+# WHICH MERGE STRATEGY RESOLVES IT IS A HUMAN DECISION and this file does not
+# make it. It has to be made before step 2 above, and whether merge commits or
+# rebase merges keep an author's signature on the governed commits has to be
+# tried on this repository, not assumed: nothing here has tested either.
+
+version: "0.1.0"
+updated_at: "2026-09-10T00:00:00Z"
+
+# Where the policy starts applying, EXCLUSIVE. No commit before it is ever
+# required to carry a signature: no commit on this branch is signed, there is
+# no signing key configured, and rewriting history is not a repair.
+#
+# FIRST_COMMIT_OF_THIS_POLICY resolves to the commit that added this file,
+# which is the earliest point at which a policy could have been known. It is
+# resolved from git rather than written here because the sha cannot be known
+# before the commit that contains it. A human may replace it with an explicit
+# 40-character sha to move the enforcement point forward; nothing accepts any
+# other value.
+enforcement_point: FIRST_COMMIT_OF_THIS_POLICY
+
+# A change to any path below is a human decision. A directory covers
+# everything under it. These are git pathspecs, and the reader refuses
+# anything that is not a plain relative path, so none of them can be read as
+# a git option.
+#
+# The set is a FLOOR, not a list: scripts/validate_continuity.py pins every
+# path below in PINNED_PROTECTED_PATHS and refuses this file if one is
+# missing. Adding a path here is allowed and widens protection; removing one
+# is a reviewed change to the validator, under a Work Package that says why.
+#
+# The floor is now held in TWO places that cannot both be edited by editing
+# this file: PINNED_PROTECTED_PATHS in scripts/validate_continuity.py, and
+# PROTECTED_PATH_FLOOR in scripts/check-signing.mjs, which refuses to run
+# against a policy that protects less (SIGNING_CHECK FAIL PROTECTED_PATH_FLOOR).
+# Round seven N2 showed the check used to take its protected set from this very
+# file and nothing else, so a change that shortened the list chose which of
+# its own commits were examined.
+#
+# WHAT THAT DOES NOT DO, stated plainly. This policy, and the copy of
+# scripts/check-signing.mjs that reads it, are both taken from the WORKING
+# TREE, which in a pull request is the change under review. Evaluating the
+# policy and the instrument from the BASE ref (for example
+# `git show origin/main:badf/signing-policy.yaml`) is NOT implemented here. It
+# is a CI design decision for the operator, and it is listed as such rather
+# than done. Until it is, a change that edits check-signing.mjs and its floor
+# together is judged by the edited copy; the floor closes the shortened-list
+# forgery and not that one.
+protected_paths:
+  - badf/authority.yaml
+  - badf/gates.yaml
+  - badf/current-state.json
+  - badf/lifecycle.yaml
+  - badf/agents.yaml
+  - badf/bootstrap.yaml
+  - badf/skills.yaml
+  - badf/signing-policy.yaml
+  - sessions/checkpoints
+  # The instrument that decides whether the paths above are signed, and
+  # everything it stands on. `.github` is the workflow that runs it, `schemas`
+  # is what the state files are validated against (widening an enum there
+  # forged a gate in review), and package.json is the order the checks run in.
+  - scripts/check-signing.mjs
+  - scripts/signing-policy.mjs
+  - scripts/validate_continuity.py
+  - schemas
+  - package.json
+  - .github
+  # Round seven N2. The launcher that runs the record validator and its tests
+  # (one injected line in scripts/python.mjs printed PASS for both), the tests
+  # that witness the validator and the signing check, the sweep that witnesses
+  # those tests, and the two records an agent writes and a person should be
+  # able to bind: the decision log and the next-action list.
+  - scripts/python.mjs
+  - scripts/mutation-check.mjs
+  - tests/unit
+  - tests/signing
+  - badf/decision-log.jsonl
+  - badf/next-actions.json
+
+# The identities whose signature counts as a human decision on the paths
+# above. NONE_ENROLLED is not a placeholder to be tidied away by an agent: it
+# is the accurate statement that no human identity is bound to this
+# repository yet. An agent that replaces it has exceeded its authority
+# whatever the entry says, because the key material it would name is not
+# something an agent can hold.
+#
+# When a human enrols one, the shape is:
+#
+#   accepted_keys:
+#     - identity: "A Name <name@example.com>"
+#       kind: gpg
+#       enrolled_by: repository-administrator
+#       note: "optional prose"
+#
+# identity is matched against git's own %GS (the signer) and %GK (the key),
+# exactly, with no normalisation. kind is gpg or ssh and nothing else.
+# enrolled_by must name one of the four seats badf/agents.yaml records as
+# may_be_an_agent: false.
+accepted_keys: NONE_ENROLLED

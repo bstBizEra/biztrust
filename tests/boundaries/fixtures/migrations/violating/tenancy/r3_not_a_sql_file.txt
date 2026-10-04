@@ -1,0 +1,2 @@
+-- A file the lint reads only if it walks non-.sql entries too.
+not sql at all

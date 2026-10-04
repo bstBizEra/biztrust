@@ -1,0 +1,41 @@
+# Fixture registry. Not the platform registry: it exists so the boundary suite
+# can generate the same seven rules from a different, smaller list and run the
+# checker over a workspace built to break each one.
+version: "0.1.0"
+
+modules:
+  - name: alpha
+    group: platform
+    owner_role: fixture
+    contract: src/public/index.ts
+    schema: alpha
+    epic: FIXTURE
+    source: contract
+    package: true
+
+  - name: beta
+    group: platform
+    owner_role: fixture
+    contract: src/public/index.ts
+    schema: beta
+    epic: FIXTURE
+    source: contract
+    package: true
+
+  - name: cyc-one
+    group: platform
+    owner_role: fixture
+    contract: src/public/index.ts
+    schema: cyc_one
+    epic: FIXTURE
+    source: contract
+    package: true
+
+  - name: cyc-two
+    group: platform
+    owner_role: fixture
+    contract: src/public/index.ts
+    schema: cyc_two
+    epic: FIXTURE
+    source: contract
+    package: true

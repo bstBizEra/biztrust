@@ -1,0 +1,23 @@
+{
+  "name": "@biztrust/identity-access",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/public/index.d.ts",
+      "default": "./dist/public/index.js"
+    }
+  },
+  "main": "./dist/public/index.js",
+  "types": "./dist/public/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc --build"
+  },
+  "dependencies": {
+    "@biztrust/tenancy": "workspace:*"
+  }
+}

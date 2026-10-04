@@ -1,0 +1,21 @@
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+.DS_Store
+.pnpm-store/
+__pycache__/
+*.pyc
+
+# Subagent-driven-development scratch workspace (ledger, briefs, review packages).
+.superpowers/
+
+# Agent harness working directories. Untracked, and MUTATION_CHECK refuses to
+# run while the tree is unclean, so the repository's own instrument cannot run
+# in a checkout these are present in.
+.claude/
+.claude-flow/
