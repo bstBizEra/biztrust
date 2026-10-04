@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biztrust.local/schemas/decision-record.schema.json",
+  "title": "BizTrust platform decision record",
+  "description": "One line of badf/decision-log.jsonl. Append-only; ids unique and ascending.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "recorded_at",
+    "work_package",
+    "decision",
+    "rationale",
+    "authority",
+    "agent_id"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^DEC-[0-9]{3}$"
+    },
+    "recorded_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "work_package": {
+      "type": "string",
+      "pattern": "^BIZTRUST-WP-[0-9]{3}$"
+    },
+    "decision": {
+      "type": "string",
+      "minLength": 1
+    },
+    "rationale": {
+      "type": "string",
+      "minLength": 1
+    },
+    "alternatives": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "authority": {
+      "type": "string",
+      "minLength": 1
+    },
+    "agent_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "supersedes": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

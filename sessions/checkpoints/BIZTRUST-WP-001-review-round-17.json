@@ -1,0 +1,173 @@
+{
+  "schema_version": "1.0.0",
+  "work_package": "BIZTRUST-WP-001",
+  "state": "ENGINEERING_READY",
+  "created_at": "2026-10-04T03:42:01Z",
+  "objective": "Create the platform repository skeleton described by the P0.2 design of the guide repository. Reviewed by fresh-context agents in rounds six to sixteen (issue 8). This checkpoint records the round-sixteen head that the round-sixteen checkpoint did not reach (spec S16-1, code CR16-3). It also records round seventeen's fixes to the install-lifecycle minors of the round-sixteen reviews (L1 to L3), and lists what it did not fix.",
+  "completed_scope": [
+    "Input: the round-sixteen reviews of PR 14 (spec, security, code and controls reviewers, all ACCEPT with minors). The operator's command in session: fix the round-sixteen minors (install lifecycle scripts, .pnpmfile.cjs, records naming b3a2807 and CI 37148555738), run R16-1-20261004T0120. The work is on motor/biztrust-wp-001/r16-1, created from 64b0811 (PR 14 merged into the Work Package branch), and is PR 15 with base motor/p0.2/repository-and-boundaries. Nothing was merged or approved by an agent.",
+    "Round sixteen, completed on the record (L4; spec S16-1, code CR16-3): the last code commit of round sixteen was b3a2807fa464f67ff9e8a0e1a2e161b9d3f27d5d, a second-draft code commit after the round-sixteen records commit 4dea2fd. PR 14 merged it as 64b0811, whose tree equals b3a2807's. CI run 37148555738 ran on b3a2807 and concluded success with MUTATION_CHECK PASS 379, 287 boundary controls, 13 signing controls and 259 validator controls. The round-sixteen checkpoint's recovery sentence 'The last code commit of this round is 84a51be' is superseded by this checkpoint: the last code commit of round sixteen is b3a2807. That checkpoint is not edited.",
+    "L1, fixed: tests/boundaries/ci-workflow.test.mjs refuses the root package.json scripts pnpm:devPreinstall, install, preprepare, prepare and postprepare, one test each. Root preinstall and postinstall were already refused as the pre and post hooks of CI's 'pnpm install' step. scripts/mutation-check.mjs gains five mutations tagged L1, one per key, each with its own witness.",
+    "L2, fixed: the test reads the workspace packages from the packages globs of pnpm-workspace.yaml (seven packages today), fails if it reads none, fails closed on a glob that is not <dir>/*, and refuses preinstall, install, postinstall, preprepare, prepare and postprepare in every workspace package.json, one test per key. Six mutations tagged L2 plant one key each in modules/tenancy/package.json, and a seventh renames the packages key so the package read is empty; each has its own witness.",
+    "L3, fixed for the setting and the checksum, pinned without a mutation for the file: the test refuses a root .pnpmfile.cjs or .pnpmfile.mjs, a pnpmfile key in pnpm-workspace.yaml, and a pnpmfileChecksum line in pnpm-lock.yaml. Two mutations tagged L3 cover the setting and the checksum. The file case has no mutation (declared non-coverage).",
+    "README.md states 393 mutations at round seventeen, matching CI runs 37168166434 and 37172278375 (MUTATION_CHECK PASS 393).",
+    "Code commits of this round: a6cf8a6ec78468b923e6279b84dc1a1df1638ae7 (the fix, CI 37168166434 success, PASS 393) and 722c567461e49e9b53cf18b3a3e62316bf4779f4 (the simplifier's second draft: pnpm-workspace.yaml read once and package scripts read through one helper; no test, witness or mutation changed; CI 37172278375 success, PASS 393). The final code head is 722c567.",
+    "Red before green: a cold-install PROBE row at 64b0811 shows each key firing and a .pnpmfile.cjs running before the frozen install fails; GAP rows at 64b0811 show every plant leaving the old test file green; RED rows at 722c567 show each plant turning exactly its own new control red over a green baseline."
+  ],
+  "branch": "motor/p0.2/repository-and-boundaries",
+  "baseline_commit": "64b08114ff9a914db300b843c01ffbe1cc3ef564",
+  "files_changed": [
+    "README.md",
+    "badf/current-state.json",
+    "badf/decision-log.jsonl",
+    "badf/next-actions.json",
+    "scripts/mutation-check.mjs",
+    "sessions/checkpoints/BIZTRUST-WP-001-review-round-17.json",
+    "tests/boundaries/ci-workflow.test.mjs"
+  ],
+  "validation": [
+    {
+      "command": "CI run 37148555738 (round sixteen), pull_request on b3a2807fa464f67ff9e8a0e1a2e161b9d3f27d5d; gh run view 37148555738 --json conclusion,headSha and --log",
+      "exit_status": 0,
+      "observed_at": "2026-10-03T20:39:05Z",
+      "output_reference": "conclusion success, headSha b3a2807. MUTATION_CHECK baseline GREEN boundaries 287, signing 13, validator 259; MUTATION_CHECK PASS 379 mutations, every one caught by its declared witness"
+    },
+    {
+      "command": "PROBE at 64b0811 (second clone, never pushed): root package.json gains pnpm:devPreinstall, install, preprepare, prepare and postprepare, modules/tenancy/package.json gains preinstall, install, postinstall, preprepare, prepare and postprepare, each writing a marker file; node_modules deleted; pnpm install --frozen-lockfile",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T03:39:43Z",
+      "output_reference": "11 markers of 11: every planted key ran on the cold install (pnpm v11.9.0). Restored with git checkout afterwards"
+    },
+    {
+      "command": "PROBE at 64b0811: a root .pnpmfile.cjs that writes a marker; node_modules deleted; pnpm install --frozen-lockfile",
+      "exit_status": 1,
+      "observed_at": "2026-10-04T03:39:46Z",
+      "output_reference": "ERR_PNPM_LOCKFILE_CONFIG_MISMATCH (pnpmfileChecksum), and the marker file exists: the pnpmfile's code ran before the install failed. File removed afterwards"
+    },
+    {
+      "command": "GAP at 64b0811, old test file: each of 15 plants in turn (the 11 keys above, a root .pnpmfile.cjs, a root .pnpmfile.mjs, a pnpmfile key in pnpm-workspace.yaml, a pnpmfileChecksum line in pnpm-lock.yaml), restored after each; node --test --test-reporter=tap tests/boundaries/ci-workflow.test.mjs",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T03:39:49Z",
+      "output_reference": "baseline pass 9 fail 0; every one of the 15 plants pass 9 fail 0: no witness"
+    },
+    {
+      "command": "RED at 722c567: the same 15 plants, restored after each; node --test --test-reporter=tap tests/boundaries/ci-workflow.test.mjs",
+      "exit_status": 1,
+      "observed_at": "2026-10-04T03:40:01Z",
+      "output_reference": "baseline pass 24 fail 0; each plant pass 23 fail 1, the one failure its own control (for example root prepare: 'install lifecycle: package.json defines no root prepare script'; lockfile: 'install lifecycle: pnpm-lock.yaml records no pnpmfileChecksum'; both pnpmfile files: 'install lifecycle: there is no root .pnpmfile.cjs or .pnpmfile.mjs')"
+    },
+    {
+      "command": "pnpm install --frozen-lockfile",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T03:40:03Z",
+      "output_reference": "at 722c567, the last code commit. Already up to date, Done in 328ms using pnpm v11.9.0"
+    },
+    {
+      "command": "pnpm validate:records",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T03:40:04Z",
+      "output_reference": "at 722c567. CONTINUITY_VALIDATION PASS (before this commit's records existed; validated again at the records commit)"
+    },
+    {
+      "command": "pnpm check:signing",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T03:40:05Z",
+      "output_reference": "at 722c567. SIGNING_CHECK NOT_ENFORCED, 61 commit(s) touched protected paths and are bound to nobody. This is NOT a pass"
+    },
+    {
+      "command": "pnpm typecheck",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T03:40:06Z",
+      "output_reference": "at 722c567. tsc -p tsconfig.json, no output"
+    },
+    {
+      "command": "pnpm boundaries:check",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T03:40:07Z",
+      "output_reference": "at 722c567. BOUNDARY_GENERATION PASS 30 modules; no dependency violations found (45 modules, 148 dependencies cruised)"
+    },
+    {
+      "command": "pnpm codeowners:check",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T03:40:09Z",
+      "output_reference": "at 722c567. CODEOWNERS_GENERATION PASS 12 routing entries"
+    },
+    {
+      "command": "pnpm lint:migrations",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T03:40:09Z",
+      "output_reference": "at 722c567. MIGRATION_LINT PASS 2 file(s), no violation"
+    },
+    {
+      "command": "pnpm check:modules",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T03:40:10Z",
+      "output_reference": "at 722c567. MODULE_PACKAGES PASS 30 registered, 4 with a package"
+    },
+    {
+      "command": "pnpm check:coverage",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T03:40:11Z",
+      "output_reference": "at 722c567. COVERAGE_GATE PASS 20 named protections, every one witnessed by a control"
+    },
+    {
+      "command": "pnpm test:boundaries",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T03:40:12Z",
+      "output_reference": "at 722c567. tests 302, pass 302, fail 0, skipped 0 (287 before, plus 15)"
+    },
+    {
+      "command": "pnpm test:signing",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T03:40:15Z",
+      "output_reference": "at 722c567. tests 13, pass 13, fail 0"
+    },
+    {
+      "command": "pnpm test:validator",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T03:40:22Z",
+      "output_reference": "at 722c567 (start time). Ran 259 tests in 69.925s OK"
+    },
+    {
+      "command": "CI run 37168166434 (round seventeen, the fix), pull_request on a6cf8a6ec78468b923e6279b84dc1a1df1638ae7; gh run view 37168166434 --json conclusion,headSha and --log",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T02:44:14Z",
+      "output_reference": "conclusion success, headSha a6cf8a6. MUTATION_CHECK baseline GREEN boundaries 302, signing 13, validator 259; MUTATION_CHECK PASS 393 mutations, every one caught by its declared witness"
+    },
+    {
+      "command": "CI run 37172278375 (round seventeen, the final code head), pull_request on 722c567461e49e9b53cf18b3a3e62316bf4779f4; gh run view 37172278375 --json conclusion,headSha and --log",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T03:37:22Z",
+      "output_reference": "conclusion success, headSha 722c567. MUTATION_CHECK baseline GREEN boundaries 302, signing 13, validator 259; MUTATION_CHECK PASS 393 mutations, every one caught by its declared witness"
+    }
+  ],
+  "decisions": [
+    "DEC-044 round seventeen refuses every script and pnpmfile a cold pnpm install runs, in the root (L1) and in each workspace package (L2), and the pnpmfile setting and checksum (L3), with fourteen mutations; this checkpoint records b3a2807 and CI run 37148555738 as round sixteen's last code commit and its run (L4)"
+  ],
+  "assumptions": [
+    "ASSUMED: every workspace package glob in pnpm-workspace.yaml is <dir>/* (four today). Any other form makes the test fail rather than expand it.",
+    "ASSUMED: pnpm 11.9.0 reads a pnpmfile only from a root .pnpmfile.cjs or .pnpmfile.mjs or a pnpmfile key in pnpm-workspace.yaml. A pnpm.pnpmfile field in package.json and a pnpmfile line in .npmrc were each probed once and ran nothing.",
+    "ASSUMED: the next round re-reviews the round-seventeen head with fresh-context reviewers and posts to issue 8."
+  ],
+  "blockers": [
+    "Controls N-1 and the ci.yml alternatives (--ignore-scripts, --ignore-pnpmfile on the install step) would close the install-lifecycle channel at its source; .github/workflows/ is a path no agent may edit. Human-only.",
+    "Spec S16-4 (decision-log append-only not enforced), security S16-3 (secret-scan shapes), spec S16-3 and code CR16-2 (info) are open for the operator.",
+    "Controls I-1, S15-2, CR-2 to CR-4, R14-2, R14-3, R7-4, D1, D2/B6, D3, D4, D5, F3, F5, the decision-log protected-path conflict, the routing inconsistency and the ADR wording are human-only and open.",
+    "NS-001 is half done: the seat is held (contested by B6) and the protection is applied and not recorded by the administrator.",
+    "PR 15 merges into the Work Package branch and is not merged by an agent; PR 1 needs an approving review from an identity other than bstBizEra before it can merge to main."
+  ],
+  "authority_status": "Unchanged in kind: the scaffold rests on an operator instruction recorded by an agent (granted.repository_scaffold), not an expiring grant from the business authority seat. wp_001_acceptance is NOT_GRANTED. Per DEC-037 the operator, not an agent, records acceptance. This round records no seat, gate, grant or acceptance and edits none of badf/authority.yaml, gates.yaml, lifecycle.yaml, agents.yaml, skills.yaml, modules/modules.yaml, AGENTS.md, package.json or .github/workflows/.",
+  "next_action_id": "NS-007",
+  "next_action": "Run a fresh re-review of the round-seventeen head (NS-007) with fresh-context reviewers, none the implementer, and post the results to issue 8. The operator decides N-1 and the ci.yml install flags, spec S16-3 and S16-4, security S16-3, CR16-2, I-1, S15-2, CR-2 to CR-4, R14-2, R14-3, D1 to D5, R7-4, F3, F5, the decision-log conflict and the routing inconsistency, and records acceptance; no agent does.",
+  "recovery": "Read AGENTS.md, badf/authority.yaml, badf/current-state.json and badf/next-actions.json, then issue 8 for the review records and open decisions. Work is on motor/biztrust-wp-001/r16-1, PR 15 against motor/p0.2/repository-and-boundaries, created from 64b0811. The code commits of this round are a6cf8a6 and 722c567; the last code commit is 722c567, and the local RED and verification rows and CI run 37172278375 are bound to it. PROBE and GAP rows were run at 64b0811. The last code commit of round sixteen is b3a2807 (CI 37148555738), not 84a51be as the round-sixteen checkpoint says. The commit carrying this checkpoint changes exactly four files (badf/current-state.json, badf/decision-log.jsonl, badf/next-actions.json and this checkpoint) and no code. To reproduce a RED row by hand, add one of the keys to package.json or modules/tenancy/package.json, run node --test tests/boundaries/ci-workflow.test.mjs, then git checkout the file.",
+  "declared_non_coverage": [
+    "The root .pnpmfile.cjs and .pnpmfile.mjs case has a test and no mutation: scripts/mutation-check.mjs rewrites an anchor inside a file that exists and cannot plant a new file. The test was observed red with each file planted (RED row).",
+    "globalPnpmfile was neither probed nor pinned.",
+    "A workspace glob that is not <dir>/* makes the package read fail closed (the file errors) rather than expand; no mutation plants such a glob.",
+    "The PROBE, GAP and RED rows were observed on Windows 11 under Git Bash, where pnpm runs scripts through cmd.exe; CI on ubuntu-latest runs them through sh and is the Linux observation of the pins, not of the probes.",
+    "Lesson, not a control: a frozen install runs a .pnpmfile's top-level code before it fails on the pnpmfileChecksum mismatch. The checksum pin plus --frozen-lockfile makes CI's install step red, but code has already run on the runner by then. Only --ignore-pnpmfile on CI's install step (human-only, ci.yml) prevents it.",
+    "The install-lifecycle mutations are inert (node -e 0): the sweep runs suites with node and does not install, so only the pins see them. The live lifecycle runs were observed once, by hand, in the PROBE rows.",
+    "The full pnpm check:mutations sweep was not run locally (the run brief reports it fails on this Windows host with 0xC0000142; not re-observed this round); CI's sweep is the evidence (PASS 393 on a6cf8a6 and on 722c567).",
+    "pnpm-workspace.yaml scriptShell, a CI step run through a multi-line run block, npx, node or a shell, and the read guard without a mutation remain as declared in the round-sixteen checkpoint."
+  ]
+}

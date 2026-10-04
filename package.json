@@ -1,0 +1,33 @@
+{
+  "name": "biztrust",
+  "private": true,
+  "version": "0.0.0",
+  "description": "BizTrust platform repository. Skeleton only: no capability is implemented, secure, compliant or production-ready.",
+  "license": "UNLICENSED",
+  "packageManager": "pnpm@11.9.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "boundaries:generate": "node scripts/generate-boundary-rules.mjs",
+    "boundaries:check": "node scripts/generate-boundary-rules.mjs --check && depcruise --config .dependency-cruiser.cjs modules packages services apps tests",
+    "codeowners:generate": "node scripts/generate-codeowners.mjs",
+    "codeowners:check": "node scripts/generate-codeowners.mjs --check",
+    "lint:migrations": "node scripts/migration-lint.mjs db/migrations",
+    "validate:records": "node scripts/python.mjs scripts/validate_continuity.py",
+    "check:signing": "node scripts/check-signing.mjs",
+    "test:signing": "node --test \"tests/signing/*.test.mjs\"",
+    "test:boundaries": "node --test \"tests/boundaries/*.test.mjs\"",
+    "test": "node --test \"tests/boundaries/*.test.mjs\"",
+    "typecheck": "tsc -p tsconfig.json",
+    "check:modules": "node scripts/check-module-packages.mjs",
+    "verify": "pnpm validate:records && pnpm test:validator && pnpm check:signing && pnpm typecheck && pnpm boundaries:check && pnpm codeowners:check && pnpm lint:migrations && pnpm check:modules && pnpm check:coverage && pnpm test:boundaries && pnpm test:signing && pnpm check:mutations",
+    "test:validator": "node scripts/python.mjs -m unittest discover -s tests/unit",
+    "check:mutations": "node scripts/mutation-check.mjs",
+    "check:coverage": "node scripts/coverage-gate.mjs"
+  },
+  "devDependencies": {
+    "dependency-cruiser": "16.10.4",
+    "typescript": "5.9.3"
+  }
+}

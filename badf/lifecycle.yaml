@@ -1,0 +1,102 @@
+# The lifecycle registry: allowed state transitions.
+#
+# AGENTS.md section 8. Only an AUTHORIZED transition may advance delivery, and
+# validation success does not grant deployment authority.
+
+version: "0.1.0"
+updated_at: "2026-09-08T00:00:00Z"
+
+states:
+  - DRAFT
+  - READY
+  - AUTHORIZED
+  - IN_PROGRESS
+  - VALIDATING
+  - ENGINEERING_READY
+  - ACCEPTED
+  - CLOSED
+
+exceptional_states:
+  - BLOCKED
+  - WAIT_FOR_AUTHORITY
+  - RECOVERY_REQUIRED
+  - REJECTED
+  - CANCELLED
+
+# Each transition names the role that may make it. A transition with
+# requires_human true is never made by an agent.
+transitions:
+  - from: DRAFT
+    to: READY
+    role: "owner"
+    requires_human: false
+    condition: "scope, objective and acceptance criteria are bounded and written"
+
+  - from: READY
+    to: AUTHORIZED
+    role: "business authority"
+    requires_human: true
+    condition: "an explicit, expiring implementation grant is recorded in badf/authority.yaml"
+
+  - from: AUTHORIZED
+    to: IN_PROGRESS
+    role: "owner"
+    requires_human: false
+    condition: "the verifier is named before work starts"
+
+  - from: IN_PROGRESS
+    to: VALIDATING
+    role: "owner"
+    requires_human: false
+    condition: "a coherent implementation slice is complete and a checkpoint is written"
+
+  - from: VALIDATING
+    to: ENGINEERING_READY
+    role: "owner"
+    requires_human: false
+    condition: "every declared validation command has been run and its exit status recorded"
+
+  - from: ENGINEERING_READY
+    to: ACCEPTED
+    role: "verifier, who is not the implementer"
+    requires_human: true
+    condition: >-
+      Independent verification against the acceptance criteria. AGENTS.md
+      section 5: work is never marked accepted on the assertion of the
+      implementing agent alone.
+
+  - from: ACCEPTED
+    to: CLOSED
+    role: "owner"
+    requires_human: false
+    condition: "evidence is bound to the source revision and the records are re-anchored"
+
+  # Exceptional transitions are reachable from any active state.
+  - from: ANY_ACTIVE
+    to: BLOCKED
+    role: "any"
+    requires_human: false
+    condition: "a stop condition of AGENTS.md section 11 is met"
+
+  - from: ANY_ACTIVE
+    to: WAIT_FOR_AUTHORITY
+    role: "any"
+    requires_human: false
+    condition: "required authority is absent, ambiguous or expired"
+
+  - from: ANY_ACTIVE
+    to: RECOVERY_REQUIRED
+    role: "any"
+    requires_human: false
+    condition: "observed state conflicts with recorded state, or two packages appear active"
+
+  - from: ENGINEERING_READY
+    to: REJECTED
+    role: "verifier"
+    requires_human: true
+    condition: "a finding remains; the ticket records why"
+
+forbidden:
+  - "Any transition into ACCEPTED made by the implementing agent"
+  - "Any transition that skips AUTHORIZED"
+  - "Any transition recorded without a Work Package id"

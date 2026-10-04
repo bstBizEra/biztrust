@@ -1,0 +1,170 @@
+{
+  "schema_version": "1.0.0",
+  "work_package": "BIZTRUST-WP-001",
+  "state": "ENGINEERING_READY",
+  "created_at": "2026-10-04T11:46:47Z",
+  "objective": "Create the platform repository skeleton described by the P0.2 design of the guide repository. Fresh-context agents reviewed it in rounds six to seventeen (issue 8). This checkpoint records round eighteen. Round eighteen fixes the install-lifecycle minors of the round-seventeen reviews (K1 to K3). It corrects the round-seventeen pnpmfile lesson (K4) and records the merges of PR 15 and PR 16. It also lists what this round did not fix.",
+  "completed_scope": [
+    "Input: the round-seventeen reviews of PR 15 by the spec, security, code and controls reviewers (run R16-1-20261004T0120). The operator's command in session: fix the round-seventeen minors (manifests read through git ls-files, every pnpmfile key spelling and globalPnpmfile, file: dependencies with allowBuilds, the pnpmfile checksum lesson), run R17-1-20261004T0844. The work is on motor/biztrust-wp-001/r17-1, created from 4a46b69, and is PR 17 with base motor/p0.2/repository-and-boundaries. No agent merged or approved anything.",
+    "Merged by the operator, recorded here: PR 15 (round seventeen) was merged into the Work Package branch as 4a46b693e0d649f73b40e2a61a5dff480e3f557a (parents 64b0811 and 8846867). PR 16 (controls N-1, the source fix) was merged into the Work Package branch as 9e5ac415e9d710ddf1e6e4984fc8b1234bb0a1a0. PR 16 changes CI's install step in .github/workflows/ci.yml to 'pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile'. CI run 37190206625 ran on PR 16's head 8fc2d647 and concluded success, with MUTATION_CHECK PASS 393. The fix branch was cut from 4a46b69 before PR 16 merged. It does not contain 9e5ac41, and no agent merged the base into it.",
+    "K1, fixed (code CR17-1, CR17-2, CR17-4; controls C17-1, C17-2; security S17-2). tests/boundaries/ci-workflow.test.mjs no longer reads the workspace globs. It reads every git-tracked package.json, package.yaml and package.json5 through trackedManifests in the new scripts/install-surface.mjs, which runs git ls-files -z. Four tests guard that read: the read finds the root manifest and at least one below it; a fixture repository lists exactly the three manifest names; the read fails closed when git cannot list the tracked files; and a tracked manifest that does not parse as package.json is refused, which covers any package.yaml or package.json5. The root pins refuse pnpm:devPreinstall, preinstall, install, postinstall, preprepare, prepare and postprepare, so root preinstall and postinstall are now refused by name. Every manifest below the root is refused preinstall, install, postinstall, preprepare, prepare and postprepare.",
+    "K2, fixed (code CR17-3; controls C17-3; security S17-1; spec S17-1). topLevelKeys in scripts/install-surface.mjs reads the top-level keys of pnpm-workspace.yaml and pnpm-lock.yaml in four spellings: plain, double-quoted (escapes decoded), single-quoted and explicit '?'. It splits lines at CRLF, LF and a lone CR. A column-0 line it cannot read throws, and the read tests then go red. The read tests also require the keys packages and overrides, and lockfileVersion and importers. In pnpm-workspace.yaml the pins refuse pnpmfile and any other key containing pnpmfile (globalPnpmfile); in pnpm-lock.yaml they refuse pnpmfileChecksum. There is one test per key and spelling, twelve in all.",
+    "K3, fixed (security S17-4). pnpm-workspace.yaml may set none of allowBuilds, onlyBuiltDependencies, onlyBuiltDependenciesFile or dangerouslyAllowAllBuilds. No tracked manifest may name a file:, link:, relative, home or drive-letter path in dependencies, devDependencies, optionalDependencies or peerDependencies.",
+    "K4, the pnpmfile lesson, corrected (spec S17-2, controls I-1, security S17-3). The round-seventeen checkpoint says that a frozen install runs a .pnpmfile's top-level code and then fails on the pnpmfileChecksum mismatch. That holds only for a pnpmfile that exports hooks. pnpm 11.9.0 records a pnpmfileChecksum only for a pnpmfile that exports hooks. A hookless pnpmfile (module.exports = {}) records no checksum, its code runs, and the frozen install exits 0. The checksum pins therefore catch only a hook-bearing pnpmfile; the setting pins and the root-file test catch the rest. This supersedes the 'Lesson, not a control' entry of the round-seventeen checkpoint's declared_non_coverage and its ASSUMED line about where pnpm reads a pnpmfile (globalPnpmfile is a second setting). The round-seventeen checkpoint is not edited. The code comments that stated the old lesson were corrected in 45b5ca6.",
+    "Mutations go from 393 to 414 (README.md states 414, matching CI). New: two for root preinstall and postinstall (CR17-4); four that weaken the reader (whole-path match, package.json only, fail open on a git error) or plant an unparseable manifest (K1); eleven key-spelling plants (pnpmfile in three new spellings, globalPnpmfile in four, pnpmfileChecksum in three new ones), two unreadable-line plants, and one each for escape decoding and the lone-CR split (K2); and one each for allowBuilds and a file: dependency (K3). Removed: 'workspace: name no package glob, so the package pins read nothing (L2)', because the globs are no longer read; the reader mutation 'manifests: match the whole path against a manifest name, so only the root's is read (K1)' replaces it. Witness renamed: the six L2 mutations are now witnessed by 'install lifecycle: no package manifest below the root defines the <key> script'. Mutation renamed: the L3 lockfile mutation is now 'lockfile: record a pnpmfile checksum (L3)'.",
+    "Code commits of this round: 45b5ca66dd8cd7037a521c2589e8141b8a73c63a (the fix; CI 37190814224 success, PASS 414) and b39e6eac3a6045ba84c04a807a81b5931599bd3e (the simplifier's second draft). The second draft changes only tests/boundaries/ci-workflow.test.mjs: one listOrError helper, and the root pins read the package.json scripts directly. No test, witness or mutation changed. CI 37195305351 on it concluded success, PASS 414. The final code head is b39e6ea.",
+    "Observation, not a finding: CI's Verify job took about 52 minutes at 393 mutations (run 37174897102, 03:43:58Z to 04:35:43Z). It took about 75 minutes at 414 mutations: run 37190814224 ran 09:01:39Z to 10:17:05Z and run 37195305351 ran 10:25:21Z to 11:40:40Z. 75 minutes is about 63% of the job's 120-minute timeout-minutes. PR 16's run 37190206625 took about 60 minutes at 393 mutations, so runner variance accounts for part of the rise. The simplifier measured about 7.9 s per mutation before and about 10.9 s after. The timeout is in ci.yml, which is human-only.",
+    "Red before green. PROBE and GAP rows: on cold frozen installs at 4a46b69, pnpm ran each planted hole while the round-seventeen test file stayed green. RED rows: the new test file turns each plant red under its own control. A local check applied each of the 35 mutations of the changed block, and each was caught by its declared witness."
+  ],
+  "branch": "motor/p0.2/repository-and-boundaries",
+  "baseline_commit": "4a46b693e0d649f73b40e2a61a5dff480e3f557a",
+  "files_changed": [
+    "README.md",
+    "badf/current-state.json",
+    "badf/decision-log.jsonl",
+    "badf/next-actions.json",
+    "scripts/install-surface.mjs",
+    "scripts/mutation-check.mjs",
+    "sessions/checkpoints/BIZTRUST-WP-001-review-round-18.json",
+    "tests/boundaries/ci-workflow.test.mjs"
+  ],
+  "validation": [
+    {
+      "command": "PROBE and GAP at 4a46b69 (a second clone, plants committed locally and never pushed; skill biztrust-pnpm-lifecycle-probe 1.1). Each plant was taken alone, with every node_modules deleted, then pnpm install --frozen-lockfile, then node --test tests/boundaries/ci-workflow.test.mjs (the round-seventeen file). The plants: a hookless pnpmfile docs/zz/hook.cjs named by a pnpm-workspace.yaml key written \"pnpmfile\", 'pnpmfile' or '? pnpmfile', and by globalPnpmfile in all four spellings; packages/contracts/package.json replaced by package.yaml, and by package.json5, each with a prepare; a services/* glob with a trailing comment plus a services/api prepare; a file:./docs/zz-local devDependency with a postinstall plus an allowBuilds entry",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T08:56:29Z",
+      "output_reference": "Every plant: install exit 0, and the marker shows that pnpm 11.9.0 loaded the pnpmfile or ran the script ('zz-local postinstall: Done' for the file: dependency). The round-seventeen ci-workflow test exited 0 for every plant except the unquoted pnpmfile: control, which exited 1. pnpm-file: and PNPMFILE: loaded nothing. The file: dependency without allowBuilds, and with only package.json pnpm.onlyBuiltDependencies, exited 1 with ERR_PNPM_IGNORED_BUILDS. Logs: zz-install-*.log and zz-test-*.log in the run's implementer folder"
+    },
+    {
+      "command": "RED, the same plants with the new tests/boundaries/ci-workflow.test.mjs and scripts/install-surface.mjs copied in (the working tree that became 45b5ca6, before two test names were reworded: 'an explicit' and '(globalPnpmfile)'); node --test tests/boundaries/ci-workflow.test.mjs",
+      "exit_status": 1,
+      "observed_at": "2026-10-04T08:56:30Z",
+      "output_reference": "Each plant turned its own control red. The quoted, single-quoted and explicit pnpmfile keys and the four globalPnpmfile spellings each failed their spelling test. package.yaml and package.json5 failed 'every tracked manifest is a package.json this test can parse'. The trailing-comment glob failed 'no package manifest below the root defines the prepare script'. The file: dependency failed postinstall, 'no tracked manifest depends on a local path' and 'pnpm-workspace.yaml grants no dependency a build permission'"
+    },
+    {
+      "command": "Local witness check, not a sweep (check-new-mutations.mjs in the run's implementer folder). Each of the 35 mutations of the changed block of scripts/mutation-check.mjs was applied to a plant clone carrying the new files, then node --test --test-reporter=tap tests/boundaries/ci-workflow.test.mjs was run, and the file was restored",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T08:58:28Z",
+      "output_reference": "35 mutations, 0 bad: every anchor matched once and every declared witness went red"
+    },
+    {
+      "command": "CI run 37190206625 (PR 16, N-1), pull_request on 8fc2d647bfbef44acddb4fdbdc483329dc5e77ba; gh run view 37190206625 --json conclusion,headSha,jobs and --log",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T09:50:27Z",
+      "output_reference": "Conclusion success, headSha 8fc2d64. MUTATION_CHECK baseline GREEN: boundaries 302, signing 13, validator 259. MUTATION_CHECK PASS 393 mutations, every one caught by its declared witness. Verify ran 08:50:19Z to 09:50:27Z. PR 16 merged as 9e5ac41 at 10:19:03Z"
+    },
+    {
+      "command": "CI run 37190814224 (this round, the fix), pull_request on 45b5ca66dd8cd7037a521c2589e8141b8a73c63a; gh run view 37190814224 --json conclusion,headSha,jobs and --log",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T10:17:05Z",
+      "output_reference": "Conclusion success, headSha 45b5ca6. MUTATION_CHECK baseline GREEN: boundaries 323, signing 13, validator 259. MUTATION_CHECK PASS 414 mutations, every one caught by its declared witness. Verify ran 09:01:39Z to 10:17:05Z"
+    },
+    {
+      "command": "CI run 37195305351 (this round, the final code head), pull_request on b39e6eac3a6045ba84c04a807a81b5931599bd3e; gh run view 37195305351 --json conclusion,headSha,jobs and --log",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T11:40:40Z",
+      "output_reference": "Conclusion success, headSha b39e6ea. MUTATION_CHECK baseline GREEN: boundaries 323, signing 13, validator 259. MUTATION_CHECK PASS 414 mutations, every one caught by its declared witness. Verify ran 10:25:21Z to 11:40:40Z"
+    },
+    {
+      "command": "pnpm install --frozen-lockfile",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T11:43:05Z",
+      "output_reference": "At b39e6ea, the last code commit: Already up to date (pnpm v11.9.0)"
+    },
+    {
+      "command": "pnpm validate:records",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T11:43:06Z",
+      "output_reference": "At b39e6ea: CONTINUITY_VALIDATION PASS. This ran before this commit's records existed; they were validated again at the records commit"
+    },
+    {
+      "command": "pnpm check:signing",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T11:43:07Z",
+      "output_reference": "At b39e6ea: SIGNING_CHECK NOT_ENFORCED, 63 commit(s) touched protected paths and are bound to nobody. This is NOT a pass"
+    },
+    {
+      "command": "pnpm typecheck",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T11:43:08Z",
+      "output_reference": "At b39e6ea: tsc -p tsconfig.json, no output"
+    },
+    {
+      "command": "pnpm boundaries:check",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T11:43:09Z",
+      "output_reference": "At b39e6ea: BOUNDARY_GENERATION PASS 30 modules; no dependency violations found (46 modules, 152 dependencies cruised)"
+    },
+    {
+      "command": "pnpm codeowners:check",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T11:43:11Z",
+      "output_reference": "At b39e6ea: CODEOWNERS_GENERATION PASS 12 routing entries"
+    },
+    {
+      "command": "pnpm lint:migrations",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T11:43:11Z",
+      "output_reference": "At b39e6ea: MIGRATION_LINT PASS 2 file(s), no violation"
+    },
+    {
+      "command": "pnpm check:modules",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T11:43:12Z",
+      "output_reference": "At b39e6ea: MODULE_PACKAGES PASS 30 registered, 4 with a package"
+    },
+    {
+      "command": "pnpm check:coverage",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T11:43:13Z",
+      "output_reference": "At b39e6ea: COVERAGE_GATE PASS 20 named protections, every one witnessed by a control"
+    },
+    {
+      "command": "pnpm test:boundaries",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T11:43:13Z",
+      "output_reference": "At b39e6ea: tests 323, pass 323, fail 0, skipped 0 (302 before, plus 21)"
+    },
+    {
+      "command": "pnpm test:signing",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T11:43:17Z",
+      "output_reference": "At b39e6ea: tests 13, pass 13, fail 0"
+    },
+    {
+      "command": "pnpm test:validator",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T11:43:23Z",
+      "output_reference": "At b39e6ea (start time): Ran 259 tests in 69.786s OK"
+    }
+  ],
+  "decisions": [
+    "DEC-045: round eighteen reads every git-tracked manifest (K1), refuses every spelling of the pnpmfile keys and the checksum key (K2), and refuses a build permission and a local-path dependency (K3), with 21 more mutations (393 to 414). It corrects the pnpmfile lesson (K4) and records PR 15 merged as 4a46b69 and PR 16 merged as 9e5ac41."
+  ],
+  "assumptions": [
+    "ASSUMED: pnpm 11.9.0 reads a pnpmfile only from a root .pnpmfile.cjs or .pnpmfile.mjs, or from the file a pnpmfile or globalPnpmfile key in pnpm-workspace.yaml names. A package.json pnpm.pnpmfile, an .npmrc pnpmfile line, and the pnpm-file and PNPMFILE keys were each probed and ran nothing. configDependencies was not probed.",
+    "ASSUMED: pnpm 11.9.0 runs a dependency's build scripts only when pnpm-workspace.yaml grants it; package.json pnpm.onlyBuiltDependencies was probed and ignored. CI's --ignore-scripts (PR 16) now stops every install-time script at the source, whatever the pins say.",
+    "ASSUMED: the next round re-reviews the round-eighteen head with fresh-context reviewers and posts to issue 8."
+  ],
+  "blockers": [
+    "Spec S16-3, S16-4 and S17-4 (the checkpoint schema does not require declared_non_coverage), security S16-3, spec S17-3 (the PR 15 body), code CR16-2, controls I-1 (generator), S15-2, CR-2 to CR-4, R14-2 and R14-3 are human-only and open.",
+    "R7-4, D1, D2/B6, D3, D4, D5, F3, F5, the decision-log protected-path conflict, the routing inconsistency and the ADR wording are human-only and open.",
+    "NS-001 is half done: the seat is held (contested by B6), and the administrator has applied the protection but not recorded it.",
+    "PR 17 merges into the Work Package branch, and no agent merges it. PR 1 needs an approving review from an identity other than bstBizEra before it can merge to main."
+  ],
+  "authority_status": "Unchanged in kind. The scaffold rests on an operator instruction recorded by an agent (granted.repository_scaffold), not on an expiring grant from the business authority seat. wp_001_acceptance is NOT_GRANTED, and per DEC-037 the operator, not an agent, records acceptance. This round records no seat, gate, grant or acceptance. It edits none of badf/authority.yaml, gates.yaml, lifecycle.yaml, agents.yaml, skills.yaml, modules/modules.yaml, AGENTS.md or .github/workflows/. PR 16's ci.yml change is the operator's act.",
+  "next_action_id": "NS-007",
+  "next_action": "Run a fresh re-review of the round-eighteen head (NS-007) with fresh-context reviewers, none the implementer, and post the results to issue 8. The operator decides the open human-only items and records acceptance; no agent does.",
+  "recovery": "Read AGENTS.md, badf/authority.yaml, badf/current-state.json and badf/next-actions.json, then issue 8 for the review records and the open decisions. The work is on motor/biztrust-wp-001/r17-1, PR 17 against motor/p0.2/repository-and-boundaries, created from 4a46b69. The Work Package branch is now at 9e5ac41 (PR 16), which the fix branch does not contain. The code commits of this round are 45b5ca6 and b39e6ea. The last code commit is b39e6ea; CI run 37195305351 and the local verification rows are bound to it. The PROBE and GAP rows ran at 4a46b69. The commit carrying this checkpoint changes exactly four files (badf/current-state.json, badf/decision-log.jsonl, badf/next-actions.json and this checkpoint) and no code. To reproduce a RED row by hand, add '\"pnpmfile\": x' to pnpm-workspace.yaml, run node --test tests/boundaries/ci-workflow.test.mjs, then git checkout the file.",
+  "declared_non_coverage": [
+    "This repository tracks no package.yaml or package.json5, and scripts/mutation-check.mjs can only rewrite an anchor in an existing file, so it cannot plant one. The real-tree refusal of those forms ('every tracked manifest is a package.json this test can parse') is witnessed by a mutation that makes modules/tenancy/package.json unparseable, and by RED rows with each form planted. No mutation plants the forms themselves.",
+    "The test's endsWith('package.json') skip before parsing has no mutation of its own. Without it, a JSON-shaped package.yaml would be parsed and its scripts checked, which is still a refusal.",
+    "The root .pnpmfile.cjs and .pnpmfile.mjs case still has a test and no mutation, for the same reason: no new file can be planted.",
+    "topLevelKeys: no mutation covers a double-quoted key inside an explicit '?' key. A single-quoted key's doubled quote is left as written, because no refused key contains a quote. A column-0 line it cannot read (an anchor, a tag, a merge key, a flow mapping, a document marker or a directive) is refused, not read, so it can refuse valid YAML. The pnpm-file and PNPMFILE keys are refused as other pnpmfile keys although pnpm 11.9.0 ignored them.",
+    "Not pinned: configDependencies in pnpm-workspace.yaml, which may carry a pnpmfile in a config dependency (not probed), and a local path in package.json resolutions or pnpm.overrides. pnpm-workspace.yaml overrides are already pinned to exact versions.",
+    "Lesson, superseding the round-seventeen entry: pnpm records a pnpmfileChecksum only for a pnpmfile that exports hooks. A hookless pnpmfile runs on a frozen install that exits 0, so the checksum pins are not a second line of defence. CI's --ignore-pnpmfile (PR 16, 9e5ac41) is what stops a pnpmfile from running in CI. The setting pins and the root-file test keep a pnpmfile from being configured at all, including for a developer's local pnpm.",
+    "The PROBE, GAP and RED rows were observed on Windows 11 under Git Bash, where pnpm runs scripts through cmd.exe. CI on ubuntu-latest is the Linux observation of the pins, not of the probes.",
+    "The full pnpm check:mutations sweep was not run locally, because the run brief reports that it fails on this Windows host. CI's sweep is the evidence: PASS 414 on 45b5ca6 and on b39e6ea.",
+    "pnpm-workspace.yaml scriptShell, a CI step run through a multi-line run block, npx, node or a shell remain as declared in the round-sixteen checkpoint."
+  ]
+}

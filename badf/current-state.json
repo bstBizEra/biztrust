@@ -1,0 +1,85 @@
+{
+  "schema_version": "1.0.0",
+  "project_id": "BIZTRUST",
+  "repository": "bstBizEra/biztrust",
+  "updated_at": "2026-10-04T17:56:03Z",
+  "active_work_package": {
+    "id": "BIZTRUST-WP-001",
+    "title": "Platform repository skeleton from the P0.2 design",
+    "state": "ENGINEERING_READY",
+    "objective": "Create the place every later package lands, shaped so the modular monolith boundaries are tested rather than intended: the workspace and layout, the module registry, the seven dependency rules generated from it, the migration lint, the boundary test suite that proves both fire, the charter, these records and their schemas, and the CI skeleton. It implements no epic and creates no domain table.",
+    "issue_url": "https://github.com/bstBizEra/biztrust/issues/8",
+    "owner_role": "platform-engineer",
+    "scope": [
+      "pnpm-workspace.yaml",
+      "package.json",
+      "tsconfig.json",
+      "tsconfig.base.json",
+      "modules/modules.yaml",
+      "modules/tenancy",
+      "modules/identity-access",
+      "modules/audit",
+      "modules/platform-configuration",
+      "packages/contracts",
+      "packages/observability",
+      "services/api",
+      "scripts/registry.mjs",
+      "scripts/boundary-rules.mjs",
+      "scripts/generate-boundary-rules.mjs",
+      "scripts/migration-lint.mjs",
+      "scripts/validate_continuity.py",
+      "db/migrations",
+      "tests/boundaries",
+      "tests/unit",
+      "badf",
+      "schemas",
+      "docs",
+      ".github/workflows/ci.yml",
+      "AGENTS.md",
+      "README.md"
+    ]
+  },
+  "source": {
+    "branch": "motor/p0.2/repository-and-boundaries",
+    "baseline_commit": "062a0f7c1b350e4af695978b238b28e323b7d0e0",
+    "baseline_kind": "main",
+    "expected_remote": "https://github.com/bstBizEra/biztrust"
+  },
+  "gates": {
+    "BT-G0": "UNRECORDED",
+    "BT-G1": "UNRECORDED",
+    "BT-G2": "UNRECORDED",
+    "BT-G3": "UNRECORDED",
+    "BT-G4": "UNRECORDED",
+    "boundary_check": "PASS",
+    "migration_lint": "PASS",
+    "record_validation": "PASS",
+    "typecheck": "PASS",
+    "branch_protection": "NOT_RECORDED_REQUIRES_REPOSITORY_ADMIN",
+    "mutation_check": "PASS"
+  },
+  "authority": {
+    "repository_scaffold": "GRANTED_BY_OPERATOR_INSTRUCTION_2026_09_08",
+    "architecture_contract_freeze": "NOT_GRANTED",
+    "p0_implementation": "NOT_GRANTED",
+    "adr_acceptance": "NOT_GRANTED",
+    "production_deployment": "NOT_GRANTED",
+    "main_branch_protection": "NOT_RECORDED_REQUIRES_REPOSITORY_ADMIN",
+    "wp_001_acceptance": "REVISION_REQUIRED_BY_INDEPENDENT_VERIFIER"
+  },
+  "bootstrap": {
+    "record": "badf/bootstrap.yaml",
+    "state": "SEATED",
+    "act_id": "BOOTSTRAP-001",
+    "seats": [
+      "repository-administrator"
+    ],
+    "historical_digest": "5989e6c2c7210c656bde85f0a57199816c881501cc2007e9427ca4628094d784"
+  },
+  "latest_checkpoint": "sessions/checkpoints/BIZTRUST-WP-001-review-round-19.json",
+  "latest_handoff": null,
+  "primary_next_action_id": "NS-001",
+  "resume_decision": "WAIT_FOR_AUTHORITY",
+  "stop_reason": "Round ten (three fresh-context reviews of PR 10 at 05a2a27, issue 8): spec ACCEPT, security ACCEPT, controls REVISION_REQUIRED (C10-1 and C10-2, major). Round eleven (DEC-040, PR 10) fixed C10-1 (the doNotFollow pattern is anchored, and a tracked file where the checker does not look is refused), C10-2 (a plant per source root and 22 mutations), C10-3 and C10-4 (a backstop rule reports any first-party import that resolves to nothing), S-6, S-7, S-8, S-9 in part, the spec minors M-1 to M-4 and the spec nits. It did NOT add a pnpm audit step, leaves A4, F6 and the scripts/registry.mjs open quote open, and corrected DEC-039 by appending rather than editing it. WP-001 stays ENGINEERING_READY and is not accepted; the operator records acceptance, no agent does (DEC-037). Open for the operator: R7-4 (a forger who edits scripts/validate_continuity.py defeats the pins; closes by an enrolled key with required_signatures or code-owner review from human-only seats), D1 authority for WP-001, D2 the seating's principal and first-fill verification (B6), D3 merge strategy, D4 control 10b, D5 the policy-record rename, F3 wp_001_acceptance, F5 the dangling owner_role, the decision-log protected-path conflict, the routing inconsistency, agents having edited files owned by human seats, and whether to ratify the agent-made fast-uri override (DEC-040). Round twelve (DEC-041; the controls review of PR 1 at b7d99a0, issue 8): one major, R12-2 (the production options were witnessed per source root and not per import form, so exclude dynamic, moduleSystems without cjs and a doNotFollow for .mjs or .cjs each left every check green). Fixed on motor/wp001/r12-import-forms, a PR against the Work Package branch: a plant per import form, the options object pinned to an allowlist written out in the test, and 15 mutations (351 to 366). DECLARED, NOT FIXED: R12-1 (the dependency-cruiser extension cache, bridges outside the four source roots, a file: dependency on a test package) and R12-3 (a computed dynamic import or a createRequire bound to another name); A4 and F6 stay open. WP-001 is still ENGINEERING_READY and is not accepted; the operator records acceptance. Round fourteen (the controls review of PR 1 at abe2125, issue 8): one major, R14-1 (the pin covered the options object and not package.json's boundaries:check arguments or the config's top-level keys, so --exclude, --do-not-follow, --include-only or --ignore-known added to that script, a scanned root dropped from it, or a top-level extends hid a live rule-1 and rule-5 violation with every check green), and minors R14-2 and R14-3. Round fifteen (DEC-042, operator command '/bt-wp-team R14-1 issue=8 rounds=2'): fixed R14-1 on motor/biztrust-wp-001/r14-1, a PR against the Work Package branch: production-options cruises with the depcruise arguments read from package.json, pins them and the config's top-level keys, and 8 mutations are added. R14-2, R14-3 and I7 are open. WP-001 is still ENGINEERING_READY and is not accepted; the operator records acceptance. Round sixteen (DEC-043, operator command '/bt-wp-team R14-1 issue=8 rounds=1 - fix only the agent-fixable minors'; PR 14 against the Work Package branch): fixed security S15-1 (no pre or post hook in package.json for any script ci.yml runs), code review CR-1 (the per-flag pins refuse a short flag inside a cluster) and spec S15-3 (README states 379 mutations), with five mutations (374 to 379), and recorded spec S15-1 (cf33aeb, CI run 37130104759) in a new round-sixteen checkpoint. Spec S15-2 and CR-2 to CR-4 are open for the operator. Round seventeen (DEC-044, operator command to fix the round-sixteen minors, run R16-1-20261004T0120; PR 15 against the Work Package branch): refused every script and pnpmfile a cold pnpm install runs, in the root (L1) and in each workspace package (L2), and the pnpmfile setting and pnpmfileChecksum (L3), with fourteen mutations (379 to 393), and recorded b3a2807 and CI run 37148555738 as round sixteen's last code commit in a new round-seventeen checkpoint (L4). N-1 and the ci.yml install flags, spec S16-3 and S16-4, security S16-3 and CR16-2 are open for the operator. Round eighteen (DEC-045, operator command to fix the round-seventeen minors, run R17-1-20261004T0844; PR 15 merged as 4a46b69; PR 17 against the Work Package branch): the install-lifecycle pins read every git-tracked package.json, package.yaml and package.json5 (K1), refuse pnpmfile, globalPnpmfile and pnpmfileChecksum in every YAML spelling through a key reader that fails closed (K2), and refuse a build permission and a local-path dependency (K3), with 21 more mutations (393 to 414); a new round-eighteen checkpoint corrects the pnpmfile lesson (a frozen install fails on a missing pnpmfileChecksum only when the pnpmfile exports hooks) and records the final code head b39e6ea (CI 37195305351, PASS 414) (K4). The operator merged PR 16 as 9e5ac41: CI installs with --ignore-scripts --ignore-pnpmfile (N-1). Spec S16-3, S16-4, S17-3 and S17-4, security S16-3 and CR16-2 are open for the operator. Round nineteen (DEC-046, operator command '/bt-wp-team R18-1 issue=8 rounds=1', run R18-1-20261004T1515; PR 17 merged as c014f29; PR 18 against the Work Package branch): corrects the round-eighteen records (M1, security S18-1): the N-1 install flags cover CI's install step only, because pnpm 11 runs an unflagged install before every pnpm <script>, which runs the pending builds, and loads the pnpmfile for every command, so the pins, not the flags, are the control; pnpm-workspace.yaml may set no key but packages and overrides (M2), a key line led by a byte-order mark is refused (M3) and the escape refusal is witnessed (M4), with 7 more mutations (414 to 421); the final code head is 9dc9f7d (CI 37217207117, PASS 421). The job-wide pnpm_config_ignore_scripts and pnpm_config_ignore_pnpmfile settings in ci.yml, spec S16-3, S16-4, S17-4, S18-7 and S18-8, security S16-3, CR16-2, CR18-4 and CR18-5 are open for the operator.",
+  "known_divergence": "The boundary rules here are the PROPOSAL of a design at IN_REVIEW that depends on five ADRs, none of them accepted (ADR-001, ADR-004 and ADR-010 are PROPOSED; ADR-005 and ADR-011 are DRAFT_REQUIRED). TEN review rounds have now been held (issue 8), and the defect class they keep finding has never once been a wrong rule: the suite was green while a rule did nothing. What round five adds is that the defect was never measurable before - the instrument that was supposed to detect it reported a number inflated by exactly the overlap it could not see. DEC-027 makes the unit of coverage the control that actually discriminates, and the cost is now visible rather than hidden: 193 mutations 'all caught' honestly reads as 146 with an exclusive killer plus 47 that no fixture distinguishes. THREE THINGS ARE WORTH STATING PLAINLY. First, this repository has now put its own defect class INSIDE the instrument built to detect that class four separate times - the coverage gate's environment seam, the attribution gate's own verdict wiring, the shallow-history guard, and the accepted_keys rule chain. Each was caught by a review reading the whole rather than the change. Second, a reviewer twice built the evidence an implementer had declared impractical to build, and each time the evidence contradicted the implementer's conclusion - once proving a bypass three separate written claims denied could exist. Third, and this is the one that bounds everything above: the signing check is DETECTION, not prevention, and it is unenforced today. Nothing mechanically distinguishes a human enrolment from an agent one, because any check the agent can edit is a check the agent can edit. Only required_signatures branch protection on main - a human act, on GitHub, outside this repository - converts it into a binding. The residual named in DEC-021 is therefore narrowed rather than closed. A consistent forgery across the governance records still passes every check here. What changed is that the repository now says so in a distinct, greppable word on every single run, and carries the mechanism that would end it the moment a human enrols a key."
+}

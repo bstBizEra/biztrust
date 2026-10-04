@@ -1,0 +1,198 @@
+{
+  "schema_version": "1.0.0",
+  "work_package": "BIZTRUST-WP-001",
+  "state": "ENGINEERING_READY",
+  "created_at": "2026-10-03T13:08:52Z",
+  "objective": "Create the platform repository skeleton described by the P0.2 design of the guide repository. Reviewed by fresh-context agents in rounds six to fourteen (issue 8); this checkpoint records the fix to the one major finding of the round-fourteen controls review, R14-1, and lists what it did not fix.",
+  "completed_scope": [
+    "Input: the controls reviewer's record of PR 1 at abe2125 (the round-twelve head), REVISION_REQUIRED on one major, R14-1, and minors R14-2 and R14-3. The operator's command in session: '/bt-wp-team R14-1 issue=8 rounds=2'. The work is on motor/biztrust-wp-001/r14-1, created from abe2125, and is a PR whose base is motor/p0.2/repository-and-boundaries. Nothing was pushed to that branch, and nothing was merged or approved by an agent.",
+    "R14-1, the defect: production-options.test.mjs pinned require('.dependency-cruiser.cjs').options and cruised with its own hard-coded argument list, so neither package.json's boundaries:check arguments nor the config's top-level keys were read by any test or touched by any mutation.",
+    "R14-1, the fix: tests/boundaries/production-options.test.mjs reads boundaries:check from package.json, cruises the planted copy with its depcruise arguments, records a cruise that cannot run as a named failure, and adds nine tests (the cruise ran with those arguments; the whole command; no --exclude, --do-not-follow, --include-only or --ignore-known; the five scanned roots; no extends; top-level keys exactly forbidden and options). scripts/mutation-check.mjs gains eight mutations tagged R14-1, each with its own anchor and witness.",
+    "Red before green: GAP rows at abe2125 show the live violation hidden with production-options green; RED rows at the uncommitted fix show each loosening turning its own named test red; GREEN rows at 3074481 show the clean tree green and the filtered sweep catching each mutation by its declared witness."
+  ],
+  "branch": "motor/p0.2/repository-and-boundaries",
+  "baseline_commit": "abe2125b2ff0ecd095fa94e86120b8c2fc12d56a",
+  "files_changed": [
+    "badf/current-state.json",
+    "badf/decision-log.jsonl",
+    "badf/next-actions.json",
+    "scripts/mutation-check.mjs",
+    "sessions/checkpoints/BIZTRUST-WP-001-review-round-15.json",
+    "tests/boundaries/production-options.test.mjs"
+  ],
+  "validation": [
+    {
+      "command": "GAP at abe2125: services/api/src/legacy/live.ts re-exports tenancy internals, no loosening; pnpm boundaries:check",
+      "exit_status": 2,
+      "observed_at": "2026-10-03T12:03:54Z",
+      "output_reference": "rule-5-entry-points-see-contracts-only and rule-1-internals-private-tenancy: services/api/src/legacy/live.ts -> modules/tenancy/src/internal/tenant-store.ts; 2 dependency violations, 46 modules, 149 dependencies cruised"
+    },
+    {
+      "command": "GAP at abe2125: the same plant, package.json boundaries:check gains --exclude \"^services/api/src/legacy/\"; pnpm boundaries:check",
+      "exit_status": 0,
+      "observed_at": "2026-10-03T12:03:56Z",
+      "output_reference": "no dependency violations found (45 modules, 148 dependencies cruised): the live violation is hidden"
+    },
+    {
+      "command": "GAP at abe2125: the same --exclude, plant removed; node --test tests/boundaries/production-options.test.mjs",
+      "exit_status": 0,
+      "observed_at": "2026-10-03T12:03:57Z",
+      "output_reference": "tests 51, pass 51, fail 0: no witness"
+    },
+    {
+      "command": "GAP at abe2125: generator emits a top-level extends of packages/contracts/zz-loose.json (exclude ^services/api/src/legacy/), regenerated, plant present; pnpm boundaries:check",
+      "exit_status": 0,
+      "observed_at": "2026-10-03T12:04:08Z",
+      "output_reference": "no dependency violations found (45 modules, 148 dependencies cruised)"
+    },
+    {
+      "command": "GAP at abe2125: the same extends, plant removed; node --test tests/boundaries/production-options.test.mjs",
+      "exit_status": 0,
+      "observed_at": "2026-10-03T12:04:09Z",
+      "output_reference": "tests 51, pass 51, fail 0: no witness"
+    },
+    {
+      "command": "RED, uncommitted fix over abe2125: package.json --exclude \"^services/api/src/legacy/\" (the reviewer's form); node --test --test-reporter=tap tests/boundaries/production-options.test.mjs",
+      "exit_status": 1,
+      "observed_at": "2026-10-03T12:07:30Z",
+      "output_reference": "pass 58, fail 2: 'boundaries:check is exactly the generation check and then depcruise with the allowlisted arguments' and 'boundaries:check passes depcruise no --exclude'"
+    },
+    {
+      "command": "RED, uncommitted fix over abe2125: generator extends an existing loose file, regenerated; node --test --test-reporter=tap tests/boundaries/production-options.test.mjs",
+      "exit_status": 1,
+      "observed_at": "2026-10-03T12:07:31Z",
+      "output_reference": "pass 58, fail 2: 'the config extends no other config' and 'the config's top-level keys are exactly forbidden and options'"
+    },
+    {
+      "command": "RED, uncommitted fix over abe2125: tests dropped from the boundaries:check roots; node --test --test-reporter=tap tests/boundaries/production-options.test.mjs",
+      "exit_status": 1,
+      "observed_at": "2026-10-03T12:07:32Z",
+      "output_reference": "pass 57, fail 3: the tests-root plant (rule-1), the whole-command allowlist, 'boundaries:check scans exactly modules, packages, services, apps and tests'"
+    },
+    {
+      "command": "GREEN, uncommitted fix over abe2125, clean tree: node --test tests/boundaries/production-options.test.mjs",
+      "exit_status": 0,
+      "observed_at": "2026-10-03T12:10:47Z",
+      "output_reference": "tests 60, pass 60, fail 0"
+    },
+    {
+      "command": "RED harness (one loosening at a time, restored after each), uncommitted fix over abe2125: production-options in TAP for each of the eight mutation forms plus two reviewer forms",
+      "exit_status": 1,
+      "observed_at": "2026-10-03T12:10:57Z",
+      "output_reference": "every loosening exit 1, each with its own named pin red: --exclude 4 fail; --exclude with a double-quoted backslash pattern 48 (refused as text the shell would expand); --do-not-follow 27; --include-only 38; --ignore-known 44; tests root dropped 3; --focus 15; generator extends 45; generator allowedSeverity 2"
+    },
+    {
+      "command": "pnpm install --frozen-lockfile",
+      "exit_status": 0,
+      "observed_at": "2026-10-03T12:11:45Z",
+      "output_reference": "at 3074481, the last code commit. Already up to date, Done in 358ms"
+    },
+    {
+      "command": "pnpm validate:records",
+      "exit_status": 0,
+      "observed_at": "2026-10-03T12:11:46Z",
+      "output_reference": "at 3074481. CONTINUITY_VALIDATION PASS (before this commit's records existed; validated again at the records commit)"
+    },
+    {
+      "command": "pnpm check:signing",
+      "exit_status": 0,
+      "observed_at": "2026-10-03T12:11:50Z",
+      "output_reference": "at 3074481. SIGNING_CHECK NOT_ENFORCED, 57 commit(s) touched protected paths and are bound to nobody. This is NOT a pass"
+    },
+    {
+      "command": "pnpm typecheck",
+      "exit_status": 0,
+      "observed_at": "2026-10-03T12:11:51Z",
+      "output_reference": "at 3074481. tsc -p tsconfig.json, no output"
+    },
+    {
+      "command": "pnpm boundaries:check",
+      "exit_status": 0,
+      "observed_at": "2026-10-03T12:11:53Z",
+      "output_reference": "at 3074481. BOUNDARY_GENERATION PASS 30 modules; no dependency violations found (45 modules, 148 dependencies cruised)"
+    },
+    {
+      "command": "pnpm codeowners:check",
+      "exit_status": 0,
+      "observed_at": "2026-10-03T12:11:55Z",
+      "output_reference": "at 3074481. CODEOWNERS_GENERATION PASS 12 routing entries"
+    },
+    {
+      "command": "pnpm lint:migrations",
+      "exit_status": 0,
+      "observed_at": "2026-10-03T12:11:56Z",
+      "output_reference": "at 3074481. MIGRATION_LINT PASS 2 file(s), no violation"
+    },
+    {
+      "command": "pnpm check:modules",
+      "exit_status": 0,
+      "observed_at": "2026-10-03T12:11:57Z",
+      "output_reference": "at 3074481. MODULE_PACKAGES PASS 30 registered, 4 with a package"
+    },
+    {
+      "command": "pnpm check:coverage",
+      "exit_status": 0,
+      "observed_at": "2026-10-03T12:11:58Z",
+      "output_reference": "at 3074481. COVERAGE_GATE PASS 20 named protections, every one witnessed by a control"
+    },
+    {
+      "command": "pnpm test:boundaries",
+      "exit_status": 0,
+      "observed_at": "2026-10-03T12:12:06Z",
+      "output_reference": "at 3074481. tests 284, pass 284, fail 0, skipped 0 (275 before, plus 9)"
+    },
+    {
+      "command": "pnpm test:signing",
+      "exit_status": 0,
+      "observed_at": "2026-10-03T12:12:11Z",
+      "output_reference": "at 3074481. tests 13, pass 13, fail 0 (Git Bash, without MSYS_NO_PATHCONV)"
+    },
+    {
+      "command": "pnpm test:validator",
+      "exit_status": 0,
+      "observed_at": "2026-10-03T12:12:20Z",
+      "output_reference": "at 3074481 (start time). Ran 259 tests in 94.057s OK"
+    },
+    {
+      "command": "filtered mutation sweep: a git-excluded copy of scripts/mutation-check.mjs keeping the eight R14-1 mutations and every mutation whose witness is a production-options test, removed afterwards",
+      "exit_status": 0,
+      "observed_at": "2026-10-03T12:13:41Z",
+      "output_reference": "at 3074481. MUTATION_CHECK PASS 46 mutations, every one caught by its declared witness; each R14-1 mutation caught by its own witness"
+    }
+  ],
+  "decisions": [
+    "DEC-042 round fifteen fixes R14-1: the planted copy is cruised with the depcruise arguments read from package.json, those arguments and the config's top-level keys are pinned, and eight mutations cover the loosenings"
+  ],
+  "assumptions": [
+    "ASSUMED: CI runs pnpm boundaries:check through a POSIX shell (ci.yml:147 on ubuntu-latest), so the plain-argument reading of the script is what CI runs.",
+    "ASSUMED: the mutation sweep's attribution, which accepts a mutation caught by its declared witness together with other controls, is the standard; the eight new mutations were not required to be caught by their witness alone.",
+    "ASSUMED: the next round re-reviews the round-fifteen head with fresh-context reviewers and posts to issue 8."
+  ],
+  "blockers": [
+    "R7-4: a forger who edits scripts/validate_continuity.py defeats every pin, and scripts/** routes to seats an agent may occupy. Closes only by a human act: an enrolled key with required_signatures, or code-owner review from human-only seats. Operator decision.",
+    "D1: WP-001's own authority. The design names it P0.2-A with an expiring grant; the scaffold grant is unbounded. Operator decision.",
+    "D2 / finding B6: the seated principal and the succession rule's first-fill verification by a different human seat. Operator decision.",
+    "D3: merge strategy before any signing key is enrolled. Operator decision.",
+    "D4: control 10b, the host allow-list, is not implemented. Operator decision.",
+    "D5: the policy-record rename (DEC-005) was made without the architecture seat. Operator decision.",
+    "F3: authority.yaml wp_001_acceptance names the peer reviewer; DEC-037 says the operator records acceptance. Operator's to narrow.",
+    "F5: modules/modules.yaml owner_role compliance-reviewer names no role. The architecture authority's to change.",
+    "badf/decision-log.jsonl is a protected path while tool_authority.may lets agents append to it. Operator decision.",
+    "The routing inconsistency, and the ADR wording in badf/authority.yaml and badf/skills.yaml, are human-only. Operator to decide.",
+    "R14-2 (record statements in DEC-041, the round-twelve checkpoint, ci.yml:61-65 and README.md:95-96) and R14-3 (the two rule-6 test-code plants own no mutation) are open and were not in this round's brief; ci.yml is a path no agent may edit.",
+    "NS-001 is half done: the seat is held (contested by B6) and the protection is applied and not recorded by the administrator.",
+    "PR 1 needs an approving review from an identity other than bstBizEra before it can merge to main. The PR for this change merges into PR 1's branch and is not merged by an agent."
+  ],
+  "authority_status": "Unchanged in kind: the scaffold rests on an operator instruction recorded by an agent (granted.repository_scaffold), not an expiring grant from the business authority seat. wp_001_acceptance is NOT_GRANTED. Per DEC-037 the operator, not an agent, records acceptance. This round records no seat, gate, grant or acceptance and edits none of badf/authority.yaml, gates.yaml, lifecycle.yaml, agents.yaml, skills.yaml, modules/modules.yaml, AGENTS.md or .github/workflows/.",
+  "next_action_id": "NS-007",
+  "next_action": "Run a fresh re-review of the round-fifteen head (NS-007): fresh-context reviewers, none the implementer, results to issue 8, after the CI run on the head of the PR for motor/biztrust-wp-001/r14-1 has reported its MUTATION_CHECK line. The operator decides R14-2, R14-3, I7, D1 to D5, R7-4, F3, F5, the decision-log conflict and the routing inconsistency, and records acceptance; no agent does.",
+  "recovery": "Read AGENTS.md, badf/authority.yaml, badf/current-state.json and badf/next-actions.json, then issue 8 for the review records and open decisions. Work is on motor/biztrust-wp-001/r14-1, a PR against motor/p0.2/repository-and-boundaries (the Work Package branch, PR 1), created from abe2125. The local validation rows are bound to 3074481, the last code commit; GAP rows were run at abe2125 and RED rows on the uncommitted test change over abe2125. The commit carrying this checkpoint changes exactly four files (badf/current-state.json, badf/decision-log.jsonl, badf/next-actions.json and this checkpoint) and no code. To reproduce a RED row by hand, add the loosening to package.json's boundaries:check or to scripts/generate-boundary-rules.mjs, run node --test tests/boundaries/production-options.test.mjs, then git checkout the touched files.",
+  "declared_non_coverage": [
+    "I7 (not fixed): a generator that appends JavaScript loosening the options only when process.argv shows a depcruise run without json output still passes the pins, because the pins compare the evaluated object in the test's process. The same threat class as R7-4.",
+    "The script reader accepts only the plain-argument subset of POSIX shell syntax and refuses the rest; a script using an environment variable, a glob or a backslash escape fails production-options by design rather than being read.",
+    "CI's workflow itself could drop or replace the pnpm boundaries:check step without a red check here; .github/workflows/ is a path no agent may edit, and the workflow's own tests were not extended.",
+    "Linux: the GAP, RED and GREEN rows were observed on Windows 11 under Git Bash; CI on ubuntu-latest is the Linux observation.",
+    "R12-1 and R12-3 (declared in round twelve) and A4 and F6 (carried) are unchanged.",
+    "The full pnpm check:mutations sweep was not completed locally: started at 3074481 at 2026-10-03T12:14:20Z, it had reached 160 of 374 mutations, each caught by its declared witness so far, none survived (at 2026-10-03T13:08:52Z) when these records were written, because each validator-suite mutation takes about 90 seconds on this Windows machine. The new mutations were run through the filtered sweep (PASS 46); the full sweep is CI's, on the PR head."
+  ]
+}
