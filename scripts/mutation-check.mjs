@@ -3626,6 +3626,66 @@ const MUTATIONS = [
       "  };",
     ),
   },
+  // ---- round sixteen, CR-1: the same three flags written inside a short-flag cluster ----
+  //
+  // The CLI parser reads `-mx <re>` as `--metrics --exclude <re>`, and the
+  // per-flag pins above matched only an argument that STARTS with the short
+  // flag, so each of these left its own pin green (the allowlist and the
+  // cruise were red). Each pattern differs from the R14-1 mutation's for the
+  // same flag, so the two mutations are not killed by the same controls.
+  {
+    file: PACKAGE,
+    name: "boundaries:check: exclude a path inside a short-flag cluster, -mx (CR-1)",
+    witness: "production options: boundaries:check passes depcruise no --exclude",
+    shared:
+      "the per-flag pin is the one control for --exclude in every spelling; R14-1's mutation " +
+      "proves the long spelling, this one the clustered short spelling",
+    from: "--check && depcruise --config",
+    to: "--check && depcruise -mx ^apps/ --config",
+  },
+  {
+    file: PACKAGE,
+    name: "boundaries:check: do not follow a path inside a short-flag cluster, -mX (CR-1)",
+    witness: "production options: boundaries:check passes depcruise no --do-not-follow",
+    shared:
+      "the per-flag pin is the one control for --do-not-follow in every spelling; R14-1's " +
+      "mutation proves the long spelling, this one the clustered short spelling",
+    from: ".dependency-cruiser.cjs modules packages",
+    to: ".dependency-cruiser.cjs -mX ^packages/ modules packages",
+  },
+  {
+    file: PACKAGE,
+    name: "boundaries:check: judge only one root inside a short-flag cluster, -mI (CR-1)",
+    witness: "production options: boundaries:check passes depcruise no --include-only",
+    shared:
+      "the per-flag pin is the one control for --include-only in every spelling; R14-1's " +
+      "mutation proves the long spelling, this one the clustered short spelling",
+    from: "modules packages services apps",
+    to: "-mI ^services/ modules packages services apps",
+  },
+  // ---- round sixteen, security S15-1: a lifecycle hook around a script CI runs ----
+  //
+  // pnpm runs pre<name> and post<name> around `pnpm <name>`; a hidden-and-
+  // restored violation under tests/ passed boundaries:check with both hooks
+  // present. The hooks here are inert: the sweep runs suites with node, not
+  // pnpm, so only the pin can see them, which is the point.
+  {
+    file: PACKAGE,
+    name: "package.json: run a pre hook before boundaries:check (S15-1)",
+    witness: "ci workflow: package.json defines no pre hook for a script CI runs",
+    from: '  "scripts": {',
+    to: lines('  "scripts": {', '    "preboundaries:check": "node -e 0",'),
+  },
+  {
+    file: PACKAGE,
+    name: "package.json: run a post hook after boundaries:check (S15-1)",
+    witness: "ci workflow: package.json defines no post hook for a script CI runs",
+    from: '    "boundaries:generate": "node scripts/generate-boundary-rules.mjs",',
+    to: lines(
+      '    "postboundaries:check": "node -e 0",',
+      '    "boundaries:generate": "node scripts/generate-boundary-rules.mjs",',
+    ),
+  },
   // ---- round eleven, C10-3 and C10-4: the catch-all for an import that resolves to nothing ----
   {
     file: RULES,

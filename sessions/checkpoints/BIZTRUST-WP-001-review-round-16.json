@@ -1,0 +1,183 @@
+{
+  "schema_version": "1.0.0",
+  "work_package": "BIZTRUST-WP-001",
+  "state": "ENGINEERING_READY",
+  "created_at": "2026-10-03T17:20:00Z",
+  "objective": "Create the platform repository skeleton described by the P0.2 design of the guide repository. Reviewed by fresh-context agents in rounds six to fifteen (issue 8). This checkpoint records the round-fifteen head that the round-fifteen checkpoint did not reach (spec S15-1). It also records round sixteen's fixes to the agent-fixable minors of the round-fifteen reviews, and lists what it did not fix.",
+  "completed_scope": [
+    "Input: the round-fifteen reviews of PR 13 (spec, security and code reviewers, ACCEPT with minors). The operator's command in session: '/bt-wp-team R14-1 issue=8 rounds=1 - fix only the agent-fixable minors'. The work is on motor/biztrust-wp-001/r14-1, created from 4286efc (PR 13 merged into the Work Package branch), and is PR 14 with base motor/p0.2/repository-and-boundaries. Nothing was merged or approved by an agent.",
+    "Round fifteen, completed on the record (spec S15-1): the final head of the R14-1 fix was cf33aeb0fd37593ff0d53db58fc09aaa02f5bede, a second-draft code commit after the round-fifteen records commit ba8369b. It changed tests/boundaries/production-options.test.mjs only (one scanned-roots list, one readability assert). PR 13 merged it as 4286efc. CI run 37130104759 ran on cf33aeb (merge ref 9c78078) and concluded success with MUTATION_CHECK PASS 374, 284 boundary tests and 259 validator tests. The round-fifteen checkpoint's recovery sentence calling 3074481 'the last code commit' is superseded by this checkpoint: the last code commit of round fifteen is cf33aeb. That checkpoint is not edited.",
+    "Security S15-1, fixed: tests/boundaries/ci-workflow.test.mjs reads the script names from ci.yml's 'run: pnpm <name>' lines (13 names), refuses a pre<name> or post<name> entry in package.json for each, and fails if it reads no name. scripts/mutation-check.mjs gains two mutations tagged S15-1, a pre hook and a post hook, each with its own anchor and witness.",
+    "Code review CR-1, fixed: the per-flag pins in tests/boundaries/production-options.test.mjs now refuse the short flag anywhere in a single-dash run of letters, so -mx, -mX and -mI turn 'no --exclude', 'no --do-not-follow' and 'no --include-only' red. Three mutations are tagged CR-1, one per cluster form. Each is caught by its own per-flag test, and each records a reason for sharing that test with the R14-1 mutation for the long spelling.",
+    "Spec S15-3, fixed: README.md states 379 mutations at round sixteen, matching CI run 37135333186.",
+    "Red before green: GAP rows at 4286efc show each cluster form and the hook pair leaving its pin green, and the hook pair hiding a live violation from pnpm boundaries:check. RED rows on the uncommitted change show each pin going red. GREEN rows at 84a51be show the clean tree green, the filtered sweep catching each new mutation by its declared witness, and CI PASS 379."
+  ],
+  "branch": "motor/p0.2/repository-and-boundaries",
+  "baseline_commit": "4286efcf2b3efc37bd9fb87cfb86177876518260",
+  "files_changed": [
+    "README.md",
+    "badf/current-state.json",
+    "badf/decision-log.jsonl",
+    "badf/next-actions.json",
+    "scripts/mutation-check.mjs",
+    "sessions/checkpoints/BIZTRUST-WP-001-review-round-16.json",
+    "tests/boundaries/ci-workflow.test.mjs",
+    "tests/boundaries/production-options.test.mjs"
+  ],
+  "validation": [
+    {
+      "command": "CI run 37130104759 (round fifteen), pull_request on cf33aeb0fd37593ff0d53db58fc09aaa02f5bede, merge ref 9c78078; gh run view 37130104759 --json conclusion,headSha and --log",
+      "exit_status": 0,
+      "observed_at": "2026-10-03T15:19:17Z",
+      "output_reference": "conclusion success, headSha cf33aeb. MUTATION_CHECK PASS 374 mutations, every one caught by its declared witness; boundary suite tests 284; validator Ran 259 tests"
+    },
+    {
+      "command": "GAP at 4286efc, per-flag pins unchanged: package.json boundaries:check gains -mx ^services/api/src/plant-export-from, -mx ^tests/zz-nothing/, -mX ^services/ or -mI ^modules/ (one at a time, restored after each); node --test --test-reporter=tap tests/boundaries/production-options.test.mjs",
+      "exit_status": 1,
+      "observed_at": "2026-10-03T15:57:33Z",
+      "output_reference": "clean tree 60 of 60. Every cluster form: 'no --exclude', 'no --do-not-follow' and 'no --include-only' all stay green; only the allowlist and the cruise plants are red (-mx 3 fail, -mx ^tests/ 1 fail, -mX 26, -mI 37)"
+    },
+    {
+      "command": "GAP at 4286efc: package.json gains preboundaries:check and postboundaries:check (node -e 0); node --test --test-reporter=tap tests/boundaries/*.test.mjs",
+      "exit_status": 0,
+      "observed_at": "2026-10-03T15:58:09Z",
+      "output_reference": "tests 284, pass 280, fail 0 (4 skipped because the tree was dirty): no witness"
+    },
+    {
+      "command": "GAP at 4286efc: tests/zz-live/leak.ts imports tenancy internals; pnpm boundaries:check without hooks, then with preboundaries:check and postboundaries:check moving it to db/ and back (untracked helpers, all removed afterwards)",
+      "exit_status": 0,
+      "observed_at": "2026-10-03T15:58:24Z",
+      "output_reference": "without hooks exit 1, 1 dependency violation, 46 modules, 149 dependencies; with hooks exit 0, no dependency violations found (45 modules, 148 dependencies cruised), and the file was back in place afterwards"
+    },
+    {
+      "command": "RED, uncommitted fix over 4286efc: the same four cluster forms; node --test --test-reporter=tap tests/boundaries/production-options.test.mjs",
+      "exit_status": 1,
+      "observed_at": "2026-10-03T15:57:57Z",
+      "output_reference": "clean tree 60 of 60. -mx: 'no --exclude' red (and the allowlist); -mx ^tests/: 'no --exclude' red; -mX: 'no --do-not-follow' red; -mI: 'no --include-only' red; no per-flag pin red for another flag's letter"
+    },
+    {
+      "command": "RED, uncommitted fix over 4286efc: package.json gains preboundaries:check, postboundaries:check, preinstall, or the pair; node --test --test-reporter=tap tests/boundaries/ci-workflow.test.mjs",
+      "exit_status": 1,
+      "observed_at": "2026-10-03T15:58:41Z",
+      "output_reference": "clean tree 9 of 9. pre hook: 'no pre hook' red; post hook: 'no post hook' red; preinstall: 'no pre hook' red; pair: both red"
+    },
+    {
+      "command": "RED, a scratch copy of ci-workflow.test.mjs with ci.yml's 'run: pnpm ' lines rewritten to 'run: corepack pnpm ' (the real ci.yml untouched); node --test --test-reporter=tap",
+      "exit_status": 1,
+      "observed_at": "2026-10-03T15:58:54Z",
+      "output_reference": "pass 6, fail 3: 'the pnpm scripts it runs are read' and both hook tests, each with 'no `run: pnpm <script>` line was read from ci.yml'"
+    },
+    {
+      "command": "filtered mutation sweep at 84a51be: a git-excluded copy of scripts/mutation-check.mjs keeping the mutations tagged R14-1, CR-1, S15-1, R11-S9 and R11-S8, removed afterwards",
+      "exit_status": 0,
+      "observed_at": "2026-10-03T16:01:50Z",
+      "output_reference": "MUTATION_CHECK PASS 18 mutations, every one caught by its declared witness; DECLARED NON-COVERAGE 3 mutation(s) share a witness on purpose (the CR-1 three); no INDISTINGUISHABLE line"
+    },
+    {
+      "command": "pnpm install --frozen-lockfile",
+      "exit_status": 0,
+      "observed_at": "2026-10-03T16:01:40Z",
+      "output_reference": "at 84a51be, the last code commit. Already up to date, Done in 404ms using pnpm v11.9.0"
+    },
+    {
+      "command": "pnpm validate:records",
+      "exit_status": 0,
+      "observed_at": "2026-10-03T16:01:41Z",
+      "output_reference": "at 84a51be. CONTINUITY_VALIDATION PASS (before this commit's records existed; validated again at the records commit)"
+    },
+    {
+      "command": "pnpm check:signing",
+      "exit_status": 0,
+      "observed_at": "2026-10-03T16:01:44Z",
+      "output_reference": "at 84a51be. SIGNING_CHECK NOT_ENFORCED, 59 commit(s) touched protected paths and are bound to nobody. This is NOT a pass"
+    },
+    {
+      "command": "pnpm typecheck",
+      "exit_status": 0,
+      "observed_at": "2026-10-03T16:01:45Z",
+      "output_reference": "at 84a51be. tsc -p tsconfig.json, no output"
+    },
+    {
+      "command": "pnpm boundaries:check",
+      "exit_status": 0,
+      "observed_at": "2026-10-03T16:01:46Z",
+      "output_reference": "at 84a51be. BOUNDARY_GENERATION PASS 30 modules; no dependency violations found (45 modules, 148 dependencies cruised)"
+    },
+    {
+      "command": "pnpm codeowners:check",
+      "exit_status": 0,
+      "observed_at": "2026-10-03T16:01:49Z",
+      "output_reference": "at 84a51be. CODEOWNERS_GENERATION PASS 12 routing entries"
+    },
+    {
+      "command": "pnpm lint:migrations",
+      "exit_status": 0,
+      "observed_at": "2026-10-03T16:01:49Z",
+      "output_reference": "at 84a51be. MIGRATION_LINT PASS 2 file(s), no violation"
+    },
+    {
+      "command": "pnpm check:modules",
+      "exit_status": 0,
+      "observed_at": "2026-10-03T16:01:50Z",
+      "output_reference": "at 84a51be. MODULE_PACKAGES PASS 30 registered, 4 with a package"
+    },
+    {
+      "command": "pnpm check:coverage",
+      "exit_status": 0,
+      "observed_at": "2026-10-03T16:01:51Z",
+      "output_reference": "at 84a51be. COVERAGE_GATE PASS 20 named protections, every one witnessed by a control"
+    },
+    {
+      "command": "pnpm test:boundaries",
+      "exit_status": 0,
+      "observed_at": "2026-10-03T16:01:52Z",
+      "output_reference": "at 84a51be. tests 287, pass 287, fail 0, skipped 0 (284 before, plus 3)"
+    },
+    {
+      "command": "pnpm test:signing",
+      "exit_status": 0,
+      "observed_at": "2026-10-03T16:01:56Z",
+      "output_reference": "at 84a51be. tests 13, pass 13, fail 0"
+    },
+    {
+      "command": "pnpm test:validator",
+      "exit_status": 0,
+      "observed_at": "2026-10-03T16:02:17Z",
+      "output_reference": "at 84a51be (start time). Ran 259 tests in 71.708s OK"
+    },
+    {
+      "command": "CI run 37135333186 (round sixteen), pull_request on 84a51be37b5a406f62e423435e8997c7d22f71f9, merge ref 8938bfd; gh run view 37135333186 --json conclusion,headSha and --log",
+      "exit_status": 0,
+      "observed_at": "2026-10-03T17:17:09Z",
+      "output_reference": "conclusion success, headSha 84a51be. MUTATION_CHECK PASS 379 mutations, every one caught by its declared witness; boundary suite tests 287; signing tests 13; validator Ran 259 tests"
+    }
+  ],
+  "decisions": [
+    "DEC-043 round sixteen fixes security S15-1 (no pre or post hook for a script CI runs), code review CR-1 (short flags inside a cluster), spec S15-3 (README count) and spec S15-1 (this checkpoint records cf33aeb and CI run 37130104759), with five mutations"
+  ],
+  "assumptions": [
+    "ASSUMED: every pnpm script CI runs appears in ci.yml as a single-line 'run: pnpm <name>' (13 today). A script run from a multi-line run block would not be read. The test still fails if no line is read, but it does not notice one line among several missing.",
+    "ASSUMED: refusing preinstall and postinstall for CI's 'pnpm install' is intended. pnpm runs the root package's install lifecycle scripts, so they are the same channel.",
+    "ASSUMED: the next round re-reviews the round-sixteen head with fresh-context reviewers and posts to issue 8."
+  ],
+  "blockers": [
+    "Spec S15-2 (round fifteen's local full sweep finished with exit 1, 136 mutations misattributed from #239 onward; environmental, CI PASS 374) is not recorded as a fact by an agent this round; it is on the operator's list.",
+    "CR-2 to CR-4 (test name, function name, duplicated label lists) are nits left open for the operator.",
+    "Controls I-1 and N-1 (.github/workflows/ci.yml), R14-2, R14-3, R7-4, D1, D2/B6, D3, D4, D5, F3, F5, the decision-log protected-path conflict, the routing inconsistency and the ADR wording are human-only and open.",
+    "NS-001 is half done: the seat is held (contested by B6) and the protection is applied and not recorded by the administrator.",
+    "PR 14 merges into the Work Package branch and is not merged by an agent; PR 1 needs an approving review from an identity other than bstBizEra before it can merge to main."
+  ],
+  "authority_status": "Unchanged in kind: the scaffold rests on an operator instruction recorded by an agent (granted.repository_scaffold), not an expiring grant from the business authority seat. wp_001_acceptance is NOT_GRANTED. Per DEC-037 the operator, not an agent, records acceptance. This round records no seat, gate, grant or acceptance and edits none of badf/authority.yaml, gates.yaml, lifecycle.yaml, agents.yaml, skills.yaml, modules/modules.yaml, AGENTS.md, package.json or .github/workflows/.",
+  "next_action_id": "NS-007",
+  "next_action": "Run a fresh re-review of the round-sixteen head (NS-007) with fresh-context reviewers, none the implementer, and post the results to issue 8. The operator decides spec S15-2, CR-2 to CR-4, I-1, N-1, R14-2, R14-3, I7, D1 to D5, R7-4, F3, F5, the decision-log conflict and the routing inconsistency, and records acceptance; no agent does.",
+  "recovery": "Read AGENTS.md, badf/authority.yaml, badf/current-state.json and badf/next-actions.json, then issue 8 for the review records and open decisions. Work is on motor/biztrust-wp-001/r14-1, PR 14 against motor/p0.2/repository-and-boundaries, created from 4286efc. The last code commit of this round is 84a51be; the local GREEN rows and CI run 37135333186 are bound to it. GAP rows were run at 4286efc, and RED rows on the uncommitted change over 4286efc. The last code commit of round fifteen is cf33aeb, not 3074481 as the round-fifteen checkpoint says. The commit carrying this checkpoint changes exactly four files (badf/current-state.json, badf/decision-log.jsonl, badf/next-actions.json and this checkpoint) and no code. To reproduce a RED row by hand, add the cluster flag or the hook to package.json, run node --test on tests/boundaries/production-options.test.mjs or tests/boundaries/ci-workflow.test.mjs, then git checkout package.json.",
+  "declared_non_coverage": [
+    "pnpm-workspace.yaml scriptShell (security S15-1 option b): a key there changes the program every pnpm script runs through, and nothing pins it. Not in this round's brief.",
+    "A CI step that runs a script through a multi-line run block, or through npx, node or a shell, is not read by the hook test. ci.yml is a path no agent may edit.",
+    "The read guard (no script name read from ci.yml) has no mutation: no single anchor removes all 13 lines. It was observed red on a scratch copy.",
+    "The hook mutations are inert (node -e 0), because the sweep runs suites with node and not pnpm. The live deception was observed once, by hand, in a GAP row.",
+    "The full pnpm check:mutations sweep was not run locally. The new mutations were run through the filtered sweep (PASS 18); the full sweep is CI's (PASS 379 on 84a51be).",
+    "Linux: GAP, RED and GREEN rows were observed on Windows 11 under Git Bash; CI on ubuntu-latest is the Linux observation.",
+    "I7, R12-1, R12-3, A4 and F6 are unchanged."
+  ]
+}

@@ -729,11 +729,19 @@ const ALLOWED_GENERATION = ["node", "scripts/generate-boundary-rules.mjs", "--ch
 const SCANNED_ROOTS = ["modules", "packages", "services", "apps", "tests"];
 const ALLOWED_DEPCRUISE_ARGV = ["--config", ".dependency-cruiser.cjs", ...SCANNED_ROOTS];
 
-/** Whether an argument is `long`, its short spelling, or either with an attached value. */
+/**
+ * Whether an argument is `long`, its short spelling, or either with an attached value.
+ *
+ * Round sixteen (code review CR-1): a short flag also counts inside a
+ * single-dash cluster, because the CLI parser reads `-mx <re>` as
+ * `--metrics --exclude <re>`. Any run of letters after one dash that contains
+ * the short letter is refused, even where a parser would read that letter as
+ * the value of an earlier flag: a false refusal only fails closed.
+ */
 const spells = (argument, long, short) =>
   argument === long ||
   argument.startsWith(`${long}=`) ||
-  (short !== undefined && argument.startsWith(short));
+  (short !== undefined && new RegExp(`^-[A-Za-z]*${short.slice(1)}`).test(argument));
 
 function assertReadable() {
   assert.equal(BOUNDARIES_CHECK.error, null, `boundaries:check cannot be read: ${BOUNDARIES_CHECK.error}`);
