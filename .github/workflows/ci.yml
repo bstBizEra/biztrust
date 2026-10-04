@@ -108,8 +108,12 @@ jobs:
           python-version: "3.13"
 
       # 1. Install. A changed lockfile the pull request did not commit fails here.
+      #    --ignore-scripts and --ignore-pnpmfile: no lifecycle script (root,
+      #    workspace package or dependency) and no pnpmfile runs on the runner,
+      #    so a pull request cannot hide a violation from the checks below
+      #    (N-1; issue 8 round-16 and round-17 records).
       - name: Install
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile
 
       # 2. Validate records. The state file, the actions, the decision log, every
       #    checkpoint and the five registries, against schemas/ and the
