@@ -401,6 +401,8 @@ const GENERATOR = join(WT_ROOT, "scripts", "generate-boundary-rules.mjs");
 const MODULE_CHECK = join(WT_ROOT, "scripts", "check-module-packages.mjs");
 const CI_WORKFLOW = join(WT_ROOT, ".github", "workflows", "ci.yml");
 const WORKSPACE = join(WT_ROOT, "pnpm-workspace.yaml");
+const LOCKFILE = join(WT_ROOT, "pnpm-lock.yaml");
+const TENANCY_PACKAGE = join(WT_ROOT, "modules", "tenancy", "package.json");
 const SIGNING_CHECK = join(WT_ROOT, "scripts", "check-signing.mjs");
 // Not a script. The ORDER of the verify chain is a control - the JS signing
 // policy reader is fail-closed only because validate:records runs before
@@ -3685,6 +3687,47 @@ const MUTATIONS = [
       '    "postboundaries:check": "node -e 0",',
       '    "boundaries:generate": "node scripts/generate-boundary-rules.mjs",',
     ),
+  },
+  // ---- round seventeen, L1-L3: a script or hook that pnpm install runs ----
+  //
+  // Each key ran on a cold `pnpm install --frozen-lockfile` (pnpm 11.9.0); as
+  // above, the sweep never installs, so only the pins can see them. A root
+  // .pnpmfile.cjs/.mjs has no mutation: this harness rewrites an anchor in an
+  // existing file and cannot plant a new one (declared non-coverage).
+  ...["pnpm:devPreinstall", "install", "preprepare", "prepare", "postprepare"].map((key) => ({
+    file: PACKAGE,
+    name: `package.json: run a root ${key} script on install (L1)`,
+    witness: `install lifecycle: package.json defines no root ${key} script`,
+    from: '  "scripts": {',
+    to: lines('  "scripts": {', `    "${key}": "node -e 0",`),
+  })),
+  ...["preinstall", "install", "postinstall", "preprepare", "prepare", "postprepare"].map((key) => ({
+    file: TENANCY_PACKAGE,
+    name: `modules/tenancy/package.json: run the ${key} script on install (L2)`,
+    witness: `install lifecycle: no workspace package defines the ${key} script`,
+    from: '  "scripts": {',
+    to: lines('  "scripts": {', `    "${key}": "node -e 0",`),
+  })),
+  {
+    file: WORKSPACE,
+    name: "workspace: name no package glob, so the package pins read nothing (L2)",
+    witness: "install lifecycle: the workspace packages are read, so the package controls below read something",
+    from: lines("packages:", '  - "apps/*"'),
+    to: lines("package_globs:", '  - "apps/*"'),
+  },
+  {
+    file: WORKSPACE,
+    name: "workspace: load a pnpmfile through the pnpmfile setting (L3)",
+    witness: "install lifecycle: pnpm-workspace.yaml sets no pnpmfile",
+    from: lines("overrides:", '  fast-uri: "3.1.8"'),
+    to: lines("pnpmfile: scripts/registry.mjs", "", "overrides:", '  fast-uri: "3.1.8"'),
+  },
+  {
+    file: LOCKFILE,
+    name: "lockfile: record a pnpmfile checksum, so a frozen install loads a pnpmfile (L3)",
+    witness: "install lifecycle: pnpm-lock.yaml records no pnpmfileChecksum",
+    from: lines("", "importers:", ""),
+    to: lines("", "pnpmfileChecksum: sha256-0000000000000000000000000000000000000000000=", "", "importers:", ""),
   },
   // ---- round eleven, C10-3 and C10-4: the catch-all for an import that resolves to nothing ----
   {
