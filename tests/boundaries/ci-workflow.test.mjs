@@ -23,6 +23,10 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const workflow = readFileSync(join(ROOT, ".github", "workflows", "ci.yml"), "utf8");
+const workspaceText = readFileSync(join(ROOT, "pnpm-workspace.yaml"), "utf8");
+
+/** The `scripts` of the package.json in `dir`, relative to the repository root. */
+const scriptsOf = (dir) => JSON.parse(readFileSync(join(ROOT, dir, "package.json"), "utf8")).scripts ?? {};
 
 /** The text of each job under `jobs:`, keyed by job id. */
 function jobs(text) {
@@ -79,8 +83,7 @@ test("ci workflow: every action is pinned by a full commit SHA", () => {
 // lockfile already pinned 3.1.8; the override is what would have moved it.
 
 test("workspace overrides: every override pins an exact version, not a range", () => {
-  const text = readFileSync(join(ROOT, "pnpm-workspace.yaml"), "utf8");
-  const block = text.split(/^overrides:\s*$/m)[1];
+  const block = workspaceText.split(/^overrides:\s*$/m)[1];
   assert.ok(block !== undefined, "pnpm-workspace.yaml has no overrides block, so there is nothing to pin");
   const entries = [...block.matchAll(/^ {2}([^\s:#][^:]*):\s*(.+?)\s*$/gm)];
   assert.ok(entries.length >= 1, "the overrides block names no override");
@@ -102,7 +105,7 @@ test("workspace overrides: every override pins an exact version, not a range", (
 /** The script name of every `run: pnpm <name>` line in the workflow, in order. */
 const ciScripts = [...workflow.matchAll(/^\s*(?:- )?run:\s+pnpm\s+(?:run\s+)?([^\s#]+)/gm)].map((match) => match[1]);
 
-const scripts = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).scripts ?? {};
+const scripts = scriptsOf(".");
 
 /** The `<prefix><name>` hooks package.json defines for a script CI runs. */
 function hooks(prefix) {
@@ -137,8 +140,6 @@ test("ci workflow: package.json defines no post hook for a script CI runs", () =
 const ROOT_INSTALL_SCRIPTS = ["pnpm:devPreinstall", "install", "preprepare", "prepare", "postprepare"];
 const PACKAGE_INSTALL_SCRIPTS = ["preinstall", "install", "postinstall", "preprepare", "prepare", "postprepare"];
 
-const workspaceText = readFileSync(join(ROOT, "pnpm-workspace.yaml"), "utf8");
-
 /** Every workspace package directory, read from the `packages:` globs. Only `<dir>/*` is understood. */
 const workspacePackages = (() => {
   const block = (workspaceText.split(/^packages:\s*$/m)[1] ?? "").split(/^\S/m)[0];
@@ -165,9 +166,7 @@ for (const key of ROOT_INSTALL_SCRIPTS) {
 
 for (const key of PACKAGE_INSTALL_SCRIPTS) {
   test(`install lifecycle: no workspace package defines the ${key} script`, () => {
-    const found = workspacePackages.filter((dir) =>
-      Object.hasOwn(JSON.parse(readFileSync(join(ROOT, dir, "package.json"), "utf8")).scripts ?? {}, key),
-    );
+    const found = workspacePackages.filter((dir) => Object.hasOwn(scriptsOf(dir), key));
     assert.deepEqual(found, [], `pnpm install runs ${key} in these packages, and no check reads it: ${found.join(", ")}`);
   });
 }
