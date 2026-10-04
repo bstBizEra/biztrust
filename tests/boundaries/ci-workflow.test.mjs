@@ -282,6 +282,19 @@ test("install lifecycle: the key reader breaks lines where YAML does, on a lone 
   assert.deepEqual(topLevelKeys("overrides:\rpnpmfile: x\n").map(({ key }) => key), ["overrides", "pnpmfile"]);
 });
 
+// Round nineteen (code CR18-1, controls C18-1): JavaScript's \s matches a
+// byte-order mark, so a BOM-led first line was skipped as indented, while pnpm
+// 11.9.0 strips the BOM and loaded the pnpmfile that line named.
+test("install lifecycle: the key reader refuses a line that starts with a byte-order mark", () => {
+  assert.throws(() => topLevelKeys("\uFEFFpnpmfile: x\n"), /line 1 is not a top-level key/);
+});
+
+// Round nineteen (code CR18-2): YAML decodes \x66 to "f" and JSON does not
+// know it, so the decoder's refusal is what stops this spelling.
+test("install lifecycle: the key reader refuses a double-quoted escape JSON does not know", () => {
+  assert.throws(() => topLevelKeys('"pnpm\\x66ile": x\n'), /line 1 is not a top-level key/);
+});
+
 const PNPMFILE_PINS = [
   { file: "pnpm-workspace.yaml", what: "sets no pnpmfile", refuses: (key) => key === "pnpmfile" },
   {
@@ -320,6 +333,24 @@ const BUILD_PERMISSIONS = ["allowBuilds", "onlyBuiltDependencies", "onlyBuiltDep
 test("install lifecycle: pnpm-workspace.yaml grants no dependency a build permission", () => {
   const found = KEYS["pnpm-workspace.yaml"].list.filter(({ key }) => BUILD_PERMISSIONS.includes(key));
   assert.deepEqual(found, [], "pnpm install runs the lifecycle scripts of the dependencies these settings allow");
+});
+
+// ---- round nineteen, M2 (controls C18-2; security S18-2, S18-3, S18-4; code CR18-3) ----
+//
+// Some workspace settings act outside any lifecycle script. `nodeOptions`
+// became NODE_OPTIONS for every `pnpm <script>` and ran code inside
+// boundaries:check; `patchedDependencies` rewrote dependency-cruiser's own bin
+// on a frozen install; pnpm's source loads a `configDependencies` plugin's
+// pnpmfile on every command (read, not probed). CI's install-step flags stop
+// none of them, and they do not reach the install pnpm runs before each
+// `pnpm <script>` either (security S18-1). So the workspace's keys are an
+// allowlist. The named pins above stay, as named witnesses.
+
+const WORKSPACE_KEYS = ["packages", "overrides"];
+
+test("install lifecycle: pnpm-workspace.yaml sets no top-level key but packages and overrides", () => {
+  const found = KEYS["pnpm-workspace.yaml"].list.filter(({ key }) => !WORKSPACE_KEYS.includes(key));
+  assert.deepEqual(found, [], "pnpm acts on every workspace setting, and no check reads these");
 });
 
 const DEPENDENCY_FIELDS = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"];

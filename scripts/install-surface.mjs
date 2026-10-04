@@ -49,11 +49,13 @@ const EXPLICIT = /^\?\s+(?:"((?:[^"\\]|\\.)*)"|'((?:[^']|'')*)'|([A-Za-z0-9_$./]
  * escapes are decoded as JSON's, and one JSON does not know throws. A
  * single-quoted key's doubled quote is left as written: no key a pin refuses
  * contains a quote. Lines break where YAML breaks them, a lone CR included.
+ * Only a space or `#` marks a line as not a key: a line led by a tab, a
+ * byte-order mark or other whitespace throws (round nineteen, code CR18-1).
  */
 export function topLevelKeys(text) {
   const keys = [];
   text.split(/\r\n|\r|\n/).forEach((line, index) => {
-    if (line === "" || /^[\s#]/.test(line) || /^[-:](?:\s|$)/.test(line)) return;
+    if (line === "" || /^[ #]/.test(line) || /^[-:](?:\s|$)/.test(line)) return;
     const unreadable = () => new Error(`line ${index + 1} is not a top-level key this reader can read: ${line}`);
     let match;
     let entry;

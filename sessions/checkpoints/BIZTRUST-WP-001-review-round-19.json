@@ -1,0 +1,188 @@
+{
+  "schema_version": "1.0.0",
+  "work_package": "BIZTRUST-WP-001",
+  "state": "ENGINEERING_READY",
+  "created_at": "2026-10-04T17:56:03Z",
+  "objective": "Create the platform repository skeleton described by the P0.2 design of the guide repository. Fresh-context agents reviewed it in rounds six to eighteen (issue 8). This checkpoint records round nineteen. It corrects the round-eighteen claim that CI's install-step flags stop install-time code (M1), refuses every pnpm-workspace.yaml key but packages and overrides (M2), refuses a key line led by a byte-order mark (M3), witnesses the key reader's refusal of an escape JSON does not know (M4), and records the merge of PR 17. It also lists what this round did not fix.",
+  "completed_scope": [
+    "Input: the round-eighteen reviews of PR 17 by the spec, security, code and controls reviewers (run R17-1-20261004T0844). The operator's command in session: /bt-wp-team R18-1 issue=8 rounds=1, run R18-1-20261004T1515. The work is on motor/biztrust-wp-001/r18-1, created from c014f29, and is PR 18 with base motor/p0.2/repository-and-boundaries. No agent merged or approved anything.",
+    "Merged by the operator, recorded here: PR 17 (round eighteen) was merged into the Work Package branch by bstBizEra at 2026-10-04T15:13:35Z as c014f295041cab0ec1d8cf97d843bda19b559e8d (parents 9e5ac41 and 3b91372). The fix branch was cut from c014f29, so it contains PR 16 and PR 17.",
+    "M1, corrected (security S18-1, MAJOR; spec S18-1, S18-2). CI's install-step flags do not stop install-time code. An install with --ignore-scripts records the skipped projects as pendingBuilds in node_modules/.modules.yaml. pnpm 11 then runs an install before every pnpm <script>, with no flag, and that install runs the pending lifecycle scripts. pnpm also loads the pnpmfile for every command, and only ignorePnpmfile stops it; the flag is set on the install step only. In CI both channels therefore run one step later, before boundaries:check. Evidence: the security record (issue 8 comment 5980328179); the orchestrator's reproduction in the R17-1-20261004T0844 run notes (plant clone 482246a: no marker after the flagged install, all four markers after one pnpm validate:records; pnpm_config_ignore_scripts=true plus pnpm_config_ignore_pnpmfile=true in the environment stopped them); and this round's BOM probe, in which a pnpmfile wrote no marker during the flagged install and then wrote 'pnpmfile:boundaries:check;pnpmfile:install;' inside pnpm boundaries:check. What holds: the flags cover the install step only, and the pins carry the weight. This supersedes, by name, the round-eighteen checkpoint's assumption at line 146 ('CI's --ignore-scripts (PR 16) now stops every install-time script at the source, whatever the pins say'), its declared_non_coverage lesson at line 165 ('CI's --ignore-pnpmfile (PR 16, 9e5ac41) is what stops a pnpmfile from running in CI'), and DEC-045's rationale ('CI's --ignore-pnpmfile (PR 16) is the source fix'). The round-eighteen checkpoint and DEC-045 are not edited. The job-wide fix is human-only and open (see blockers).",
+    "M1, two count and claim corrections (spec S18-1, S18-2). The round-eighteen checkpoint's 'eleven key-spelling plants' is ten: pnpmfile in three new spellings, globalPnpmfile in four and pnpmfileChecksum in three new ones. With ten, that line's tally gives 414, as CI and DEC-045's '21 more' do. The round-eighteen checkpoint also says that the pnpm-file and PNPMFILE keys are refused as other pnpmfile keys. Only PNPMFILE was: the round-eighteen pin is /pnpmfile/i, which does not match pnpm-file. pnpm 11.9.0 ignored pnpm-file (spec S18-2 probe), so nothing was exposed. Since M2, the workspace allowlist refuses pnpm-file in pnpm-workspace.yaml as it refuses any other key.",
+    "M2, fixed (controls C18-2; security S18-2, S18-3, S18-4; code CR18-3). tests/boundaries/ci-workflow.test.mjs adds 'install lifecycle: pnpm-workspace.yaml sets no top-level key but packages and overrides', read with topLevelKeys. nodeOptions became NODE_OPTIONS for every pnpm <script> and ran code inside boundaries:check, and patchedDependencies rewrote dependency-cruiser's bin, each after CI's flagged install with the round-eighteen tests green. The per-key and per-spelling pins are kept as named witnesses.",
+    "M3, fixed (code CR18-1; controls C18-1). In scripts/install-surface.mjs, topLevelKeys treats only a space or # as marking a line that is not a key. A line led by a byte-order mark, a tab or other whitespace now throws, and the read tests go red. Before, JavaScript's \\s matched U+FEFF, so a BOM-led first line was skipped while pnpm 11.9.0 stripped the BOM and read the key. A unit test witnesses the refusal.",
+    "M4, fixed (code CR18-2). A test that a double-quoted key with an escape JSON does not know (YAML's x66 escape for f) throws, and a mutation that loosens the decoder's catch to return the body.",
+    "Mutations go from 414 to 421 (README.md states 421, matching CI). New: 'workspace: set nodeOptions (M2)', 'workspace: set patchedDependencies (M2)', 'workspace: set configDependencies (M2)', 'workspace: set a pnpmfile on a first line led by a byte-order mark (M3)', 'lockfile: record a pnpmfile checksum on a first line led by a byte-order mark (M3)', 'keys: skip a line led by any whitespace, a byte-order mark included (M3)' and 'keys: take a double-quoted escape JSON does not know as written (M4)'. The three M2 mutations share the allowlist witness, and the two M3 data-file mutations share the read tests with the two K2 'cannot read' mutations; each carries a shared reason, which the harness requires. Adding the reason to the two K2 entries changed no name, witness or anchor.",
+    "Code commits of this round: a83231a119dbc873c1aa29278f4aed5ed175e93e (the fix; CI 37213386805 success, PASS 421) and 9dc9f7dd853955d8f8905f72c5e15c7c631eac7c (the simplifier's second draft). The second draft changes only scripts/mutation-check.mjs: the four identical shared reasons are one constant, UNREADABLE_LINE. No name, witness, anchor or test changed. CI 37217207117 on it concluded success, PASS 421. The final code head is 9dc9f7d.",
+    "Observation, not a finding (spec S18-5): Verify took about 53 minutes at 414 mutations on the round-eighteen head (run 37199983305), about 54 minutes at 421 on a83231a (run 37213386805, 15:32:31Z to 16:26:27Z) and about 76.5 minutes at 421 on 9dc9f7d (run 37217207117, 16:33:35Z to 17:50:05Z), 64% of the 120-minute timeout. At equal mutation counts the time varies by over 20 minutes, so runner variance, not the count, drives it.",
+    "Red before green. PROBE rows: on cold installs with CI's flags at c014f29, each planted setting ran code inside pnpm boundaries:check while the round-eighteen test file stayed green. GAP row: the plants that were not install-probed stayed green under the old tests. RED and GREEN rows: the new tests turn each plant red. The filtered local sweep and CI's full sweep caught each new mutation by its declared witness."
+  ],
+  "branch": "motor/p0.2/repository-and-boundaries",
+  "baseline_commit": "c014f295041cab0ec1d8cf97d843bda19b559e8d",
+  "files_changed": [
+    "README.md",
+    "badf/current-state.json",
+    "badf/decision-log.jsonl",
+    "badf/next-actions.json",
+    "scripts/install-surface.mjs",
+    "scripts/mutation-check.mjs",
+    "sessions/checkpoints/BIZTRUST-WP-001-review-round-19.json",
+    "tests/boundaries/ci-workflow.test.mjs"
+  ],
+  "validation": [
+    {
+      "command": "PROBE at c014f29, nodeOptions (a second clone, plant 04bd0c5 committed locally and never pushed; skill biztrust-pnpm-lifecycle-probe). pnpm-workspace.yaml gains nodeOptions: \"--require=./docs/zz/mark.cjs\" before packages:, every node_modules deleted, then pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile, then pnpm boundaries:check",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T15:18:26Z",
+      "output_reference": "The round-eighteen ci-workflow test: 45 pass, 0 fail. Install exit 0, marker empty. boundaries:check exit 0, marker 'nodeOptions:generate-boundary-rules.mjs;nodeOptions:dependency-cruise.mjs;'. git status clean. Logs: p-nodeopt-install.log and p-nodeopt-bc.log in the run's implementer folder"
+    },
+    {
+      "command": "PROBE at c014f29, a BOM-led pnpmfile (plant 780bc59): the bytes EF BB BF then 'pnpmfile: docs/zz/hook.cjs' as line 1 of pnpm-workspace.yaml, the hook exporting {}; every node_modules deleted, then pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile, then pnpm boundaries:check",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T15:18:40Z",
+      "output_reference": "The round-eighteen ci-workflow test: 45 pass, 0 fail. Install exit 0, marker empty. boundaries:check exit 0, marker 'pnpmfile:boundaries:check;pnpmfile:install;': the pnpmfile loaded inside boundaries:check, in the step and in the install pnpm runs before it (M1). Logs: p-bom-install.log and p-bom-bc.log"
+    },
+    {
+      "command": "PROBE at c014f29, patchedDependencies (plant eb7309e): pnpm patch and pnpm patch-commit of dependency-cruiser@16.10.4 adding a marker line to bin/dependency-cruise.mjs, the patchedDependencies key moved before packages:, pnpm-lock.yaml +5/-2; every node_modules deleted, then pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile, then pnpm boundaries:check",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T15:19:15Z",
+      "output_reference": "The round-eighteen ci-workflow test: 45 pass, 0 fail. Install exit 0. boundaries:check exit 0, marker 'patched-dc;'. Logs: p-patch-install.log and p-patch-bc.log"
+    },
+    {
+      "command": "GAP at c014f29, not install-probed: node --test tests/boundaries/ci-workflow.test.mjs with configDependencies before packages: (plant 2ec740c), with a BOM-led 'pnpmfileChecksum:' as line 1 of pnpm-lock.yaml (plant ae7e636), and with '\"pnpm\\x66ile\": docs/zz/hook.cjs' in pnpm-workspace.yaml and the decodeDouble catch changed to return body (uncommitted, run within seconds of the configDependencies run)",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T15:19:26Z",
+      "output_reference": "45 pass, 0 fail for each. With the catch intact, the escape plant gave 44 pass, 1 fail ('every top-level key of pnpm-workspace.yaml is read')"
+    },
+    {
+      "command": "RED: the new tests in tests/boundaries/ci-workflow.test.mjs before the install-surface.mjs fix; node --test tests/boundaries/ci-workflow.test.mjs on the repository, then with each plant's pnpm-workspace.yaml copied in",
+      "exit_status": 1,
+      "observed_at": "2026-10-04T15:20:36Z",
+      "output_reference": "Repository: 47 pass, 1 fail ('the key reader refuses a line that starts with a byte-order mark'). The nodeOptions, patchedDependencies and configDependencies workspaces each also failed 'pnpm-workspace.yaml sets no top-level key but packages and overrides'. Logs: red-*.log"
+    },
+    {
+      "command": "GREEN: after the fix in scripts/install-surface.mjs; node --test tests/boundaries/ci-workflow.test.mjs on the repository, then with the BOM plants copied in",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T15:20:55Z",
+      "output_reference": "Repository: 48 pass, 0 fail. The BOM workspace plant failed 'every top-level key of pnpm-workspace.yaml is read' and the BOM lockfile plant failed 'every top-level key of pnpm-lock.yaml is read' (exit 1 each). Logs: green-*.log"
+    },
+    {
+      "command": "Filtered local sweep at a83231a, an aid and not the evidence: a git-excluded copy of scripts/mutation-check.mjs that keeps only the K1-K3, L3, CR17-4 and M2-M4 mutations, run with node, then deleted",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T15:31:49Z",
+      "output_reference": "MUTATION_CHECK PASS 31 mutations, every one caught by its declared witness. Log: sweep-filtered.log"
+    },
+    {
+      "command": "CI run 37213386805 (this round, the fix), pull_request on a83231a119dbc873c1aa29278f4aed5ed175e93e; gh run view 37213386805 --json conclusion,headSha,jobs and --log",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T16:26:27Z",
+      "output_reference": "Conclusion success, headSha a83231a. MUTATION_CHECK baseline GREEN: boundaries 326, signing 13, validator 259. MUTATION_CHECK PASS 421 mutations, every one caught by its declared witness. Verify ran 15:32:31Z to 16:26:27Z"
+    },
+    {
+      "command": "CI run 37217207117 (this round, the final code head), pull_request on 9dc9f7dd853955d8f8905f72c5e15c7c631eac7c; gh run view 37217207117 --json conclusion,headSha,jobs and --log",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T17:50:05Z",
+      "output_reference": "Conclusion success, headSha 9dc9f7d. MUTATION_CHECK baseline GREEN: boundaries 326, signing 13, validator 259. MUTATION_CHECK PASS 421 mutations, every one caught by its declared witness. Verify ran 16:33:35Z to 17:50:05Z"
+    },
+    {
+      "command": "pnpm install --frozen-lockfile",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T17:53:31Z",
+      "output_reference": "At 9dc9f7d, the last code commit: Already up to date (pnpm v11.9.0)"
+    },
+    {
+      "command": "pnpm validate:records",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T17:53:32Z",
+      "output_reference": "At 9dc9f7d: CONTINUITY_VALIDATION PASS. This ran before this commit's records existed; they were validated again at the records commit"
+    },
+    {
+      "command": "pnpm check:signing",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T17:53:34Z",
+      "output_reference": "At 9dc9f7d: SIGNING_CHECK NOT_ENFORCED, 68 commit(s) touched protected paths and are bound to nobody. This is NOT a pass"
+    },
+    {
+      "command": "pnpm typecheck",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T17:53:35Z",
+      "output_reference": "At 9dc9f7d: tsc -p tsconfig.json, no output"
+    },
+    {
+      "command": "pnpm boundaries:check",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T17:53:36Z",
+      "output_reference": "At 9dc9f7d: BOUNDARY_GENERATION PASS 30 modules; no dependency violations found (46 modules, 152 dependencies cruised)"
+    },
+    {
+      "command": "pnpm codeowners:check",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T17:53:37Z",
+      "output_reference": "At 9dc9f7d: CODEOWNERS_GENERATION PASS 12 routing entries"
+    },
+    {
+      "command": "pnpm lint:migrations",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T17:53:38Z",
+      "output_reference": "At 9dc9f7d: MIGRATION_LINT PASS 2 file(s), no violation"
+    },
+    {
+      "command": "pnpm check:modules",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T17:53:39Z",
+      "output_reference": "At 9dc9f7d: MODULE_PACKAGES PASS 30 registered, 4 with a package"
+    },
+    {
+      "command": "pnpm check:coverage",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T17:53:40Z",
+      "output_reference": "At 9dc9f7d: COVERAGE_GATE PASS 20 named protections, every one witnessed by a control"
+    },
+    {
+      "command": "pnpm test:boundaries",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T17:53:40Z",
+      "output_reference": "At 9dc9f7d: tests 326, pass 326, fail 0 (323 before, plus 3)"
+    },
+    {
+      "command": "pnpm test:signing",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T17:53:44Z",
+      "output_reference": "At 9dc9f7d: tests 13, pass 13, fail 0"
+    },
+    {
+      "command": "pnpm test:validator",
+      "exit_status": 0,
+      "observed_at": "2026-10-04T17:53:51Z",
+      "output_reference": "At 9dc9f7d (start time): Ran 259 tests in 71.728s OK"
+    }
+  ],
+  "decisions": [
+    "DEC-046: round nineteen corrects the claim that CI's install-step flags stop install-time code (M1), refuses every pnpm-workspace.yaml key but packages and overrides (M2), refuses a key line led by a byte-order mark (M3) and witnesses the escape refusal (M4), with 7 more mutations (414 to 421). It records PR 17 merged as c014f29 and the final code head 9dc9f7d."
+  ],
+  "assumptions": [
+    "ASSUMED: pnpm 11.9.0 loads the pnpmfile at config time for every command, gated only by ignorePnpmfile (the security reviewer's reading of dist/pnpm.mjs, and observed on Windows in the BOM probe). The same gate covers a configDependencies plugin's pnpmfile, which was read in the source and not probed.",
+    "ASSUMED: the pre-run install and its pendingBuilds behave on ubuntu-latest as observed on Windows. The CI log shows the pre-run install before each pnpm <script> step on Linux; the markers were observed only on Windows.",
+    "ASSUMED: the next round re-reviews the round-nineteen head with fresh-context reviewers and posts to issue 8."
+  ],
+  "blockers": [
+    "Human-only and open (security S18-1): set pnpm_config_ignore_scripts=true and pnpm_config_ignore_pnpmfile=true for the whole Verify job in .github/workflows/ci.yml, not only its install step. The comment at ci.yml lines 110-114 ('no lifecycle script (root, workspace package or dependency) and no pnpmfile runs on the runner') overstates what the install-step flags stop and is open with it.",
+    "Spec S16-3, S16-4, S17-4 (the checkpoint schema does not require declared_non_coverage), S18-7 and S18-8, security S16-3, code CR16-2, CR18-4 and CR18-5, controls I-1 of round eighteen (FILE:, git+file: and bare .tgz dependency specs) and the controls I-1 generator item, S15-2, CR-2 to CR-4, R14-2 and R14-3 are human-only or out of this round's scope, and open.",
+    "R7-4, D1, D2/B6, D3, D4, D5, F3, F5, the decision-log protected-path conflict, the routing inconsistency and the ADR wording are human-only and open.",
+    "NS-001 is half done: the seat is held (contested by B6), and the administrator has applied the protection but not recorded it.",
+    "PR 18 merges into the Work Package branch, and no agent merges it. PR 1 needs an approving review from an identity other than bstBizEra before it can merge to main."
+  ],
+  "authority_status": "Unchanged in kind. The scaffold rests on an operator instruction recorded by an agent (granted.repository_scaffold), not on an expiring grant from the business authority seat. wp_001_acceptance is NOT_GRANTED, and per DEC-037 the operator, not an agent, records acceptance. This round records no seat, gate, grant or acceptance. It edits none of badf/authority.yaml, gates.yaml, lifecycle.yaml, agents.yaml, skills.yaml, signing-policy.yaml, bootstrap.yaml, modules/modules.yaml, AGENTS.md or .github/workflows/.",
+  "next_action_id": "NS-007",
+  "next_action": "Run a fresh re-review of the round-nineteen head (NS-007) with fresh-context reviewers, none the implementer, and post the results to issue 8. The operator decides the open human-only items, including the job-wide pnpm settings in ci.yml, and records acceptance; no agent does.",
+  "recovery": "Read AGENTS.md, badf/authority.yaml, badf/current-state.json and badf/next-actions.json, then issue 8 for the review records and the open decisions. The work is on motor/biztrust-wp-001/r18-1, PR 18 against motor/p0.2/repository-and-boundaries, created from c014f29 (PR 17 merged). The code commits of this round are a83231a and 9dc9f7d. The last code commit is 9dc9f7d; CI run 37217207117 and the local verification rows are bound to it. The PROBE, GAP, RED and GREEN rows ran at c014f29 plus this round's working tree. The commit carrying this checkpoint changes exactly four files (badf/current-state.json, badf/decision-log.jsonl, badf/next-actions.json and this checkpoint) and no code. To reproduce a RED row by hand, add 'nodeOptions: x' above packages: in pnpm-workspace.yaml, run node --test tests/boundaries/ci-workflow.test.mjs, then git checkout the file.",
+  "declared_non_coverage": [
+    "configDependencies: the mutation and a GAP plant show the allowlist refuses the key; the load of a config dependency's plugin pnpmfile was not probed, because it needs a registry package.",
+    "Every PROBE, GAP, RED and GREEN row was observed on Windows 11 under Git Bash, where pnpm runs scripts through cmd.exe. CI on ubuntu-latest is the Linux observation of the pins and the mutations, not of the probes.",
+    "topLevelKeys now refuses a column-0 line led by a tab, a byte-order mark or any whitespace other than a space. That can refuse YAML pnpm reads (a BOM-led file pnpm strips); the refusal is deliberate and fails closed.",
+    "The workspace allowlist means a legitimate new pnpm-workspace.yaml setting needs a test edit. pnpm-lock.yaml has no allowlist: only its pnpmfile keys are refused, and the read test requires lockfileVersion and importers.",
+    "The two M3 data-file mutations cannot be told apart from the two K2 'cannot read' mutations, because a line the reader cannot read empties its key list and only the read tests can then see it. Each declares the shared reason UNREADABLE_LINE. The reader's skip rule itself has its own mutation and unit test.",
+    "The filtered local sweeps (this implementer's PASS 31 and the simplifier's PASS 5) were aids only. The full pnpm check:mutations sweep was not run locally, because the run brief reports that it fails on this Windows host. CI's sweep is the evidence: PASS 421 on a83231a and on 9dc9f7d.",
+    "The declared non-coverage of the round-eighteen checkpoint stands, except for its lesson at line 165 and the pnpm-file claim at line 163, which this checkpoint corrects, and configDependencies, which the allowlist now refuses."
+  ]
+}
