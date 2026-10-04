@@ -3813,6 +3813,9 @@ const MUTATIONS = [
     file: WORKSPACE,
     name: "workspace: write a top-level key the key reader cannot read (K2)",
     witness: "install lifecycle: every top-level key of pnpm-workspace.yaml is read",
+    shared:
+      "a line the key reader cannot read empties its key list, so only this control can see it; " +
+      "the K2 mutation proves an anchored key, the M3 mutation a line led by a byte-order mark",
     from: lines("overrides:", '  fast-uri: "3.1.8"'),
     to: lines("&zz-anchor zz-setting: true", "", "overrides:", '  fast-uri: "3.1.8"'),
   },
@@ -3820,6 +3823,9 @@ const MUTATIONS = [
     file: LOCKFILE,
     name: "lockfile: write a top-level key the key reader cannot read (K2)",
     witness: "install lifecycle: every top-level key of pnpm-lock.yaml is read",
+    shared:
+      "a line the key reader cannot read empties its key list, so only this control can see it; " +
+      "the K2 mutation proves an anchored key, the M3 mutation a line led by a byte-order mark",
     from: "lockfileVersion: '9.0'",
     to: "&zz-anchor lockfileVersion: '9.0'",
   },
@@ -3851,6 +3857,65 @@ const MUTATIONS = [
     witness: "install lifecycle: no tracked manifest depends on a local path",
     from: '  "devDependencies": {',
     to: lines('  "devDependencies": {', '    "zz-local": "file:./docs/zz-local",'),
+  },
+  // ---- round nineteen, M2: the workspace's keys are an allowlist ----
+  //
+  // nodeOptions ran code and patchedDependencies rewrote dependency-cruiser
+  // after CI's flagged install (security S18-2, S18-3; controls C18-2); pnpm's
+  // source loads a configDependencies plugin's pnpmfile (S18-4, not probed).
+  // Planted before `packages:`, where the overrides pin does not read.
+  ...[
+    ["nodeOptions", ['nodeOptions: "--require=./docs/zz-hook.cjs"']],
+    ["patchedDependencies", ["patchedDependencies:", "  dependency-cruiser@16.10.4: docs/zz.patch"]],
+    ["configDependencies", ["configDependencies:", '  zz-pnpm-plugin: "1.0.0+sha512-0000"']],
+  ].map(([key, setting]) => ({
+    file: WORKSPACE,
+    name: `workspace: set ${key} (M2)`,
+    witness: "install lifecycle: pnpm-workspace.yaml sets no top-level key but packages and overrides",
+    shared:
+      "the allowlist is the one control for every workspace setting; each mutation plants one " +
+      "setting a round-eighteen review named",
+    from: lines("packages:", '  - "apps/*"'),
+    to: lines(...setting, "", "packages:", '  - "apps/*"'),
+  })),
+  // ---- round nineteen, M3: a first line led by a byte-order mark ----
+  //
+  // pnpm 11.9.0 strips the BOM and reads the key behind it; the reader skipped
+  // the line, because JavaScript's \s matches U+FEFF (code CR18-1, controls C18-1).
+  {
+    file: WORKSPACE,
+    name: "workspace: set a pnpmfile on a first line led by a byte-order mark (M3)",
+    witness: "install lifecycle: every top-level key of pnpm-workspace.yaml is read",
+    shared:
+      "a line the key reader cannot read empties its key list, so only this control can see it; " +
+      "the K2 mutation proves an anchored key, the M3 mutation a line led by a byte-order mark",
+    from: "# The one workspace.",
+    to: "\uFEFFpnpmfile: scripts/registry.mjs\n# The one workspace.",
+  },
+  {
+    file: LOCKFILE,
+    name: "lockfile: record a pnpmfile checksum on a first line led by a byte-order mark (M3)",
+    witness: "install lifecycle: every top-level key of pnpm-lock.yaml is read",
+    shared:
+      "a line the key reader cannot read empties its key list, so only this control can see it; " +
+      "the K2 mutation proves an anchored key, the M3 mutation a line led by a byte-order mark",
+    from: "lockfileVersion: '9.0'",
+    to: "\uFEFFpnpmfileChecksum: sha256-0000000000000000000000000000000000000000000=\nlockfileVersion: '9.0'",
+  },
+  {
+    file: INSTALL_SURFACE,
+    name: "keys: skip a line led by any whitespace, a byte-order mark included (M3)",
+    witness: "install lifecycle: the key reader refuses a line that starts with a byte-order mark",
+    from: "/^[ #]/.test(line)",
+    to: `/^[${BACKSLASH}s#]/.test(line)`,
+  },
+  // ---- round nineteen, M4: an escape JSON does not know (code CR18-2) ----
+  {
+    file: INSTALL_SURFACE,
+    name: "keys: take a double-quoted escape JSON does not know as written (M4)",
+    witness: "install lifecycle: the key reader refuses a double-quoted escape JSON does not know",
+    from: lines("  } catch {", "    throw unreadable();"),
+    to: lines("  } catch {", "    return body;"),
   },
   // ---- round eleven, C10-3 and C10-4: the catch-all for an import that resolves to nothing ----
   {
