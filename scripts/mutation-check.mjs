@@ -427,6 +427,11 @@ const DOLLAR = String.fromCharCode(36);
 // these anchors have been corrupted before.
 const BACKSLASH = String.fromCharCode(92);
 
+// The shared reason of the K2 and M3 mutations that plant an unreadable key line.
+const UNREADABLE_LINE =
+  "a line the key reader cannot read empties its key list, so only this control can see it; " +
+  "the K2 mutation proves an anchored key, the M3 mutation a line led by a byte-order mark";
+
 const MUTATIONS = [
   // ---- found by the WP-001 independent review, issue #8 ------------------
   {
@@ -3813,9 +3818,7 @@ const MUTATIONS = [
     file: WORKSPACE,
     name: "workspace: write a top-level key the key reader cannot read (K2)",
     witness: "install lifecycle: every top-level key of pnpm-workspace.yaml is read",
-    shared:
-      "a line the key reader cannot read empties its key list, so only this control can see it; " +
-      "the K2 mutation proves an anchored key, the M3 mutation a line led by a byte-order mark",
+    shared: UNREADABLE_LINE,
     from: lines("overrides:", '  fast-uri: "3.1.8"'),
     to: lines("&zz-anchor zz-setting: true", "", "overrides:", '  fast-uri: "3.1.8"'),
   },
@@ -3823,9 +3826,7 @@ const MUTATIONS = [
     file: LOCKFILE,
     name: "lockfile: write a top-level key the key reader cannot read (K2)",
     witness: "install lifecycle: every top-level key of pnpm-lock.yaml is read",
-    shared:
-      "a line the key reader cannot read empties its key list, so only this control can see it; " +
-      "the K2 mutation proves an anchored key, the M3 mutation a line led by a byte-order mark",
+    shared: UNREADABLE_LINE,
     from: "lockfileVersion: '9.0'",
     to: "&zz-anchor lockfileVersion: '9.0'",
   },
@@ -3886,9 +3887,7 @@ const MUTATIONS = [
     file: WORKSPACE,
     name: "workspace: set a pnpmfile on a first line led by a byte-order mark (M3)",
     witness: "install lifecycle: every top-level key of pnpm-workspace.yaml is read",
-    shared:
-      "a line the key reader cannot read empties its key list, so only this control can see it; " +
-      "the K2 mutation proves an anchored key, the M3 mutation a line led by a byte-order mark",
+    shared: UNREADABLE_LINE,
     from: "# The one workspace.",
     to: "\uFEFFpnpmfile: scripts/registry.mjs\n# The one workspace.",
   },
@@ -3896,9 +3895,7 @@ const MUTATIONS = [
     file: LOCKFILE,
     name: "lockfile: record a pnpmfile checksum on a first line led by a byte-order mark (M3)",
     witness: "install lifecycle: every top-level key of pnpm-lock.yaml is read",
-    shared:
-      "a line the key reader cannot read empties its key list, so only this control can see it; " +
-      "the K2 mutation proves an anchored key, the M3 mutation a line led by a byte-order mark",
+    shared: UNREADABLE_LINE,
     from: "lockfileVersion: '9.0'",
     to: "\uFEFFpnpmfileChecksum: sha256-0000000000000000000000000000000000000000000=\nlockfileVersion: '9.0'",
   },
