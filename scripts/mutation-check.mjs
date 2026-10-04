@@ -403,6 +403,7 @@ const CI_WORKFLOW = join(WT_ROOT, ".github", "workflows", "ci.yml");
 const WORKSPACE = join(WT_ROOT, "pnpm-workspace.yaml");
 const LOCKFILE = join(WT_ROOT, "pnpm-lock.yaml");
 const TENANCY_PACKAGE = join(WT_ROOT, "modules", "tenancy", "package.json");
+const INSTALL_SURFACE = join(WT_ROOT, "scripts", "install-surface.mjs");
 const SIGNING_CHECK = join(WT_ROOT, "scripts", "check-signing.mjs");
 // Not a script. The ORDER of the verify chain is a control - the JS signing
 // policy reader is fail-closed only because validate:records runs before
@@ -3693,7 +3694,8 @@ const MUTATIONS = [
   // Each key ran on a cold `pnpm install --frozen-lockfile` (pnpm 11.9.0); as
   // above, the sweep never installs, so only the pins can see them. A root
   // .pnpmfile.cjs/.mjs has no mutation: this harness rewrites an anchor in an
-  // existing file and cannot plant a new one (declared non-coverage).
+  // existing file and cannot plant a new one (declared non-coverage). Nor can
+  // it plant a tracked package.yaml or package.json5 (round eighteen, K1).
   ...["pnpm:devPreinstall", "install", "preprepare", "prepare", "postprepare"].map((key) => ({
     file: PACKAGE,
     name: `package.json: run a root ${key} script on install (L1)`,
@@ -3701,33 +3703,154 @@ const MUTATIONS = [
     from: '  "scripts": {',
     to: lines('  "scripts": {', `    "${key}": "node -e 0",`),
   })),
-  ...["preinstall", "install", "postinstall", "preprepare", "prepare", "postprepare"].map((key) => ({
-    file: TENANCY_PACKAGE,
-    name: `modules/tenancy/package.json: run the ${key} script on install (L2)`,
-    witness: `install lifecycle: no workspace package defines the ${key} script`,
+  // Round eighteen, CR17-4: refused by name, not only as the pre/post hooks of
+  // the `install` that ci.yml happens to spell `pnpm install`.
+  ...["preinstall", "postinstall"].map((key) => ({
+    file: PACKAGE,
+    name: `package.json: run a root ${key} script on install (CR17-4)`,
+    witness: `install lifecycle: package.json defines no root ${key} script`,
     from: '  "scripts": {',
     to: lines('  "scripts": {', `    "${key}": "node -e 0",`),
   })),
+  ...["preinstall", "install", "postinstall", "preprepare", "prepare", "postprepare"].map((key) => ({
+    file: TENANCY_PACKAGE,
+    name: `modules/tenancy/package.json: run the ${key} script on install (L2)`,
+    witness: `install lifecycle: no package manifest below the root defines the ${key} script`,
+    from: '  "scripts": {',
+    to: lines('  "scripts": {', `    "${key}": "node -e 0",`),
+  })),
+  // ---- round eighteen, K1: the manifests are the ones git tracks ----
+  //
+  // These replace L2's "name no package glob" mutation: the globs are no
+  // longer read, so the read guard is witnessed through the reader instead.
   {
-    file: WORKSPACE,
-    name: "workspace: name no package glob, so the package pins read nothing (L2)",
-    witness: "install lifecycle: the workspace packages are read, so the package controls below read something",
-    from: lines("packages:", '  - "apps/*"'),
-    to: lines("package_globs:", '  - "apps/*"'),
+    file: INSTALL_SURFACE,
+    name: "manifests: match the whole path against a manifest name, so only the root's is read (K1)",
+    witness: "install lifecycle: the tracked manifests are read, so the manifest controls below read something",
+    from: "MANIFEST_NAMES.includes(path.slice(path.lastIndexOf(\"/\") + 1))",
+    to: "MANIFEST_NAMES.includes(path)",
   },
   {
+    file: INSTALL_SURFACE,
+    name: "manifests: list only package.json, not package.yaml or package.json5 (K1)",
+    witness:
+      "install lifecycle: the manifest read lists every tracked package.json, package.yaml and " +
+      "package.json5, and nothing else",
+    from: 'export const MANIFEST_NAMES = ["package.json", "package.yaml", "package.json5"];',
+    to: 'export const MANIFEST_NAMES = ["package.json"];',
+  },
+  {
+    file: INSTALL_SURFACE,
+    name: "manifests: treat a git that cannot list the tracked files as an empty list (K1)",
+    witness: "install lifecycle: the manifest read fails closed when git cannot list the tracked files",
+    from: lines(
+      '  const listed = execFileSync("git", ["ls-files", "-z"], {',
+      "    cwd: root,",
+      '    encoding: "utf8",',
+      "    maxBuffer: 64 * 1024 * 1024,",
+      '    stdio: ["ignore", "pipe", "pipe"],',
+      "  });",
+    ),
+    to: lines(
+      '  let listed = "";',
+      "  try {",
+      '    listed = execFileSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf8", stdio: "pipe" });',
+      "  } catch {",
+      "    // fail open",
+      "  }",
+    ),
+  },
+  {
+    file: TENANCY_PACKAGE,
+    name: "modules/tenancy/package.json: a manifest the pins cannot parse (K1)",
+    witness: "install lifecycle: every tracked manifest is a package.json this test can parse",
+    from: '  "scripts": {',
+    to: '  "scripts": { /* not JSON */',
+  },
+  // ---- round seventeen L3, round eighteen K2: a pnpmfile, in every spelling ----
+  //
+  // pnpm 11.9.0 loaded the file each workspace key names on a cold frozen
+  // install, in each of the four spellings, and for globalPnpmfile too. It
+  // records a pnpmfileChecksum only for a pnpmfile that exports hooks, and a
+  // hookless one installs and runs with no checksum line, so the checksum
+  // pins are not what stop a pnpmfile whose payload is top-level code.
+  ...[
+    ["pnpmfile", "sets no pnpmfile"],
+    ["globalPnpmfile", "sets no other pnpmfile setting (globalPnpmfile)"],
+  ].flatMap(([key, what]) =>
+    [
+      ["plain", `${key}: scripts/registry.mjs`, ""],
+      ["double-quoted", `"${key}": scripts/registry.mjs`, " written as a double-quoted key"],
+      ["single-quoted", `'${key}': scripts/registry.mjs`, " written as a single-quoted key"],
+      ["explicit", lines(`? ${key}`, ": scripts/registry.mjs"), " written as an explicit key"],
+    ].map(([spelling, setting, suffix]) => ({
+      file: WORKSPACE,
+      name:
+        key === "pnpmfile" && spelling === "plain"
+          ? "workspace: load a pnpmfile through the pnpmfile setting (L3)"
+          : `workspace: load a pnpmfile through the ${key} setting, ${spelling} (K2)`,
+      witness: `install lifecycle: pnpm-workspace.yaml ${what}${suffix}`,
+      from: lines("overrides:", '  fast-uri: "3.1.8"'),
+      to: lines(setting, "", "overrides:", '  fast-uri: "3.1.8"'),
+    })),
+  ),
+  ...[
+    ["plain", "pnpmfileChecksum: sha256-0000000000000000000000000000000000000000000=", ""],
+    ["double-quoted", '"pnpmfileChecksum": sha256-0000000000000000000000000000000000000000000=', " written as a double-quoted key"],
+    ["single-quoted", "'pnpmfileChecksum': sha256-0000000000000000000000000000000000000000000=", " written as a single-quoted key"],
+    ["explicit", lines("? pnpmfileChecksum", ": sha256-0000000000000000000000000000000000000000000="), " written as an explicit key"],
+  ].map(([spelling, record, suffix]) => ({
+    file: LOCKFILE,
+    name:
+      spelling === "plain"
+        ? "lockfile: record a pnpmfile checksum (L3)"
+        : `lockfile: record a pnpmfile checksum, ${spelling} (K2)`,
+    witness: `install lifecycle: pnpm-lock.yaml records no pnpmfileChecksum${suffix}`,
+    from: lines("", "importers:", ""),
+    to: lines("", record, "", "importers:", ""),
+  })),
+  {
     file: WORKSPACE,
-    name: "workspace: load a pnpmfile through the pnpmfile setting (L3)",
-    witness: "install lifecycle: pnpm-workspace.yaml sets no pnpmfile",
+    name: "workspace: write a top-level key the key reader cannot read (K2)",
+    witness: "install lifecycle: every top-level key of pnpm-workspace.yaml is read",
     from: lines("overrides:", '  fast-uri: "3.1.8"'),
-    to: lines("pnpmfile: scripts/registry.mjs", "", "overrides:", '  fast-uri: "3.1.8"'),
+    to: lines("&zz-anchor zz-setting: true", "", "overrides:", '  fast-uri: "3.1.8"'),
   },
   {
     file: LOCKFILE,
-    name: "lockfile: record a pnpmfile checksum, so a frozen install loads a pnpmfile (L3)",
-    witness: "install lifecycle: pnpm-lock.yaml records no pnpmfileChecksum",
-    from: lines("", "importers:", ""),
-    to: lines("", "pnpmfileChecksum: sha256-0000000000000000000000000000000000000000000=", "", "importers:", ""),
+    name: "lockfile: write a top-level key the key reader cannot read (K2)",
+    witness: "install lifecycle: every top-level key of pnpm-lock.yaml is read",
+    from: "lockfileVersion: '9.0'",
+    to: "&zz-anchor lockfileVersion: '9.0'",
+  },
+  {
+    file: INSTALL_SURFACE,
+    name: "keys: take a double-quoted key's escapes as written (K2)",
+    witness: "install lifecycle: the key reader decodes a double-quoted key's escapes",
+    from: `    return JSON.parse(${BT}"${DOLLAR}{body}"${BT});`,
+    to: "    return body;",
+  },
+  {
+    file: INSTALL_SURFACE,
+    name: "keys: break lines only at LF, not at a lone CR (K2)",
+    witness: "install lifecycle: the key reader breaks lines where YAML does, on a lone carriage return",
+    from: `text.split(/${BACKSLASH}r${BACKSLASH}n|${BACKSLASH}r|${BACKSLASH}n/)`,
+    to: `text.split(/${BACKSLASH}r?${BACKSLASH}n/)`,
+  },
+  // ---- round eighteen, K3: a local dependency's build script ----
+  {
+    file: WORKSPACE,
+    name: "workspace: allow a local dependency's build scripts (K3)",
+    witness: "install lifecycle: pnpm-workspace.yaml grants no dependency a build permission",
+    from: lines("packages:", '  - "apps/*"'),
+    to: lines("allowBuilds:", "  zz-local@file:docs/zz-local: true", "", "packages:", '  - "apps/*"'),
+  },
+  {
+    file: PACKAGE,
+    name: "package.json: depend on a local path (K3)",
+    witness: "install lifecycle: no tracked manifest depends on a local path",
+    from: '  "devDependencies": {',
+    to: lines('  "devDependencies": {', '    "zz-local": "file:./docs/zz-local",'),
   },
   // ---- round eleven, C10-3 and C10-4: the catch-all for an import that resolves to nothing ----
   {
