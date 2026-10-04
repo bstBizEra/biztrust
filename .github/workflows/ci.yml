@@ -66,6 +66,15 @@ jobs:
     # passing one: main requires Verify.
     timeout-minutes: 120
 
+    # N-1, round nineteen (issue 8, security S18-1). For every step, not only
+    # Install: pnpm checks the install before a script runs and, when builds are
+    # pending, runs an unflagged install that runs them; a pnpmfile loads on every
+    # pnpm command. These two settings stop both for the whole job. The pins in
+    # tests/boundaries/ci-workflow.test.mjs stay as the second layer.
+    env:
+      pnpm_config_ignore_scripts: "true"
+      pnpm_config_ignore_pnpmfile: "true"
+
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -108,10 +117,9 @@ jobs:
           python-version: "3.13"
 
       # 1. Install. A changed lockfile the pull request did not commit fails here.
-      #    --ignore-scripts and --ignore-pnpmfile: no lifecycle script (root,
-      #    workspace package or dependency) and no pnpmfile runs on the runner,
-      #    so a pull request cannot hide a violation from the checks below
-      #    (N-1; issue 8 round-16 and round-17 records).
+      #    --ignore-scripts and --ignore-pnpmfile cover this step only; the
+      #    job-level env above covers the steps after it, where pnpm would
+      #    otherwise run pending builds and load a pnpmfile (round-19 records).
       - name: Install
         run: pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile
 
