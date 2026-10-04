@@ -28,8 +28,8 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const workflow = readFileSync(join(ROOT, ".github", "workflows", "ci.yml"), "utf8");
 const workspaceText = readFileSync(join(ROOT, "pnpm-workspace.yaml"), "utf8");
 
-/** The `scripts` of the package.json in `dir`, relative to the repository root. */
-const scriptsOf = (dir) => JSON.parse(readFileSync(join(ROOT, dir, "package.json"), "utf8")).scripts ?? {};
+/** The root package.json's `scripts`. */
+const scripts = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).scripts ?? {};
 
 /** The text of each job under `jobs:`, keyed by job id. */
 function jobs(text) {
@@ -108,8 +108,6 @@ test("workspace overrides: every override pins an exact version, not a range", (
 /** The script name of every `run: pnpm <name>` line in the workflow, in order. */
 const ciScripts = [...workflow.matchAll(/^\s*(?:- )?run:\s+pnpm\s+(?:run\s+)?([^\s#]+)/gm)].map((match) => match[1]);
 
-const scripts = scriptsOf(".");
-
 /** The `<prefix><name>` hooks package.json defines for a script CI runs. */
 function hooks(prefix) {
   assert.ok(ciScripts.length >= 1, "no `run: pnpm <script>` line was read from ci.yml, so no hook is checked");
@@ -159,18 +157,20 @@ const ROOT_INSTALL_SCRIPTS = [
 ];
 const PACKAGE_INSTALL_SCRIPTS = ["preinstall", "install", "postinstall", "preprepare", "prepare", "postprepare"];
 
-/** Every tracked manifest's path, or the error git gave: a git that cannot answer is not an empty answer. */
-const manifests = (() => {
+/** What `read` returns, or an empty list and the error it threw: a reader that cannot answer is not an empty answer. */
+function listOrError(read) {
   try {
-    return { paths: trackedManifests(ROOT) };
+    return { list: read() };
   } catch (error) {
-    return { paths: [], error };
+    return { list: [], error };
   }
-})();
+}
+
+const manifests = listOrError(() => trackedManifests(ROOT));
 
 /** Path -> parsed manifest, for each tracked manifest this test can parse. */
 const parsed = new Map();
-for (const path of manifests.paths) {
+for (const path of manifests.list) {
   if (!path.endsWith("package.json")) continue;
   try {
     parsed.set(path, JSON.parse(readFileSync(join(ROOT, path), "utf8")));
@@ -184,8 +184,8 @@ const manifestScripts = (path) => Object(parsed.get(path)?.scripts ?? {});
 
 test("install lifecycle: the tracked manifests are read, so the manifest controls below read something", () => {
   assert.equal(manifests.error, undefined, `git could not list the tracked manifests: ${manifests.error}`);
-  assert.ok(manifests.paths.includes("package.json"), "the root package.json was not among the tracked manifests read");
-  assert.ok(manifests.paths.some((path) => path !== "package.json"), "no package manifest below the root was read");
+  assert.ok(manifests.list.includes("package.json"), "the root package.json was not among the tracked manifests read");
+  assert.ok(manifests.list.some((path) => path !== "package.json"), "no package manifest below the root was read");
 });
 
 /** A fresh directory under the system temp directory, removed after `body` runs in it. */
@@ -224,13 +224,13 @@ test("install lifecycle: the manifest read fails closed when git cannot list the
 test("install lifecycle: every tracked manifest is a package.json this test can parse", () => {
   // pnpm also reads package.yaml and package.json5, whose scripts it ran on a
   // cold install; no parser for either is installed, so either is refused.
-  const unread = manifests.paths.filter((path) => !parsed.has(path));
+  const unread = manifests.list.filter((path) => !parsed.has(path));
   assert.deepEqual(unread, [], `pnpm install reads these manifests, and this test cannot: ${unread.join(", ")}`);
 });
 
 for (const key of ROOT_INSTALL_SCRIPTS) {
   test(`install lifecycle: package.json defines no root ${key} script`, () => {
-    assert.ok(!Object.hasOwn(manifestScripts("package.json"), key), `pnpm install runs the root ${key} script, and no check reads it`);
+    assert.ok(!Object.hasOwn(scripts, key), `pnpm install runs the root ${key} script, and no check reads it`);
   });
 }
 
@@ -256,24 +256,18 @@ test("install lifecycle: there is no root .pnpmfile.cjs or .pnpmfile.mjs", () =>
 // pnpmfileChecksum and its install passes, so the checksum pin below catches
 // only a pnpmfile that exports hooks; the setting pins are what catch the rest.
 
-/** The top-level keys of `text`, or the error the reader gave. */
-function keysOf(text) {
-  try {
-    return { keys: topLevelKeys(text) };
-  } catch (error) {
-    return { keys: [], error };
-  }
-}
-
 const lockText = readFileSync(join(ROOT, "pnpm-lock.yaml"), "utf8");
-const KEYS = { "pnpm-workspace.yaml": keysOf(workspaceText), "pnpm-lock.yaml": keysOf(lockText) };
+const KEYS = {
+  "pnpm-workspace.yaml": listOrError(() => topLevelKeys(workspaceText)),
+  "pnpm-lock.yaml": listOrError(() => topLevelKeys(lockText)),
+};
 
 for (const [file, expected] of [
   ["pnpm-workspace.yaml", ["packages", "overrides"]],
   ["pnpm-lock.yaml", ["lockfileVersion", "importers"]],
 ]) {
   test(`install lifecycle: every top-level key of ${file} is read`, () => {
-    const { keys, error } = KEYS[file];
+    const { list: keys, error } = KEYS[file];
     assert.equal(error, undefined, `${file} has a top-level line the key reader cannot read: ${error?.message}`);
     const names = keys.map(({ key }) => key);
     for (const key of expected) assert.ok(names.includes(key), `the key reader did not find ${key} in ${file}`);
@@ -302,7 +296,7 @@ for (const { file, what, refuses } of PNPMFILE_PINS) {
   for (const spelling of SPELLINGS) {
     const suffix = spelling === "plain" ? "" : ` written as ${spelling === "explicit" ? "an" : "a"} ${spelling} key`;
     test(`install lifecycle: ${file} ${what}${suffix}`, () => {
-      const found = KEYS[file].keys.filter((entry) => entry.spelling === spelling && refuses(entry.key));
+      const found = KEYS[file].list.filter((entry) => entry.spelling === spelling && refuses(entry.key));
       assert.deepEqual(
         found,
         [],
@@ -324,7 +318,7 @@ for (const { file, what, refuses } of PNPMFILE_PINS) {
 const BUILD_PERMISSIONS = ["allowBuilds", "onlyBuiltDependencies", "onlyBuiltDependenciesFile", "dangerouslyAllowAllBuilds"];
 
 test("install lifecycle: pnpm-workspace.yaml grants no dependency a build permission", () => {
-  const found = KEYS["pnpm-workspace.yaml"].keys.filter(({ key }) => BUILD_PERMISSIONS.includes(key));
+  const found = KEYS["pnpm-workspace.yaml"].list.filter(({ key }) => BUILD_PERMISSIONS.includes(key));
   assert.deepEqual(found, [], "pnpm install runs the lifecycle scripts of the dependencies these settings allow");
 });
 
